@@ -8,6 +8,8 @@
 SET @rt = 1;
 SET @d  = '2026-09-14';
 SET @qty = 20;
+SET @promo_price = 75000;   -- 정가 150,000의 50%
+SET @list_price  = 150000;
 
 SELECT '--- I1,I3. 특가 예약 건수 (기대: 20) ---' AS check_name;
 SELECT COUNT(*) AS promo_claims
@@ -55,3 +57,29 @@ SELECT COUNT(*) AS reservations
   FROM reservation
  WHERE room_type_id = @rt AND check_in = @d
    AND status NOT IN ('CANCELLED', 'EXPIRED');
+
+SELECT '--- 금액 불변식: 특가 예약에 정가가 박힌 행 (기대: 0행) ---' AS check_name;
+-- price_per_night 에는 **실제로 청구한 단가**가 들어간다.
+-- 특가 사용권이 발급된 예약인데 정가(150,000)가 박혀 있으면,
+-- 사용자가 요청하지 않은 금액을 청구한 것이다. fail-closed가 뚫린 흔적이다.
+SELECT r.id, r.confirmation_code, r.price_per_night, @promo_price AS expected
+  FROM reservation r
+  JOIN promotion_claim c ON c.reservation_id = r.id
+ WHERE r.price_per_night <> @promo_price;
+
+SELECT '--- 역방향: 특가 단가인데 사용권이 없는 예약 (기대: 0행) ---' AS check_name;
+-- 사용권 없이 특가를 받았다면 재고를 차감하지 않고 할인만 받은 것이다.
+SELECT r.id, r.confirmation_code, r.price_per_night
+  FROM reservation r
+  LEFT JOIN promotion_claim c ON c.reservation_id = r.id
+ WHERE r.room_type_id = @rt AND r.check_in = @d
+   AND r.price_per_night = @promo_price
+   AND c.id IS NULL;
+
+SELECT '--- 사용권 수와 특가 예약 수가 같은가 (기대: 두 값이 20으로 동일) ---' AS check_name;
+-- 세 구역(특가 차감·사용권 발급·예약 생성)이 한 트랜잭션이므로
+-- 하나라도 어긋나면 전부 롤백돼야 한다. 수가 다르면 그 원자성이 깨진 것이다.
+SELECT
+  (SELECT COUNT(*) FROM promotion_claim WHERE status = 'CLAIMED') AS claims,
+  (SELECT COUNT(*) FROM reservation r
+     JOIN promotion_claim c ON c.reservation_id = r.id) AS promo_reservations;

@@ -76,7 +76,20 @@ export const FIELDS = {
     checkOut: 'checkOut',
     roomCount: 'roomCount',
     guestCount: 'guestCount',
+    // 할인 자리. 특가 예약은 **별도 엔드포인트가 아니라** 이 필드를 실어
+    // 같은 POST /api/reservations 로 보낸다.
+    // 0개 또는 1개. 2개 이상이면 400이다.
+    discounts: 'discounts',
 };
+
+// 특가 예약에 실을 할인 항목.
+// reference(프로모션 식별자)의 실제 값은 F02 V202 시드가 정한다.
+// **병합 후 채운다. 지금은 자리만 만든다.**
+export const PROMOTION_REFERENCE = __ENV.PROMOTION_REF || 'TODO-F02-V202';
+
+export function promotionDiscount(reference) {
+    return [{ type: 'PROMOTION', reference: reference || PROMOTION_REFERENCE }];
+}
 
 export const RESPONSE_FIELDS = {
     status: 'status',
@@ -277,10 +290,15 @@ export const PLAN = {
 //   스파이크의 본질은 오픈 순간이 아니라 한 재고 행에 요청이 한꺼번에 몰리는
 //   것이고, 그건 이미 열린 P1에 램프업으로 충분히 만들어진다.
 //   P3(이미 종료)는 판매 창 밖 거부를 보는 단건 확인용이지 부하 대상이 아니다.
+// promoPrice: 실제로 청구되는 특가 단가. reservation.price_per_night 에
+//   이 값이 기록되므로 **금액 불변식을 DB로 검증할 수 있다.**
+//   특가 사용권이 발급된 예약에 정가가 박혀 있으면 그건 사용자가 요청하지
+//   않은 금액을 청구한 것이다.
 export const PROMOTIONS = {
     p1: {
         roomType: ROOM_TYPES.standard, date: '2026-09-14', quantity: 20,
-        price: 75000, window: '2026-08-01 ~ 2026-09-15', target: 'S7 스파이크',
+        promoPrice: 75000, listPrice: 150000,
+        window: '2026-08-01 ~ 2026-09-15', target: 'S7 스파이크',
     },
     p2: {
         roomType: ROOM_TYPES.standard, date: '2026-09-15', quantity: 20,
@@ -335,6 +353,10 @@ export function reservationBody(roomType, checkInDate, opts = {}) {
     // D1이 기각되면 이 필드가 계약에서 사라진다.
     if (FEATURES.sendGuestCount) {
         body[FIELDS.guestCount] = opts.guestCount || safeGuestCount(roomCount);
+    }
+    // 일반 예약은 discounts를 아예 보내지 않는다. S1~S6·S8이 여기 해당한다.
+    if (opts.discounts) {
+        body[FIELDS.discounts] = opts.discounts;
     }
     return body;
 }
