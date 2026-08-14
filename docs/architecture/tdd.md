@@ -34,25 +34,32 @@ Testcontainers로 실제 MySQL을 띄운다. 느리지만 이건 타협 대상�
 
 컨테이너는 테스트 클래스마다 새로 띄우지 않는다. 재사용해야 전체 시간이 감당된다.
 
+실제 기반 클래스는 `src/test/java/com/pms/support/IntegrationTestBase.java`다. 통합 테스트는 이 클래스를 상속하면 된다. 구조는 이렇다.
+
 ```java
+@SpringBootTest
 @Testcontainers
 public abstract class IntegrationTestBase {
 
-    @Container
     @ServiceConnection
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
-        .withCommand("--transaction-isolation=REPEATABLE-READ")
-        .withReuse(true);
+        .withCommand("--character-set-server=utf8mb4", ...);
 
-    @Container
-    @ServiceConnection
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine")
-        .withExposedPorts(6379)
-        .withReuse(true);
+        .withExposedPorts(6379);
+
+    static {
+        // @Container 대신 직접 시작해 테스트 클래스 간에 컨테이너를 재사용한다
+        MYSQL.start();
+        REDIS.start();
+    }
+
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) { ... }
 }
 ```
 
-`static` 필드로 두면 JVM 하나 안에서 컨테이너가 공유된다. `@ServiceConnection`이 접속 정보를 자동으로 주입한다.
+`static` 초기화로 직접 시작하는 이유는 `@Container`가 클래스마다 컨테이너를 새로 띄우기 때문이다. MySQL은 `@ServiceConnection`이 접속 정보를 주입하지만, 순수 Redis 컨테이너(`GenericContainer`)에는 적용되지 않아 `@DynamicPropertySource`로 직접 주입한다.
 
 **테스트 간 데이터 격리는 각 테스트가 책임진다.** `@Transactional`로 롤백하는 방식은 동시성 테스트에서 쓸 수 없다. 여러 스레드가 각자 트랜잭션을 열어야 하기 때문이다. 동시성 테스트에서는 테이블을 직접 비우는 방식을 쓴다.
 

@@ -17,6 +17,7 @@
 | 도메인 모델을 만들거나 고칠 때 | `docs/architecture/ddd.md` |
 | 테스트를 쓸 때 | `docs/architecture/tdd.md` |
 | 새 feature를 시작할 때 | `docs/spec/TEMPLATE.md`, 그리고 해당 feature 스펙 |
+| 문서에 시퀀스·도메인·ERD·상태머신을 그릴 때 | `docs/architecture/diagram-rules.md` |
 | 여러 세션이 병렬로 돌 때 | `docs/architecture/parallel-work.md` |
 
 ## 기술 스택
@@ -62,19 +63,29 @@
 
 **승인 게이트를 건너뛰지 않는다.** 보고서를 쓰고 관리자가 승인해야 다음 단계로 간다.
 
-**승인 문서에는 결정 검토란을 반드시 둔다.** 작성자가 내린 결정을 D 항목(결정·이유·트레이드오프·대안·확인 질문)으로 전부 모으고, 관리자의 동의를 항목 단위로 받는다. 결정을 본문에만 묻어두지 않는다. 검토 문서는 `open -a Bear <파일>`로 열고 SendUserFile로도 보낸다.
+**세션 역할.**
+
+- **PM 세션 (하나):** 하네스·규칙 문서 유지보수, 전체 범위와 feature 분할(`docs/spec/00-problem-and-scope.md` 소유), feature 세션 착수 브리핑 작성, 세션 간 조율(공유 파일 중재, 병합 순서), 구현 세션 질문 응대. **구현 코드와 feature별 스펙은 작성하지 않는다.**
+- **feature 세션 (feature당 하나):** 자기 feature의 스펙 작성 → 관리자 승인 → dev-cycle(TDD·리뷰 반복) → 완료 승인까지 전 과정을 담당한다. 다른 feature와는 parallel-work 규칙(소유 패키지, Flyway 대역)으로 격리된다.
+- 모든 feature 세션은 스펙 작성부터 시작한다. (PM이 작성했던 F01 스펙 초안은 2026-08-15 폐기됨. 그 초안에 대한 검토 기록은 `docs/reviews/F01-spec-review-업계정합성.md`에 있으며 새 스펙의 입력 자료다)
+- **feature 세션은 자기 착수 브리핑(`docs/briefings/<feature>.md`)을 읽는 것으로 시작한다.** 브리핑에 읽을 문서 순서, 소유 범위, 시작 단계가 있다.
+
+feature 세션은 **이 저장소의 문서만 보고** 작업할 수 있어야 하며, 대화 맥락을 전제하는 정보에 의존하지 않는다. 스펙이 모호해서 막히면 임의로 해석하지 말고 관리자(PM 세션 경유)에게 질문한다. 질문의 답은 대화로 끝내지 않고 해당 문서에 반영된다.
+
+**승인 문서에는 결정 검토란을 반드시 둔다.** 작성자가 내린 결정을 D 항목(결정·이유·트레이드오프·대안·확인 질문)으로 전부 모으고, 관리자의 동의를 항목 단위로 받는다. 결정을 본문에만 묻어두지 않는다. 검토 문서는 가능한 환경이면 `open -a Bear <파일>`로 열고 SendUserFile로도 보낸다. 두 도구가 없는 환경이면 파일 경로와 GitHub 링크를 안내하는 것으로 대체한다.
 
 ## 문서 구조
 
 ```
 docs/
 ├── architecture/   구조·규칙 정의. 작업 시 참조하는 문서
-├── spec/           feature별 스펙
+├── briefings/      feature 세션 착수 브리핑. 세션의 시작점
+├── spec/           문제 정의(00)와 feature별 스펙
 ├── decisions/      의사결정 이력 (ADR)
-├── reviews/        코드리뷰 라운드 기록
+├── reviews/        스펙·코드 리뷰 기록
 ├── reports/        승인 게이트 보고서
 ├── learning/       학습 노트. 제출 대상이 아니다
-├── load-test/      k6 시나리오 설계와 결과
+├── load-test/      k6 시나리오 설계와 결과 (F04에서 생성)
 └── submission/     제출용 최종 문서만
 ```
 
