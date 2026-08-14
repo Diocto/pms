@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: pms
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/pms?characterEncoding=UTF-8&serverTimezone=Asia/Seoul&rewriteBatchedStatements=true
+    username: pms
+    password: pms
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 부하테스트에서 커넥션 풀이 병목인지 판단하려면 값이 명시되어 있어야 한다
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000
+
+  jpa:
+    hibernate:
+      # 스키마의 진실은 Flyway 마이그레이션이다. JPA는 일치 여부만 검사한다
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 50
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    org.hibernate.orm.jdbc.bind: trace
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

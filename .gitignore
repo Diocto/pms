@@ -1,0 +1,27 @@
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+### IDE ###
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+out/
+
+### OS ###
+.DS_Store
+
+### Java ###
+*.class
+*.log
+hs_err_pid*
+
+### Claude Code ###
+.claude/worktrees/
+
+### 로컬 환경 ###
+.env
+.env.local
