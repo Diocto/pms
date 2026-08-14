@@ -41,4 +41,15 @@
 
 일별 재고 행 = ARI 표준, 판매·배정 분리 = PMS 표준, CHECK 최후 방어선·멱등 UK = 표준 레퍼런스 동일, 기간 저장(예약) + 일 단위 행(재고) 이원화 = 표준, 백투백 체크아웃일 미점유 처리 정확.
 
-출처: ByteByteGo Hotel Reservation System, Google Hotels ARI, Booking.com Connectivity API, Travelport Hotel Booking, Infor HMS·Oracle OPERA 상태 문서, Smart Order rate plan 가이드 (URL은 검토 원문 참조)
+출처:
+
+- ByteByteGo, Hotel Reservation System: https://bytebytego.com/courses/system-design-interview/hotel-reservation-system
+- Google Hotels ARI overview: https://developers.google.com/hotels/hotel-prices/dev-guide/ari-overview
+- Booking.com Connectivity, Retrieving reservations: https://developers.booking.com/connectivity/docs/reservations-api/retrieving-new-reservations-ota
+- Booking.com Demand API, Accommodation pricing: https://developers.booking.com/demand/docs/accommodations/prices-accommodations
+- Travelport Universal API, Hotel Booking with Guest Information: https://support.travelport.com/webhelp/uapi/Content/Hotel/Hotel_Booking/Hotel_Booking_with_Guest_Information.htm
+- Infor HMS, Reservation status: https://docs.infor.com/hms/3.8/en-us/hmsolh/s_t1424428572953.html
+- Oracle OPERA, Wait Listed Reservation: https://docs.oracle.com/cd/E98457_01/opera_5_6_core_help/wait_listed_reservation.htm
+- Google Hotel Center, Taxes and Fees Policy: https://support.google.com/hotelprices/answer/6064432
+- Smart Order, Room Types vs. Rate Plans: https://www.smartorder.ai/resources/blog/hotel-room-types-vs-rate-plans-guide/
+- AltexSoft, Hotel PMS guide: https://www.altexsoft.com/blog/hotel-property-management-systems-products-and-features/

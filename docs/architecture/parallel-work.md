@@ -37,9 +37,9 @@
 
 ```markdown
 ## 소유 범위
-- 소유 패키지: com.pms.reservation.domain, com.pms.reservation.application
-- 읽기만 하는 패키지: com.pms.inventory.domain
-- Flyway 번호 대역: V101 ~ V199
+- 소유 패키지: (예: com.pms.promotion.**)
+- 읽기만 하는 패키지: (예: com.pms.inventory.domain)
+- Flyway 번호 대역: (00 문서의 feature 분할 표에서 확인)
 - 수정이 필요한 공유 파일: 없음
 ```
 
@@ -49,12 +49,14 @@
 
 마이그레이션 파일 이름이 겹치면 즉시 충돌한다. 대역을 미리 나눈다.
 
-| 대역 | 용도 |
+실제 배정은 `docs/spec/00-problem-and-scope.md`의 feature 분할 표가 진실이다. 현재 배정:
+
+| 대역 | 소유 |
 |---|---|
-| V001 ~ V099 | 공통 스키마. 하네스 세팅과 코어 세션만 사용 |
-| V101 ~ V199 | feature 1 |
-| V201 ~ V299 | feature 2 |
-| V301 ~ V399 | feature 3 |
+| V001 ~ V099 | F01 예약 코어 (공통 스키마·시드 포함) |
+| V101 ~ V199 | 예비 (미배정) |
+| V201 ~ V299 | F02 선착순 프로모션 |
+| V301 ~ V399 | F03 가용 객실 검색 |
 
 **이미 적용된 마이그레이션 파일은 절대 수정하지 않는다.** 고칠 게 있으면 새 버전을 추가한다. 적용된 파일을 고치면 체크섬이 어긋나 Flyway가 시작을 거부한다.
 

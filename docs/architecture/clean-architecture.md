@@ -28,10 +28,9 @@
 com.pms
 ├── PmsApplication.java
 ├── common/
-│   ├── config/         전역 설정 (Redis, JPA, Web, 시간)
+│   ├── config/         전역 설정 (Redis, JPA, Web, Clock)
 │   ├── exception/      공통 예외 계층과 에러 코드
-│   ├── response/       API 공통 응답 포맷
-│   └── support/        공통 유틸 (Clock 등)
+│   └── response/       API 공통 응답 포맷
 └── <context>/          바운디드 컨텍스트 (reservation, inventory 등)
     ├── domain/
     │   ├── model/      애그리거트 루트, 엔티티, VO, 상태·이벤트 enum
