@@ -143,7 +143,7 @@ D13은 관리자 판단이라기보다 **다른 세션과 맞춰야 하는 사�
 | 파일 | 변경 | 걸린 D |
 |---|---|---|
 | `common/config/ClockConfig` | `Clock`을 `Asia/Seoul` 고정 | D2 |
-| `application.yml` | `pms.` 네임스페이스 키 5개 추가 | D10·D11·D17 |
+| `application.yml` | `pms.` 네임스페이스 키 **6개** 추가 (보류시간·만료주기·락 3종·**모의 결제 거절률**) | D10·D11·D17, UC-3 |
 
 이어서 dev-cycle(TDD → 구현 → 리뷰어 3명 → 반영)에 들어갑니다.
 
