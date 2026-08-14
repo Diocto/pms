@@ -35,7 +35,28 @@
 //   빠듯하면 특가가 소진되기 전에 일반 재고가 먼저 바닥나, 재는 것이
 //   "특가 선착순 정확성"이 아니라 "일반 재고 고갈"로 조용히 바뀐다.
 //
-// 설계: docs/load-test/scenarios.md §4 S7
+// ---------------------------------------------------------------------------
+// S7-C. 카운터 게이트 on/off 대조 (GATE 환경변수로 회차를 표시한다)
+// ---------------------------------------------------------------------------
+// F02의 1차 방어는 Redis 카운터 게이트다. 이걸 끄면 매진 뒤 요청도 전부
+// 락을 잡고 트랜잭션을 열고 조건부 UPDATE에서 0건을 받고 롤백한다.
+// 켜면 그 대부분이 카운터 한 번 읽고 잘린다.
+//
+// **게이트는 정확성에 기여하지 않는다.** 정확성은 게이트가 있든 없든
+// 조건부 UPDATE와 CHECK 제약이 책임진다. 그래서 이 대조는 순수하게
+// 처리량과 자원 소모의 차이만 보여준다.
+//
+// S5(락 on/off)와 나란히 놓으면 그림이 완성된다 —
+// **1차 방어선은 정확성이 아니라 비용을 위한 것이다.**
+//
+// 두 회차의 성공 건수는 정확히 20으로 같아야 한다. 다르면 게이트가
+// 정확성에 영향을 준 것이고 그건 결함이다.
+//
+// 실행:
+//   ./reset.sh s7 && GATE=on  k6 run s7-promotion-spike.js   # 앱은 게이트 켜고 기동
+//   ./reset.sh s7 && GATE=off k6 run s7-promotion-spike.js   # 게이트 끄고 기동
+//
+// 설계: docs/load-test/scenarios.md §4 S7, S7-C
 // 실행 전: ./reset.sh s7
 //   PROMOTION_REF 를 F02 V202 시드의 실제 값으로 넘겨야 한다.
 
@@ -54,6 +75,10 @@ const P = PROMOTIONS.p1;
 const QUANTITY = P.quantity;      // 20
 const PROMO_PRICE = P.promoPrice; // 75000
 
+// 어느 회차인가. 앱 설정을 바꾸는 건 이 스크립트가 아니라 기동 옵션이고,
+// 이 값은 결과를 구분해 기록하기 위한 라벨이다.
+const GATE = (__ENV.GATE || 'on').toLowerCase();
+
 // 성공과 거절의 지연을 따로 잰다.
 //
 // F02의 1차 방어는 분산락이 아니라 Redis 카운터다. 잔여 20에 8,000요청이
@@ -68,6 +93,19 @@ const rejectDuration = new Trend('promo_reject_duration');
 
 const promoCreated = new Counter('promo_created');
 const promoRejected = new Counter('promo_rejected');       // 400 (소진·만료)
+
+// 거절이 어느 경로로 잘렸는지 추정한다.
+//
+// **k6는 클라이언트라 게이트가 잘랐는지 조건부 UPDATE가 잘랐는지 직접 볼 수
+// 없다.** 둘 다 400을 준다. 그래서 지연으로 추정한다 — 게이트에서 잘린
+// 요청은 Redis 한 번 읽고 끝나므로 확실히 빠르고, 조건부 UPDATE까지 간
+// 요청은 락과 트랜잭션을 거친다.
+//
+// **이건 어디까지나 대리 지표다.** 정확한 분해는 F02가 앱 쪽 카운터를
+// 노출하면 그걸 쓴다. 리포트에는 두 값을 함께 싣고 이 한계를 명시한다.
+const FAST_REJECT_MS = Number(__ENV.FAST_REJECT_MS || 50);
+const rejectFast = new Counter('promo_reject_fast');   // 게이트에서 잘린 것으로 추정
+const rejectSlow = new Counter('promo_reject_slow');   // DB까지 간 것으로 추정
 // 정가로 성공했다. fail-closed가 뚫린 것이다.
 const listPriceLeaked = new Counter('promo_list_price_leaked');
 // 일반 재고 부족 409. 나오면 측정 대상이 바뀐 것이다.
@@ -101,6 +139,7 @@ export const options = {
 
 export function setup() {
     installResponseCallback();
+    console.log(`[S7] 회차: 카운터 게이트 ${GATE.toUpperCase()}`);
     console.log(`[S7] P1 특가: roomType=${P.roomType.id} date=${P.date} 수량=${QUANTITY} 단가=${PROMO_PRICE}`);
     console.log(`[S7] 일반 재고 ${P.roomType.total}실. 특가를 빼도 ${P.roomType.total - QUANTITY}실이 남아 측정이 깨끗하다.`);
     if (PROMOTION_REFERENCE.startsWith('TODO')) {
@@ -138,6 +177,11 @@ export default function (data) {
         // 특가 소진·만료. 이게 정상 거절이다.
         promoRejected.add(1);
         rejectDuration.add(res.timings.duration);
+        if (res.timings.duration < FAST_REJECT_MS) {
+            rejectFast.add(1);
+        } else {
+            rejectSlow.add(1);
+        }
     } else if (res.status === 200) {
         // 멱등 재요청. 키가 요청마다 다르므로 여기 오면 안 된다.
         M.rsvReplayed.add(1);
@@ -168,4 +212,10 @@ export function teardown() {
     console.log('[S7]      비슷하다면 매진 뒤 요청도 DB까지 갔다는 뜻이다.');
     console.log('[S7] 경고: promo_general_inventory_409 > 0 이면 일반 재고가 먼저 바닥난 것이다.');
     console.log('[S7]      그러면 이 실행은 특가 경합이 아니라 일반 재고 고갈을 잰 것이므로 폐기한다.');
+    console.log(`[S7-C] 게이트 ${GATE.toUpperCase()} 회차. 다른 쪽 회차와 나란히 놓고 비교할 것:`);
+    console.log('[S7-C]  - 성공 건수는 양쪽 20으로 같아야 한다. 다르면 게이트가 정확성에 영향을 준 것이다.');
+    console.log('[S7-C]  - 처리량과 p99가 얼마나 차이 나는가. 그게 게이트의 값어치다.');
+    console.log('[S7-C]  - promo_reject_fast / promo_reject_slow 비율은 **대리 지표**다.');
+    console.log('[S7-C]    k6는 게이트가 잘랐는지 조건부 UPDATE가 잘랐는지 직접 못 본다. 둘 다 400이다.');
+    console.log('[S7-C]    정확한 분해는 F02가 앱 카운터를 노출하면 그걸 쓴다.');
 }

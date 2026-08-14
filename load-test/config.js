@@ -82,6 +82,18 @@ export const FIELDS = {
     discounts: 'discounts',
 };
 
+// 부하 프로파일에서 조절하는 앱 설정 키.
+// 스크립트가 직접 쓰지는 않지만, 어느 회차에 무엇을 바꿨는지 기록에 남기려고
+// 여기 모아둔다. 리포트 §2의 표와 일치시킨다.
+export const APP_SETTINGS = {
+    lockEnabled: 'pms.lock.enabled',                       // S5 대조
+    holdMinutes: 'pms.reservation.hold-minutes',           // S4-B에서 1로
+    declineRate: 'pms.payment.decline-rate',               // 경합 0.0 / 결제 분기 1.0
+    searchCacheEnabled: 'pms.search.cache.enabled',        // S8 대조
+    // S7-C 대조. 실제 키 이름은 F02가 정한다. 병합 후 대조할 것.
+    promotionGateEnabled: 'pms.promotion.gate.enabled',
+};
+
 // 특가 예약에 실을 할인 항목.
 // reference(프로모션 식별자)의 실제 값은 F02 V202 시드가 정한다.
 // **병합 후 채운다. 지금은 자리만 만든다.**
