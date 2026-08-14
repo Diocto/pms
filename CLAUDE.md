@@ -17,6 +17,7 @@
 | 도메인 모델을 만들거나 고칠 때 | `docs/architecture/ddd.md` |
 | 테스트를 쓸 때 | `docs/architecture/tdd.md` |
 | 새 feature를 시작할 때 | `docs/spec/TEMPLATE.md`, 그리고 해당 feature 스펙 |
+| 문서에 시퀀스·도메인·ERD·상태머신을 그릴 때 | `docs/architecture/diagram-rules.md` |
 | 여러 세션이 병렬로 돌 때 | `docs/architecture/parallel-work.md` |
 
 ## 기술 스택
