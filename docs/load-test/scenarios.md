@@ -1,13 +1,14 @@
 # F04 부하테스트 시나리오 설계
 
-- 상태: 승인 대기
+- 상태: 승인 대기 (D1·D3~D7 PM 승인 완료, D2 해결. 관리자 최종 확인 대기)
 - 작성일: 2026-08-15
+- 개정: 2026-08-15 — F01 API 계약 확정본 반영, S1-C·S4-B 신설
 - 승인일:
-- 근거 문서: `docs/spec/00-problem-and-scope.md`, `docs/briefings/F04.md`, `.claude/skills/load-test/SKILL.md`, `docs/architecture/coding-rules.md`
+- 근거 문서: `docs/spec/00-problem-and-scope.md`, `docs/briefings/F04.md`, `.claude/skills/load-test/SKILL.md`, `docs/architecture/coding-rules.md`, PM 전달 F01 계약 확정본(2026-08-15)
 
 ## 1. 이 문서가 정하는 것
 
-API가 아직 없다. 그래서 지금 확정하는 것은 URL이 아니라 **무엇을 어떤 부하로 때리고, 무엇을 참으로 판정할 것인가**이다.
+**무엇을 어떤 부하로 때리고, 무엇을 참으로 판정할 것인가**를 확정한다. 판정 기준은 API 형태와 무관하게 성립해야 하므로, 계약이 뒤집혀도 이 문서의 뼈대는 그대로 남는다 (바뀌는 것은 `load-test/config.js` 한 파일이다).
 
 시나리오마다 아래 넷을 숫자로 못박는다.
 
@@ -25,17 +26,19 @@ API가 아직 없다. 그래서 지금 확정하는 것은 URL이 아니라 **�
 | 시나리오 | 증명하는 명제 | 등급 | 의존 |
 |---|---|---|---|
 | S1 재고 경합 (순간 집중) | (가) 초과 판매 0 | 필수 | F01 |
+| S1-C 재고 경합 (부분 소진, `roomCount` 혼합) | (가) 초과 판매 0 | 필수 | F01 |
 | S2 재고 경합 (지속 부하) | (가) 초과 판매 0 | 필수 | F01 |
 | S3 멱등성 폭주 | (나) 중복 예약 0 | 필수 | F01 |
 | S4 상태 전이 경합 (취소×확정) | (다) 금지 전이 0 | 필수 | F01 |
-| S5 락 유무 대조 | (라) 상대 비교 + (가) | 필수 | F01 + 락 스위치 |
+| S4-B 상태 전이 경합 (만료×확정) | (다) 금지 전이 0 | 필수 | F01 |
+| S5 락 유무 대조 | (라) 상대 비교 + (가) | 필수 | F01 + `pms.lock.enabled` |
 | S6 혼합 지속 부하 (재고 누수 검출) | (가)(다) 종합 | 필수 | F01 |
 | S7 프로모션 스파이크 | (가) 스파이크 형태 | 조건부 | F02 |
 | S8 조회 폭주 속 예약 · 캐시 유무 대조 | (라) 상대 비교 | 조건부 | F03 캐시 |
 
 **S1~S6은 F01 하나만 병합되면 전부 돌아간다.** 00 문서 D4의 절단 순서(F03 캐시 → UC-6 → F02)가 발동해도 명제 (가)(나)(다)와 (라)의 락 대조는 그대로 증명된다.
 
-일정이 극단적으로 밀릴 때의 내부 절단 순서: **S8 → S7 → S6 → S2.** S1·S3·S4·S5는 자르지 않는다. 이 넷이 네 명제의 최소 집합이다.
+일정이 극단적으로 밀릴 때의 내부 절단 순서: **S8 → S7 → S6 → S1-C → S2.** S1·S3·S4·S4-B·S5는 자르지 않는다. 이들이 네 명제의 최소 집합이다.
 
 ## 3. 공통 규약
 
@@ -46,16 +49,21 @@ API가 아직 없다. 그래서 지금 확정하는 것은 URL이 아니라 **�
 | 응답 | 의미 | 성능 지표에서 | 불변식 판정에서 |
 |---|---|---|---|
 | 201 | 예약 생성 성공 | 성공 | 성공 건수로 센다. **이 수가 재고와 맞아야 한다** |
-| 200 | 멱등 재요청에 저장된 결과 반환 | 성공 | 새 예약이 아니다. 별도로 센다 |
+| 200 (생성 API) | **멱등 재요청.** 저장된 결과를 그대로 반환 | 성공 | 새 예약이 아니다. 별도로 센다 |
+| 200 (확정 API, 본문 `status: CANCELLED`) | **결제 거절.** 실패가 아니라 정상 처리 결과다 | 실패로 세지 않는다 | 정상. 재고 복원 대상이다 |
+| 200 (전이 API, 상태 불변) | 멱등 전이 (이미 그 상태) | 성공 | 새 전이가 아니다. 별도로 센다 |
+| 400 `INVALID_REQUEST` | 요청 자체가 틀림 (예: `guestCount` > 정원) | **실패로 센다** | **시나리오 설계 오류의 신호다.** §3-6 참조 |
 | 409 `INSUFFICIENT_INVENTORY` | 재고 소진. **설계대로 동작한 것** | 실패로 세지 않는다 | 정상. (가)의 증거다 |
 | 409 `DUPLICATE_REQUEST` / `REQUEST_IN_PROGRESS` | 멱등성 방어 작동 | 실패로 세지 않는다 | 정상. (나)의 증거다 |
 | 409 `INVALID_STATE_TRANSITION` | 전이 표 밖 요청 거부 | 실패로 세지 않는다 | 정상. (다)의 증거다 |
 | 503 `LOCK_ACQUISITION_FAILED` | 락 대기 상한 초과 | **실패로 센다** (별도 지표) | 불변식 위반은 아니다 |
 | 5xx (503 락 실패 제외) | 진짜 장애 | 실패 | **한 건이라도 나오면 조사 대상** |
 
+**결제 거절이 200이라는 점을 놓치면 안 된다.** `POST /api/reservations/{code}/confirm`은 결제가 거절돼도 HTTP 200을 주고 본문의 `status`가 `CANCELLED`가 된다. **HTTP 코드만 보고 성공을 세면 확정 성공률이 실제보다 부풀려진다.** 확정 계열 요청은 반드시 본문의 `status`까지 읽어 분류한다.
+
 503 락 실패를 실패로 세는 이유: 사용자 입장에서는 재고가 있는데도 예약을 못 한 것이다. 정확성은 지켜졌지만 가용성은 깎였다. 이건 **락 설계의 비용**이고, S5 대조에서 정확히 이 값을 락 없는 쪽과 비교한다.
 
-k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `http_req_failed`가 409를 실패로 세지 않게 하고, 503과 5xx는 커스텀 카운터로 따로 센다.
+k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `http_req_failed`가 409를 실패로 세지 않게 하고, 400·503·5xx는 커스텀 카운터로 따로 센다.
 
 ### 3-2. 공통 커스텀 지표
 
@@ -63,15 +71,21 @@ k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `
 
 | 지표 | 세는 것 |
 |---|---|
-| `rsv_created` | 201 |
-| `rsv_replayed` | 200 (멱등 재요청 응답) |
+| `rsv_created` | 201 (신규 예약) |
+| `rsv_replayed` | 200 + 생성 API (멱등 재요청 응답) |
+| `transition_ok` | 200 + 전이 API + 상태가 실제로 바뀜 |
+| `transition_idem` | 200 + 전이 API + 상태 불변 (멱등 전이 7칸) |
+| `payment_declined` | 200 + 확정 API + 본문 `status: CANCELLED` (결제 거절) |
 | `rej_inventory` | 409 INSUFFICIENT_INVENTORY |
 | `rej_duplicate` | 409 DUPLICATE_REQUEST + REQUEST_IN_PROGRESS |
 | `rej_transition` | 409 INVALID_STATE_TRANSITION |
+| `bad_request` | 400 (시나리오 설계 오류 신호) |
 | `lock_failed` | 503 LOCK_ACQUISITION_FAILED |
 | `server_error` | 위에 해당하지 않는 5xx·연결 실패 |
 
-**모든 시나리오의 1차 검산식:** `rsv_created + rsv_replayed + rej_* + lock_failed + server_error = 총 요청 수`. 이게 안 맞으면 스크립트가 응답을 놓친 것이므로 결과 해석 전에 스크립트를 고친다.
+**모든 시나리오의 1차 검산식:** 위 지표의 합 = 총 요청 수. 이게 안 맞으면 스크립트가 응답을 놓친 것이므로 결과 해석 전에 스크립트를 고친다.
+
+**`bad_request`는 모든 시나리오에서 0이어야 한다.** 0이 아니면 앱 버그가 아니라 **내 시나리오가 잘못된 요청을 보내고 있다는 뜻**이다 (§3-6).
 
 ### 3-3. 데이터 격리
 
@@ -81,8 +95,10 @@ k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `
 |---|---|
 | S1 | 2026-09-01 |
 | S2 | 2026-09-02 |
+| S1-C | 2026-09-07 |
 | S3 | 2026-09-03 |
 | S4 | 2026-09-04 |
+| S4-B | 2026-09-08 |
 | S5 | 2026-09-05 (락 ON) / 2026-09-06 (락 OFF) |
 | S6 | 2026-09-11 ~ 2026-09-20 |
 | S7 | 프로모션 전용 (F02 스펙 확정 후) |
@@ -95,6 +111,7 @@ k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `
 **이전 실행의 잔여 데이터가 섞이면 불변식 검증이 전부 무의미하다.** 매 실행 전에 `load-test/reset.sh`를 돌린다.
 
 ```
+0. 접속 대상이 localhost가 아니면 즉시 중단한다 (안전장치)
 1. 해당 시나리오 날짜 대역의 예약 행 삭제
 2. 해당 날짜 대역의 재고를 시나리오가 요구하는 초기값으로 UPDATE
 3. Redis FLUSHDB (멱등성 키·분산락·캐시 전부 비움)
@@ -102,6 +119,18 @@ k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `
 ```
 
 3번을 빼먹으면 S3(멱등성)이 이전 실행의 키에 걸려 전부 409를 받는다. 반드시 넣는다.
+
+**초기화가 건드리는 테이블 (PM 승인 D5 조건 4에 따른 명시)**
+
+| 테이블 | 동작 | 소유 feature |
+|---|---|---|
+| `reservation` | 시나리오 날짜 대역 행 DELETE | F01 |
+| `room_daily_inventory` | 시나리오 날짜 대역 `remaining` UPDATE | F01 |
+| (예약 상태 이력 테이블, 존재 시) | 시나리오 날짜 대역 행 DELETE | F01 — 존재 여부 미확인 (§8 Q4) |
+| (프로모션 재고 테이블) | S7 실행 시에만 초기값 UPDATE | F02 — 이름 미확정 (§8 Q7) |
+| Redis 전체 | FLUSHDB | 공용 |
+
+**마이그레이션 파일과 스키마는 절대 건드리지 않는다.** DDL을 실행하지 않으며 오직 DML만 한다. 위 목록에 없는 테이블을 초기화해야 할 상황이 생기면 스크립트를 고치기 전에 PM에게 보고한다. **F01이 테이블·컬럼을 바꾸면 이 표가 따라가야 하는 지점이므로, 표를 안 고치고 스크립트만 고치는 일이 없게 한다.**
 
 ### 3-5. 측정 노이즈 대응
 
@@ -111,7 +140,18 @@ k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `
 - **대조 시나리오(S5, S8)는 3회씩 돌려 중앙값을 채택한다.** 두 조건을 번갈아 실행해(ON→OFF→ON→OFF→ON→OFF) 시간대 편향을 줄인다
 - 불변식 검증은 매 실행마다 한다. 3회 중 1회라도 깨지면 실패다
 
-### 3-6. 실행 환경의 한계 (리포트 필수 기재 사항)
+### 3-6. 400을 만들지 않는다 — 요청은 항상 유효해야 한다
+
+인원 초과(`guestCount` > 정원 × `roomCount`)는 400이다. **부하테스트가 400을 받으면 그건 앱을 시험한 게 아니라 내가 잘못된 요청을 보낸 것이다.** 경합 지점에 도달하기도 전에 검증 단계에서 튕기므로, 그만큼 실제 경합 요청 수가 줄어 "성공 정확히 N건"의 분모가 조용히 망가진다.
+
+방지 규약:
+
+- 모든 시나리오는 `guestCount = 2 × roomCount`처럼 **정원 안쪽으로 안전하게** 잡는다. 정원을 꽉 채워 보내지 않는다
+- 객실타입별 정원은 F01 시드값에서 읽어 `config.js`에 넣는다. 추측해서 넣지 않는다
+- `checkOut > checkIn`을 스크립트가 보장한다. 날짜 계산은 `config.js`의 헬퍼 하나만 쓴다
+- **`bad_request > 0`이면 그 실행 결과는 폐기한다.** 임계값 미달이 아니라 무효 실행으로 처리하고, 요청을 고쳐 다시 돌린다
+
+### 3-7. 실행 환경의 한계 (리포트 필수 기재 사항)
 
 시나리오를 설계하는 단계에서부터 못박아 둔다. **여기서 나올 숫자가 무엇의 근거가 되고 무엇의 근거가 못 되는지**를 미리 정해두지 않으면, 리포트를 쓸 때 절대값을 성능 주장으로 잘못 쓰게 된다.
 
@@ -139,7 +179,16 @@ k6 구현: `http.setResponseCallback(http.expectedStatuses(200, 201, 409))`로 `
 | 부하 모델 | `shared-iterations` — VU 200, iterations 200, maxDuration 60s |
 | 총 요청 | 200건 (재고의 20배) |
 | 지속 시간 | 수 초 (전량 소진까지) |
-| 요청 구성 | 요청마다 서로 다른 `X-User-Id`(1~200), 서로 다른 `Idempotency-Key`(UUID), 전부 같은 객실타입·같은 날짜·1실 |
+| 요청 구성 | 요청마다 서로 다른 `X-User-Id`(`user-1001`~`user-1200`), 서로 다른 `Idempotency-Key`(UUID), 전부 같은 객실타입·같은 날짜·1실 |
+
+```
+POST /api/reservations
+X-User-Id: user-1{iter}
+Idempotency-Key: s1-{uuid}
+
+{ "roomTypeId": <RT_S1>, "checkIn": "2026-09-01", "checkOut": "2026-09-02",
+  "roomCount": 1, "guestCount": 2 }
+```
 
 VU 200이 각각 1회만 쏘게 해서 **도달 시점을 최대한 겹친다.** 요청 수를 늘리는 것보다 겹치는 게 중요한 시나리오다.
 
@@ -162,7 +211,7 @@ VU 200이 각각 1회만 쏘게 해서 **도달 시점을 최대한 겹친다.**
 -- Q1. 활성 예약 행 수 (기대: 10)
 SELECT COUNT(*) AS active_reservations
 FROM reservation
-WHERE room_type_id = :rt AND stay_start = '2026-09-01'
+WHERE room_type_id = :rt AND check_in = '2026-09-01'
   AND status NOT IN ('CANCELLED', 'EXPIRED');
 
 -- Q2. 재고 음수 행 (기대: 0행. 한 행이라도 나오면 즉시 실패)
@@ -177,7 +226,7 @@ SELECT i.remaining + COALESCE(SUM(r.room_count), 0) AS total
 FROM room_daily_inventory i
 LEFT JOIN reservation r
   ON r.room_type_id = i.room_type_id
- AND i.stay_date BETWEEN r.stay_start AND r.stay_end - INTERVAL 1 DAY
+ AND i.stay_date >= r.check_in AND i.stay_date < r.check_out
  AND r.status NOT IN ('CANCELLED', 'EXPIRED')
 WHERE i.room_type_id = :rt AND i.stay_date = '2026-09-01'
 GROUP BY i.remaining;
@@ -191,6 +240,67 @@ GROUP BY i.remaining;
 | `server_error` | 0 (하드) |
 | `lock_failed` 비율 | < 5% |
 | `rej_inventory` | ≥ 180 |
+| `bad_request` | 0 (하드) |
+
+---
+
+### S1-C. 재고 경합 — 부분 소진 (`roomCount` 혼합) [필수 / 명제 (가)]
+
+F01 계약에 `roomCount`가 있어 **한 요청이 여러 실을 한 번에 잡는다.** 이건 1실 단위 경합보다 확실히 어렵다.
+
+**왜 더 어려운가.** 1실씩 빠지면 잔여가 10→9→8로 한 칸씩 내려가고, 마지막 한 칸에서만 경계 판단이 필요하다. 그런데 3실씩 빠지면 **잔여 2가 남았을 때 3실 요청은 거절되고 2실 요청은 통과해야 한다.** 즉 "잔여 > 0"이 아니라 "잔여 >= 요청량"을 원자적으로 판단해야 하고, 조건부 UPDATE의 `WHERE remaining >= :n` 조건이 실제로 작동하는지가 여기서 갈린다. **잔여 2에 3실 요청이 통과하면 재고는 −1이 된다.**
+
+또 하나. 요청량이 섞이면 **최종 잔여가 0이 아닐 수 있다.** 잔여 2에 3실 요청만 남았다면 2가 남은 채로 끝난다. 그래서 S1처럼 "잔여 == 0"으로 판정할 수 없고, **보존식으로만 판정해야 한다.** 이 점이 이 시나리오의 설계 포인트다.
+
+| 항목 | 값 |
+|---|---|
+| 초기 재고 | **30실** (날짜 2026-09-07, 1박) |
+| 부하 모델 | `shared-iterations` — VU 300, iterations 300 |
+| 총 요청 | 300건 (요청 실수 합계 = 600실, 재고의 20배) |
+| 요청 구성 | `roomCount`를 1·2·3실로 **균등 혼합** (각 100건). `guestCount = 2 × roomCount` (§3-6에 따라 정원 안쪽) |
+| 사용자·키 | 요청마다 서로 다름 |
+
+**불변식**
+
+| # | 명제 | 검증 |
+|---|---|---|
+| I1 | **`remaining < 0`인 행이 0건** — 이 시나리오의 주 표적 | Q2 |
+| I2 | `잔여 + 성공한 예약들의 roomCount 합 = 30` (보존식) | Q4-C |
+| I3 | 최종 잔여가 **0 이상 2 이하** — 남을 수 있지만, 3실 이상 남았다면 통과했어야 할 요청이 부당하게 거절된 것 | Q3 |
+| I4 | k6가 센 성공 요청들의 `roomCount` 합 == DB 활성 예약의 `room_count` 합 | k6 × Q1-C |
+| I5 | 잔여보다 큰 `roomCount` 요청이 성공한 흔적이 없다 (I1과 I2가 동시에 참이면 성립) | Q2 + Q4-C |
+| I6 | `server_error == 0`, `bad_request == 0` | k6 |
+
+I3의 상한 2를 두는 이유: 잔여가 3 이상 남았다면 3실 요청이 들어갈 자리가 있었는데 못 들어간 것이므로, 락 경합이나 조건 판정이 과하게 보수적이라는 신호다. **초과 판매의 반대편 오류**이고 이것도 버그다.
+
+**검증 쿼리**
+
+```sql
+-- Q1-C. 활성 예약의 실수 합 (기대: 28~30)
+SELECT COUNT(*) AS rows_cnt, COALESCE(SUM(room_count), 0) AS rooms_sum
+FROM reservation
+WHERE room_type_id = :rt AND check_in = '2026-09-07'
+  AND status NOT IN ('CANCELLED', 'EXPIRED');
+
+-- Q4-C. 보존식 (기대: 30)
+SELECT i.remaining + COALESCE(SUM(r.room_count), 0) AS total
+FROM room_daily_inventory i
+LEFT JOIN reservation r
+  ON r.room_type_id = i.room_type_id
+ AND i.stay_date >= r.check_in AND i.stay_date < r.check_out
+ AND r.status NOT IN ('CANCELLED', 'EXPIRED')
+WHERE i.room_type_id = :rt AND i.stay_date = '2026-09-07'
+GROUP BY i.remaining;
+```
+
+**임계값**
+
+| 지표 | 합격선 |
+|---|---|
+| p95 | < 1,000ms |
+| `server_error` | 0 (하드) |
+| `bad_request` | 0 (하드) |
+| `lock_failed` 비율 | < 5% |
 
 ---
 
@@ -263,6 +373,17 @@ S1이 "한순간"을 본다면 S2는 "계속 밀려드는 동안"을 본다. 처
 
 S3-B가 더 어려운 케이스다. `SET NX`가 아직 안 끝난 상태에서 두 번째가 들어오는 좁은 틈을 노린다.
 
+**F01 계약이 판정을 정밀하게 해준다.** 최초 요청은 **201**, 멱등 재요청은 **200 + 동일 본문**, 처리 중 재요청만 **409 REQUEST_IN_PROGRESS**다. 상태 코드만으로 세 경우가 갈리므로 추측할 여지가 없다.
+
+| 응답 | 기대 건수 (S3-A) | 기대 건수 (S3-B) |
+|---|---|---|
+| 201 | 20 (키당 정확히 1) | 100 (키당 정확히 1) |
+| 200 | 나머지 대부분 | 최대 100 |
+| 409 REQUEST_IN_PROGRESS | 0 이상 (동시 도착분) | 0 이상 |
+| 그 외 | **0** | **0** |
+
+**키당 201은 반드시 정확히 1건이다.** 어떤 키에서 201이 2번 나왔다면 그 순간 예약이 두 건 생긴 것이고, 뒤에 하나가 지워졌더라도 (나)는 이미 깨진 것이다. **DB 행 수만 세면 이 순간을 놓친다.**
+
 **불변식**
 
 | # | 명제 | 검증 |
@@ -270,32 +391,35 @@ S3-B가 더 어려운 케이스다. `SET NX`가 아직 안 끝난 상태에서 �
 | I1 | 예약 행 수가 **정확히 키 개수** (A: 20, B: 100) | Q5 |
 | I2 | **한 멱등성 키에 예약이 2건 이상인 경우가 0건** | Q6 |
 | I3 | 재고 차감량 == 키 개수 (A: 200→180, B: 200→100) | Q7 |
-| I4 | 같은 키에 대한 모든 성공 응답의 예약 ID가 **전부 동일** | k6 측: 키별 응답 ID를 모아 distinct == 1 |
-| I5 | 응답으로 받은 예약 ID가 전부 DB에 실제로 존재 | Q8 |
-| I6 | `server_error == 0` | k6 |
+| I4 | **키당 201 응답이 정확히 1건** | k6: 키별 201 카운트 |
+| I5 | 같은 키의 모든 2xx 응답의 **`confirmationCode`가 전부 동일** | k6: 키별 code 집합의 크기 == 1 |
+| I6 | 같은 키의 200 응답 본문이 최초 201 본문과 **필드 단위로 동일** (`status`, `totalPrice`, `expiresAt` 포함) | k6: 본문 비교 |
+| I7 | 응답으로 받은 `confirmationCode`가 전부 DB에 실존하고, 개수가 키 개수와 일치 | Q8 |
+| I8 | `server_error == 0`, `bad_request == 0` | k6 |
 
-I4가 중요하다. 재요청에 200을 주면서 **다른 예약 ID**를 주면 DB에는 한 건이어도 클라이언트는 두 예약이 있다고 믿는다. 행 수만 세면 이 버그를 놓친다.
+I5·I6이 중요하다. 재요청에 200을 주면서 **다른 확인번호**를 주면 DB에는 한 건이어도 클라이언트는 두 예약이 있다고 믿는다. 행 수만 세면 이 버그를 놓친다. `totalPrice`까지 비교하는 이유는, 같은 예약을 가리키면서 금액이 달라지는 경우(재계산 버그)를 잡기 위해서다.
 
 **검증 쿼리**
 
 ```sql
 -- Q5. 예약 행 수 (기대: 키 개수)
 SELECT COUNT(*) FROM reservation
-WHERE room_type_id = :rt AND stay_start = '2026-09-03'
+WHERE room_type_id = :rt AND check_in = '2026-09-03'
   AND status NOT IN ('CANCELLED', 'EXPIRED');
 
 -- Q6. 멱등성 키 중복 (기대: 0행)
 SELECT idempotency_key, COUNT(*) AS cnt
 FROM reservation
-WHERE stay_start = '2026-09-03'
+WHERE check_in = '2026-09-03'
 GROUP BY idempotency_key HAVING COUNT(*) > 1;
 
 -- Q7. 재고 차감량 (기대: A는 180, B는 100)
 SELECT remaining FROM room_daily_inventory
 WHERE room_type_id = :rt AND stay_date = '2026-09-03';
 
--- Q8. 응답 ID가 전부 실존하는가 (k6가 남긴 ID 목록과 대조. 기대: 두 집합이 일치)
-SELECT id FROM reservation WHERE stay_start = '2026-09-03' ORDER BY id;
+-- Q8. 응답 확인번호가 전부 실존하는가 (k6가 남긴 code 목록과 대조. 기대: 두 집합이 일치)
+SELECT confirmation_code FROM reservation
+WHERE check_in = '2026-09-03' ORDER BY confirmation_code;
 ```
 
 **임계값**
@@ -304,7 +428,9 @@ SELECT id FROM reservation WHERE stay_start = '2026-09-03' ORDER BY id;
 |---|---|
 | p95 | < 500ms (재고 경합이 없으므로 S1·S2보다 빨라야 정상) |
 | `server_error` | 0 (하드) |
+| `bad_request` | 0 (하드) |
 | `rsv_created + rsv_replayed + rej_duplicate` | == 총 요청 수 |
+| `rsv_created` | == 키 개수 (A: 20, B: 100). 하드 |
 
 ---
 
@@ -312,41 +438,48 @@ SELECT id FROM reservation WHERE stay_start = '2026-09-03' ORDER BY id;
 
 **노리는 경합:** 같은 예약 한 건에 취소와 확정이 같은 순간에 도착한다. 상태머신이 if-else로 흩어져 있으면 여기서 깨진다.
 
-전이 표(00 문서 4절)를 다시 본다.
+F01 확정 전이 표를 기준으로 한다. 상태 7개, 허용 전이 8개, 멱등 성공 7칸, 나머지 34칸은 전부 409 `INVALID_STATE_TRANSITION`이다.
 
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING : 예약 생성
-    PENDING --> CONFIRMED : CONFIRM
-    PENDING --> CANCELLED : CANCEL
-    PENDING --> CANCELLED : PAYMENT_FAILED
-    PENDING --> EXPIRED : EXPIRE
-    CONFIRMED --> CANCELLED : CANCEL
-    CONFIRMED --> CHECKED_IN : CHECK_IN
+    PENDING --> CONFIRMED : CONFIRM (결제 성공, now < expiresAt)
+    PENDING --> CANCELLED : PAYMENT_FAILED (재고 복원)
+    PENDING --> CANCELLED : CANCEL (재고 복원)
+    PENDING --> EXPIRED : EXPIRE (now >= expiresAt, 재고 복원)
+    CONFIRMED --> CANCELLED : CANCEL (재고 복원)
+    CONFIRMED --> CHECKED_IN : CHECK_IN (checkIn <= today < checkOut)
+    CONFIRMED --> NO_SHOW : NO_SHOW (today > checkIn, 재고 복원 안 함)
     CHECKED_IN --> CHECKED_OUT : CHECK_OUT
     CANCELLED --> [*]
     EXPIRED --> [*]
+    NO_SHOW --> [*]
     CHECKED_OUT --> [*]
 ```
 
 **여기서 판정을 정밀하게 해야 한다.** PENDING에서 CONFIRM과 CANCEL은 **둘 다 표 안에 있는 전이**다. 그리고 CONFIRMED에서 CANCEL도 표 안에 있다. 그래서 "둘 다 성공했다"가 곧 위반은 아니다.
 
-진짜 위반은 이것이다.
+**그리고 결제 거절이 섞인다.** `confirm` 요청은 결제가 거절되면 HTTP 200을 주면서 본문 `status`가 `CANCELLED`가 된다. **HTTP 코드가 아니라 응답 본문의 `status`로 분류해야 한다.** 판정표는 이걸 반영한다.
 
-| 판정 | 결과 |
-|---|---|
-| 하나만 성공, 다른 하나 409 | **정상** |
-| 둘 다 성공, 최종 상태 CANCELLED (CONFIRM 먼저 → CANCEL) | **정상.** 표를 두 번 탄 것 |
-| 둘 다 성공, 최종 상태 CONFIRMED | **위반.** CANCEL이 성공했다면 CONFIRMED로 끝날 수 없다 |
-| CANCEL 성공 응답 후 도착한 CONFIRM이 성공 | **위반.** CANCELLED는 종료 상태다 |
-| 최종 상태가 PENDING | **위반.** 둘 중 하나는 반드시 먹혀야 한다 |
-| 재고가 상태와 안 맞음 | **위반.** §아래 I4 |
+| CONFIRM 응답 | CANCEL 응답 | 최종 상태 | 판정 |
+|---|---|---|---|
+| 200 `CONFIRMED` | 409 | CONFIRMED | **정상.** 확정이 이겼다 |
+| 409 | 2xx | CANCELLED | **정상.** 취소가 이겼다 |
+| 200 `CONFIRMED` | 2xx | CANCELLED | **정상.** 확정 후 취소, 표를 두 번 탔다 |
+| 200 `CANCELLED` (결제 거절) | 409 또는 2xx | CANCELLED | **정상.** 결제 거절로 취소됐다 |
+| 200 `CONFIRMED` | 2xx | **CONFIRMED** | **위반.** CANCEL이 성공했는데 CONFIRMED로 끝날 수 없다 |
+| 2xx (CANCEL 응답보다 늦게 도착) | 2xx | — | **위반.** CANCELLED는 종료 상태다. CANCEL 성공 이후의 CONFIRM은 409여야 한다 |
+| — | — | **PENDING** | **위반.** 둘 중 하나는 반드시 먹혀야 한다 |
+| — | — | CHECKED_IN / CHECKED_OUT / NO_SHOW / EXPIRED | **위반.** 이 시나리오는 그 이벤트를 보내지 않았다 |
+| — | — | 재고가 상태와 불일치 | **위반.** 아래 I4 |
+
+**결제 거절률이 이 시나리오의 해석을 바꾼다.** F01의 모의 결제가 확률적으로 거절한다면 "CONFIRM이 졌다"와 "결제가 거절됐다"가 최종 상태로는 구분되지 않는다. 그래서 k6가 **응답 본문의 `status`를 반드시 기록**해 둘을 갈라야 한다. 거절률은 §8 Q9로 질문에 올려두었고, 답이 오면 기대 분포를 여기에 숫자로 채운다.
 
 | 항목 | 값 |
 |---|---|
-| 사전 준비 | PENDING 예약 **300건**을 미리 생성 (`load-test/seed-pending.js` 또는 setup 단계). 재고 넉넉히(400실), 날짜 2026-09-04 |
+| 사전 준비 | PENDING 예약 **300건**을 미리 생성 (`load-test/seed-pending.js`). 재고 넉넉히(400실), 날짜 2026-09-04. 생성 응답의 `confirmationCode` 300개를 파일로 넘긴다 |
 | 부하 모델 | `shared-iterations` — VU 600, iterations 600 |
-| 요청 구성 | 예약 1건당 VU 2개가 짝을 이뤄 하나는 CONFIRM, 하나는 CANCEL을 **동시에** 발사 |
+| 요청 구성 | 예약 1건당 VU 2개가 짝을 이뤄 하나는 `POST /{code}/confirm`, 하나는 `POST /{code}/cancel`을 **동시에** 발사 |
 | 총 요청 | 600건 (300쌍) |
 
 **불변식**
@@ -354,11 +487,12 @@ stateDiagram-v2
 | # | 명제 | 검증 |
 |---|---|---|
 | I1 | 최종 상태가 PENDING인 예약이 **0건** | Q9 |
-| I2 | 최종 상태가 전부 CONFIRMED 또는 CANCELLED (제3의 상태 0건) | Q9 |
+| I2 | 최종 상태가 전부 CONFIRMED 또는 CANCELLED (나머지 5개 상태 0건) | Q9 |
 | I3 | CANCEL이 2xx를 받은 예약 중 최종 상태가 CONFIRMED인 것 **0건** | k6 응답 로그 × Q10 대조 |
 | I4 | **상태와 재고가 짝이 맞는다.** 잔여 = 400 − (CONFIRMED 건수) | Q11 |
 | I5 | `rej_transition ≥ 1`. 거절이 하나도 없으면 경합이 안 일어난 것이므로 **시나리오 자체를 의심한다** | k6 |
-| I6 | `server_error == 0` | k6 |
+| I6 | 300쌍 각각에서 **2xx를 받은 요청이 최소 1개** (양쪽 다 409면 예약이 PENDING에 갇힌다 — I1과 중복 검증) | k6 |
+| I7 | `server_error == 0`, `bad_request == 0` | k6 |
 
 I5를 넣는 이유: 거절이 0건이면 "완벽하다"가 아니라 "두 요청이 실제로는 겹치지 않았다"일 가능성이 크다. **경합이 일어났다는 증거 없이 경합에 안전하다고 쓸 수 없다.** 0건이면 발사 타이밍을 조여 재실행한다.
 
@@ -367,15 +501,15 @@ I5를 넣는 이유: 거절이 0건이면 "완벽하다"가 아니라 "두 요�
 ```sql
 -- Q9. 최종 상태 분포 (기대: CONFIRMED + CANCELLED = 300, 그 외 0)
 SELECT status, COUNT(*) FROM reservation
-WHERE stay_start = '2026-09-04' GROUP BY status;
+WHERE check_in = '2026-09-04' GROUP BY status;
 
--- Q10. 예약별 최종 상태 (k6가 남긴 "CANCEL이 2xx였던 예약 ID" 목록과 대조)
-SELECT id, status FROM reservation WHERE stay_start = '2026-09-04';
+-- Q10. 예약별 최종 상태 (k6가 남긴 "CANCEL이 2xx였던 확인번호" 목록과 대조)
+SELECT confirmation_code, status FROM reservation WHERE check_in = '2026-09-04';
 
 -- Q11. 재고 정합 (기대: remaining = 400 - CONFIRMED 건수)
 SELECT i.remaining,
        (SELECT COUNT(*) FROM reservation r
-         WHERE r.stay_start = '2026-09-04' AND r.status = 'CONFIRMED') AS confirmed
+         WHERE r.check_in = '2026-09-04' AND r.status = 'CONFIRMED') AS confirmed
 FROM room_daily_inventory i
 WHERE i.room_type_id = :rt AND i.stay_date = '2026-09-04';
 ```
@@ -386,7 +520,73 @@ WHERE i.room_type_id = :rt AND i.stay_date = '2026-09-04';
 |---|---|
 | p95 | < 800ms |
 | `server_error` | 0 (하드) |
+| `bad_request` | 0 (하드) |
 | `rej_transition` | ≥ 1 (경합 발생의 증거) |
+
+---
+
+### S4-B. 상태 전이 경합 — 만료 × 확정 [필수 / 명제 (다)]
+
+00 문서 UC-5가 "만료-확정 경합"을 명시적 관심사로 들고 있다. F01이 수동 트리거 `POST /api/internal/reservations/expire`를 제공하므로 **스케줄러를 기다리지 않고 정확한 순간에 재현할 수 있다.**
+
+**왜 S4보다 위험한가.** S4의 취소·확정은 둘 다 사용자 요청이라 각자 자기 예약 하나만 건드린다. 반면 만료는 **배치**다. 한 번의 호출이 만료 대상 예약 전부를 훑으며 상태를 바꾸고 재고를 복원한다. 그 배치가 도는 동안 개별 확정 요청이 같은 행을 건드린다. 여기서 깨지면 **한 예약의 재고가 두 번 복원되거나(복원 과다), 확정된 예약이 만료 처리되어 방은 팔렸는데 재고가 돌아온다.**
+
+전이 표상 CONFIRMED에는 EXPIRE 전이가 없다(34칸 중 하나). **확정에 성공한 예약이 만료되면 그 자체로 (다) 위반이다.**
+
+| 항목 | 값 |
+|---|---|
+| 사전 준비 | 만료 시각이 임박한 PENDING 예약 **400건** 생성 (날짜 2026-09-08, 재고 500실). `expiresAt`이 곧 지나도록 만든다 — 방법은 §8 Q10 |
+| 부하 모델 | 두 축을 동시에 발사한다 |
+| 축 1 (확정) | `shared-iterations` — VU 400, iterations 400. 예약당 `POST /{code}/confirm` 1회 |
+| 축 2 (만료) | 별도 시나리오로 `POST /api/internal/reservations/expire`를 **200ms 간격으로 15회** 반복 호출 |
+| 총 요청 | 415건 |
+
+**만료 트리거를 여러 번 호출하는 이유:** 한 번만 부르면 확정 요청과 겹칠 확률이 낮다. 반복해서 불러 배치가 도는 구간을 넓히고, 동시에 **만료 배치 자체의 멱등성**(같은 예약을 두 번 만료시키지 않는가)도 함께 본다.
+
+**불변식**
+
+| # | 명제 | 검증 |
+|---|---|---|
+| I1 | 예약당 최종 상태는 CONFIRMED 또는 EXPIRED 중 **하나**. PENDING 잔류 0건 | Q12-B |
+| I2 | **CONFIRMED로 응답받은 예약이 EXPIRED로 끝난 것 0건** — 이게 주 표적이다 | k6 로그 × Q13-B |
+| I3 | `expiredCount`의 **총합이 최종 EXPIRED 건수와 정확히 일치** — 크면 같은 예약을 두 번 셌다는 뜻 | k6 합계 × Q12-B |
+| I4 | 재고 보존식: `잔여 + CONFIRMED 건수 = 500` (EXPIRED는 복원되므로 점유하지 않는다) | Q14-B |
+| I5 | 잔여가 **500을 넘지 않는다** (복원 과다 검출) | Q14-B |
+| I6 | 확정 요청 중 409를 받은 것들은 전부 최종 상태가 EXPIRED (만료가 이겨서 거절된 것) | k6 × Q13-B |
+| I7 | `server_error == 0`, `bad_request == 0` | k6 |
+
+**I3과 I5가 이 시나리오의 고유 가치다.** 배치가 같은 예약을 두 번 처리하면 `expiredCount` 합계가 부풀고 재고가 과다 복원된다. 단일 요청 시나리오로는 절대 안 잡히는 버그다.
+
+**검증 쿼리**
+
+```sql
+-- Q12-B. 최종 상태 분포 (기대: CONFIRMED + EXPIRED = 400, PENDING 0)
+SELECT status, COUNT(*) FROM reservation
+WHERE check_in = '2026-09-08' GROUP BY status;
+
+-- Q13-B. 예약별 최종 상태 (k6가 남긴 "confirm이 200 CONFIRMED였던 확인번호" 목록과 대조)
+SELECT confirmation_code, status FROM reservation WHERE check_in = '2026-09-08';
+
+-- Q14-B. 재고 보존식 (기대: total = 500, remaining <= 500)
+SELECT i.remaining,
+       (SELECT COUNT(*) FROM reservation r
+         WHERE r.check_in = '2026-09-08' AND r.status = 'CONFIRMED') AS confirmed,
+       i.remaining + (SELECT COUNT(*) FROM reservation r
+         WHERE r.check_in = '2026-09-08' AND r.status = 'CONFIRMED') AS total
+FROM room_daily_inventory i
+WHERE i.room_type_id = :rt AND i.stay_date = '2026-09-08';
+```
+
+**임계값**
+
+| 지표 | 합격선 |
+|---|---|
+| p95 (확정 요청) | < 1,000ms |
+| `server_error` | 0 (하드) |
+| `bad_request` | 0 (하드) |
+| CONFIRMED + EXPIRED | == 400 (하드) |
+
+**보조 실험 — NO_SHOW.** F01이 `POST /api/internal/reservations/no-show`도 제공한다. 시간이 남으면 "체크인 × NO-SHOW 동시" 경합을 같은 형태로 하나 더 돌린다. **NO_SHOW는 재고를 복원하지 않는 유일한 종료 전이**라, 여기서 재고가 복원되면 없는 방을 파는 결과가 된다. 다만 CHECK_IN·NO_SHOW 둘 다 날짜 조건(`today`)이 걸려 있어 시드 날짜를 오늘 기준으로 따로 잡아야 하므로, 필수가 아닌 보조로 둔다.
 
 ---
 
@@ -437,9 +637,20 @@ S5는 그 증명이다. **1차 방어선을 끄고 같은 부하를 넣는다.**
 
 **해석의 기대 그림 (검증 대상이지 전제가 아니다):** 락 ON은 경합을 앱 앞단에서 흡수해 DB 부담이 낮은 대신 락 대기·503이 생긴다. 락 OFF는 503이 사라져 요청은 다 처리되지만 경합이 DB로 내려가 지연 꼬리(p99)와 커넥션 점유가 늘어난다. **실측이 이 그림과 다르면 그림이 아니라 실측을 쓴다.**
 
-**전제 조건 (미충족 시 이 시나리오는 실행 불가)**
+**전제 조건 — 해결됨**
 
-분산락을 **설정으로 끌 수 있어야 한다.** 앱 재빌드 없이 `application.yml` 또는 환경 변수로 토글되는 형태여야 한다. 이건 F04가 만들 수 없다(Java 소스 비소유). **F01에 요청해야 하는 항목이며 §7 D2로 올린다.**
+F01이 **`pms.lock.enabled`** 설정으로 분산락을 끌 수 있게 만든다 (PM 회신, 2026-08-15). 앱 재빌드 없이 토글된다.
+
+실행 방식:
+
+```bash
+# 조건 A (락 ON)
+SPRING_APPLICATION_JSON='{"pms":{"lock":{"enabled":true}}}' java -jar build/libs/pms.jar
+# 조건 B (락 OFF)
+SPRING_APPLICATION_JSON='{"pms":{"lock":{"enabled":false}}}' java -jar build/libs/pms.jar
+```
+
+**조건을 바꿀 때마다 앱을 재기동한다.** 재기동 후에는 반드시 워밍업 30초를 다시 돌린다. 그리고 **실행 직후 `/actuator/env` 또는 로그로 스위치가 실제로 의도한 값인지 확인한다.** 껐다고 생각했는데 켜져 있으면 두 실행이 같은 조건이 되어, 차이가 없다는 결론이 그대로 리포트에 들어간다. 이 확인을 자동화해 `reset.sh`가 실행 전에 검사하게 한다.
 
 **임계값**
 
@@ -487,7 +698,7 @@ FROM room_daily_inventory i
 JOIN room_type rt ON rt.id = i.room_type_id
 LEFT JOIN reservation r
   ON r.room_type_id = i.room_type_id
- AND i.stay_date BETWEEN r.stay_start AND r.stay_end - INTERVAL 1 DAY
+ AND i.stay_date >= r.check_in AND i.stay_date < r.check_out
  AND r.status NOT IN ('CANCELLED', 'EXPIRED')
 WHERE i.stay_date BETWEEN '2026-09-11' AND '2026-09-20'
 GROUP BY i.room_type_id, i.stay_date, i.remaining, rt.total_rooms
@@ -537,8 +748,17 @@ WHERE status NOT IN ('PENDING','CONFIRMED','CANCELLED','EXPIRED','CHECKED_IN','C
 | I1 | `rsv_created == 20` (정확히) |
 | I2 | 특가 재고 잔여 == 0, 음수 0건 |
 | I3 | DB 특가 예약 행 == 20 |
-| I4 | 나머지 약 8,000건이 전부 정중히 거절 (`server_error == 0`) |
-| I5 | 일반 재고가 특가 예약만큼 정확히 차감됨 (특가와 일반 재고의 관계는 F02 스펙 확정 후 확정) |
+| I4 | 나머지 약 8,000건이 전부 정중히 거절 (`server_error == 0`, `bad_request == 0`) |
+| I5 | 일반 재고와의 관계가 지켜짐 — **아래 두 경우 중 확정되는 쪽을 적용한다** |
+
+**I5는 F02 결정에 따라 판정식이 갈린다. 두 경우를 모두 적어두고 대기한다** (§8 Q7).
+
+| 경우 | 특가와 일반 재고의 관계 | I5 판정식 |
+|---|---|---|
+| 경우 1: **차감 연동** (특가가 팔리면 일반 재고도 준다) | 특가는 일반 재고에서 떼어낸 할인 가격표일 뿐 | `일반 잔여 = 초기 일반 재고 − 20`, 그리고 `일반 잔여 + 활성 예약 실수 = 총 객실 수` |
+| 경우 2: **별도 재고** (특가 재고와 일반 재고가 독립) | 특가 20실은 별도 풀 | `일반 잔여 = 초기 일반 재고` (변화 없음), `특가 잔여 = 0` |
+
+**경우 2라면 새 위험이 생긴다.** 특가 20실과 일반 재고가 독립이면, 둘을 합친 판매량이 실제 객실 수를 넘을 수 있다. 그때는 **"특가 판매 + 일반 판매 ≤ 총 객실 수"라는 상위 불변식**을 따로 검증해야 하고, 이걸 확인하는 시나리오(특가와 일반 예약을 동시에 때리기)를 하나 더 추가해야 한다. 경우 2로 확정되면 S7에 하위 케이스 S7-B를 추가한다.
 
 **임계값**
 
@@ -616,35 +836,92 @@ WHERE status NOT IN ('PENDING','CONFIRMED','CANCELLED','EXPIRED','CHECKED_IN','C
 |---|---|---|---|
 | 1 | S1 재고 경합 (순간) | 10분 | F01 병합 |
 | 2 | S3 멱등성 (A/B) | 15분 | F01 병합 |
-| 3 | S4 상태 전이 경합 | 15분 | F01 병합 |
-| 4 | S2 재고 경합 (지속) | 15분 | F01 병합 |
-| 5 | S5 락 대조 (6회) | 40분 | **락 스위치 필요** |
-| 6 | S6 혼합 지속 (5분 × 1회) | 20분 | F01 병합 |
-| 7 | S7 프로모션 스파이크 | 15분 | F02 병합 |
-| 8 | S8 캐시 대조 (6회) | 40분 | F03 병합 |
+| 3 | S4 상태 전이 경합 (취소×확정) | 15분 | F01 병합 |
+| 4 | S4-B 상태 전이 경합 (만료×확정) | 15분 | F01 병합 |
+| 5 | S1-C 부분 소진 (`roomCount` 혼합) | 10분 | F01 병합 |
+| 6 | S2 재고 경합 (지속) | 15분 | F01 병합 |
+| 7 | S5 락 대조 (6회, 재기동 포함) | 50분 | `pms.lock.enabled` |
+| 8 | S6 혼합 지속 (5분 × 1회) | 20분 | F01 병합 |
+| 9 | S7 프로모션 스파이크 | 15분 | F02 병합 |
+| 10 | S8 캐시 대조 (6회) | 40분 | F03 병합 |
 
-S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 확보한다.** 시간이 부족해지면 뒤가 잘리지 앞이 잘리지 않는다.
+필수 구간(1~8) 합계 약 2시간 30분. 조건부까지 약 3시간 25분.
+
+S1~S4-B를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 확보한다.** 시간이 부족해지면 뒤가 잘리지 앞이 잘리지 않는다. S5가 7번인 이유는 앱 재기동이 6회 필요해 가장 손이 많이 가기 때문이고, 그럼에도 필수인 이유는 (라)의 절반이 여기 걸려 있기 때문이다.
 
 **실행 중 앱·DB·k6가 같은 머신에서 돈다.** 실행 시각과 동시에 돌던 다른 프로세스를 기록해 리포트에 남긴다.
 
-## 6. 미확정 항목 — F01 스펙 확정 후 채운다
+## 6. API 계약 (F01 확정본, 2026-08-15 PM 전달)
 
-**추정하지 않는다.** 아래는 전부 비워두고, F01 스펙이 병합되면 채운다. 그때까지 스크립트는 이 값들을 상수 파일(`load-test/config.js`) 한 곳에 모아 두고 참조만 한다.
+**아래 계약은 F01의 D1·D4·D7·D10 승인을 전제한다. 아직 관리자 승인 전이다.** 특히 **D7(확인번호)이 기각되면 경로가 `{code}` → `{id}` 정수로 바뀐다.** 그래서 경로 패턴과 필드명을 전부 `load-test/config.js` 한 곳에 모아, 뒤집혀도 상수 한 줄 수정으로 끝나게 한다.
+
+### 공통 헤더
+
+| 헤더 | 값 | 적용 |
+|---|---|---|
+| `X-User-Id` | `user-1001` 형식 | 모든 API |
+| `Idempotency-Key` | 클라이언트 생성 문자열 | 생성 API에만 |
+
+### 엔드포인트
+
+| 메서드 | 경로 | 비고 |
+|---|---|---|
+| POST | `/api/reservations` | 201 최초 / 200 멱등 재요청 |
+| GET | `/api/reservations/{code}` | 조회 |
+| POST | `/api/reservations/{code}/confirm` | 200 CONFIRMED, **결제 거절 시 200 CANCELLED** |
+| POST | `/api/reservations/{code}/cancel` | |
+| POST | `/api/reservations/{code}/check-in` | |
+| POST | `/api/reservations/{code}/check-out` | |
+| POST | `/api/internal/reservations/expire` | `{ "expiredCount": n }` — S4-B가 쓴다 |
+| POST | `/api/internal/reservations/no-show` | S4-B 보조 실험이 쓴다 |
+
+**내부 id는 노출되지 않는다.** 모든 경로가 `confirmationCode` 기반이므로, k6는 생성 응답의 `confirmationCode`를 보관해 후속 전이 요청에 쓴다.
+
+### 생성 요청·응답
+
+```
+POST /api/reservations
+{ "roomTypeId": 3, "checkIn": "2026-09-01", "checkOut": "2026-09-04",
+  "roomCount": 1, "guestCount": 2 }
+```
+```
+201 Created
+{ "confirmationCode": "K7M2XQ4RN9PH", "status": "PENDING", "roomTypeId": 3,
+  "checkIn": "2026-09-01", "checkOut": "2026-09-04", "nights": 3,
+  "roomCount": 1, "guestCount": 2, "pricePerNight": 180000,
+  "totalPrice": 540000, "expiresAt": "2026-09-01T14:35:00" }
+```
+
+### 상태 전이 표 (F01 확정)
+
+상태 7개: `PENDING`, `CONFIRMED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`, `EXPIRED`, `NO_SHOW`.
+허용 전이 8개 + 멱등 성공 7칸 + 금지 34칸 = 49칸.
+
+| 현재 | 이벤트 | 다음 | 조건 | 재고 |
+|---|---|---|---|---|
+| PENDING | CONFIRM | CONFIRMED | 결제 성공, `now < expiresAt` | - |
+| PENDING | PAYMENT_FAILED | CANCELLED | - | 복원 |
+| PENDING | CANCEL | CANCELLED | - | 복원 |
+| PENDING | EXPIRE | EXPIRED | `now >= expiresAt` | 복원 |
+| CONFIRMED | CANCEL | CANCELLED | - | 복원 |
+| CONFIRMED | CHECK_IN | CHECKED_IN | `checkIn <= today < checkOut` | - |
+| CONFIRMED | NO_SHOW | NO_SHOW | `today > checkIn` | **복원 안 함** |
+| CHECKED_IN | CHECK_OUT | CHECKED_OUT | - | - |
+
+**재고 복원 규칙이 판정식의 근거다.** CANCELLED·EXPIRED는 재고를 점유하지 않고, **NO_SHOW는 점유를 유지한다.** 그래서 보존식의 "활성 예약" 집합은 `status NOT IN ('CANCELLED','EXPIRED')`이며 **NO_SHOW는 포함된다.** 이걸 뒤집으면 NO_SHOW 예약만큼 재고가 어긋난 것처럼 오판한다.
+
+### 여전히 미확정인 것
 
 | 항목 | 현재 | 확정 근거 |
 |---|---|---|
-| 예약 생성 엔드포인트 경로 | 미확정 | F01 스펙 8절 |
-| 확정·취소 엔드포인트 경로 | 미확정 | F01 스펙 8절 |
-| 요청 본문 필드명 (객실타입 ID, 체크인/아웃, 실수, 인원) | 미확정 | F01 스펙 8절 |
-| 응답 본문의 예약 ID 필드명 | 미확정 | F01 스펙 8절 |
-| 멱등 재요청 응답 코드 (200 재반환인가 409인가) | 미확정 | F01 스펙 7절 |
-| 테이블·컬럼명 (`reservation`, `room_daily_inventory`, `remaining`, `stay_date` 등) | **잠정** — 00 문서와 diagram-rules에 등장한 이름을 그대로 썼다 | F01 스펙 5절 + V001 마이그레이션 |
-| 예약이 여러 실(`room_count`)을 지원하는가 | 잠정 (1실 고정으로 설계) | F01 스펙 6절 |
-| 상태 이력 테이블 존재 여부 | 없다고 가정 | F01 스펙 5절. **있으면 S4 판정이 훨씬 정밀해진다** |
-| 수동 만료(EXPIRE) 트리거 API | 미확정 | 있으면 만료×확정 경합 시나리오를 S4에 추가한다 |
-| 시드 재고 규모·날짜 범위 | 참고값(호텔 2, 타입 5, 90일) | F01 스펙 |
-| F03 캐시 TTL | 미확정 | F03 스펙. S8 stale window 합격선에 필요 |
-| 특가와 일반 재고의 관계 | 미확정 | F02 스펙. S7 I5에 필요 |
+| 멱등 성공 7칸의 구체 조합 | 미확정 | F01 스펙. S4·S4-B에서 200(상태 불변)을 정상으로 세려면 어느 칸인지 알아야 한다 (§8 Q11) |
+| 테이블·컬럼명 (`reservation`, `room_daily_inventory`, `confirmation_code`, `check_in` 등) | **잠정** — API 필드명에서 유추한 스네이크 표기 | F01 V001 마이그레이션 대조 (§8 Q12) |
+| 상태 이력 테이블 존재 여부 | 없다고 가정 | F01 스펙 (§8 Q4) |
+| 모의 결제 거절률 | 미확정 | F01 스펙 (§8 Q9) |
+| `expiresAt` 유효 시간 | 미확정 | F01 스펙. S4-B 시드 설계에 필요 (§8 Q10) |
+| 객실타입별 정원·시드 재고 규모 | 참고값(호텔 2, 타입 5, 90일) | F01 시드 마이그레이션 (§3-6에 필요) |
+| F03 캐시 TTL | 미확정 | F03 스펙 (§8 Q6) |
+| 특가와 일반 재고의 관계 | 미확정 | F02 스펙 (§8 Q7) |
 
 ## 7. 결정 검토란
 
@@ -657,6 +934,7 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** 에러율 지표가 두 갈래로 나뉘어 리포트를 읽는 사람이 한 숫자로 "얼마나 안정적인가"를 판단할 수 없다. 표를 봐야 한다.
 - **대안이었던 것:** 503도 정상 거절로 보고 전부 제외(락의 가용성 비용이 안 보임), 409까지 전부 실패로 셈(재고 소진 시 에러율 95%가 나와 무의미).
 - **확인 질문:** 409는 정상, 503은 실패로 세는 이 구분에 동의합니까?
+- **검토 결과 (2026-08-15, PM):** 승인. 여기에 하나 추가 — **결제 거절(200 + 본문 `status: CANCELLED`)도 실패가 아니다.** §3-1 표와 §3-2 지표에 반영했다.
 
 ### D2. 분산락 on/off 스위치를 F01에 요청한다 (앱 코드 변경 필요)
 
@@ -665,6 +943,7 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** F04가 F01에 의존을 하나 만든다. F01이 안 만들어주면 명제 (라)의 절반이 증명되지 않는다. 또 프로덕션 코드에 "안전장치를 끄는 스위치"가 들어가는 것 자체가 위험 요소다(운영에서 실수로 켜지면 사고).
 - **대안이었던 것:** F04가 직접 소스를 고침(소유 규칙 위반이라 기각), 락 OFF 대조를 포기하고 락 ON만 측정(다층 방어 주장이 증명되지 않아 기각), Redis를 통째로 내려서 락을 무력화(앱이 락 실패로 전부 503을 뱉을 가능성이 커서 대조가 안 됨 — 다만 "Redis 장애 시나리오"로는 따로 가치가 있어 보조 실험으로 남겨둘 만하다).
 - **확인 질문:** 분산락 비활성화 스위치를 F01 스펙에 넣어달라고 요청해도 괜찮습니까? 그리고 그 스위치는 **테스트 프로파일에서만 켤 수 있도록** 제한하는 편이 좋겠습니까?
+- **검토 결과 (2026-08-15, PM):** **해결.** F01이 **`pms.lock.enabled`** 설정으로 분산락을 끌 수 있게 만든다. F01도 자기 다층 방어 증명에 필요하다는 점을 인정했다. S5를 설계 그대로 진행한다. 테스트 프로파일 한정 여부는 F01 스펙에서 다룬다.
 
 ### D3. 부하 규모를 300 RPS / 200 VU 수준으로 잡는다
 
@@ -673,6 +952,7 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** "초당 몇 건까지 버티는가"라는 질문에 답하지 못한다. 이 시스템의 성능 한계를 찾는 실험은 못 한다.
 - **대안이었던 것:** 한계까지 올리는 실험(같은 머신에서는 신뢰할 수 없는 숫자가 나옴), 별도 머신에서 부하 생성(가용한 머신이 없음).
 - **확인 질문:** 성능 한계 탐색은 포기하고, 경합 배율 확보와 상대 비교에 집중하는 이 규모에 동의합니까?
+- **검토 결과 (2026-08-15, PM):** 승인. 단 **리포트에 "한 대에서 앱·DB·k6가 동거한 수치"를 반드시 명시할 것.** §3-7에 조항으로 반영했다. 00 리스크 표에도 같은 취지가 이미 있다.
 
 ### D4. 시나리오를 필수/조건부로 나누고, 내부 절단 순서를 미리 정한다
 
@@ -681,6 +961,7 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** 최악의 경우 리포트에 스파이크 시나리오와 캐시 대조가 없다. 상대 비교 서사가 "락 유무" 하나로 줄어 (라)가 얇아진다.
 - **대안이었던 것:** 전부 필수로 두고 밀리면 그때 판단(급할 때 판단하면 잘못 자른다), F01 의존 시나리오만 설계하고 F02·F03은 나중에 설계(설계 시간이 실행 구간을 잡아먹음).
 - **확인 질문:** 이 등급 구분과 내부 절단 순서(S8 → S7 → S6 → S2)에 동의합니까?
+- **검토 결과 (2026-08-15, PM):** 승인. 이후 계약 확정으로 S1-C·S4-B가 추가되어 절단 순서를 **S8 → S7 → S6 → S1-C → S2**로, 사수 대상을 **S1·S3·S4·S4-B·S5**로 갱신했다. S4-B를 사수 대상에 넣은 이유는 00 UC-5가 만료×확정 경합을 명시적 관심사로 들고 있고, 배치 멱등성은 다른 시나리오로 대체되지 않기 때문이다.
 
 ### D5. 초기화 스크립트가 F01 소유 테이블에 직접 DML을 친다
 
@@ -689,6 +970,7 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** F01이 컬럼명을 바꾸면 F04 스크립트가 조용히 깨진다. 결합이 생긴다. 또 초기화 스크립트를 로컬이 아닌 곳에 잘못 돌리면 데이터가 날아간다.
 - **대안이었던 것:** F01에 테스트용 초기화 API를 요청(프로덕션 코드에 데이터 삭제 API를 넣는 게 더 위험하다고 판단), 매 실행마다 DB 컨테이너를 새로 띄우고 마이그레이션 재실행(안전하지만 실행마다 1~2분이 더 들어 8회 이상 도는 대조 시나리오에서 부담).
 - **확인 질문:** 부하테스트 스크립트가 로컬 DB에 한해 직접 초기화 DML을 치는 것을 허용합니까? (안전장치로 접속 대상이 localhost가 아니면 스크립트가 거부하도록 만들 생각입니다)
+- **검토 결과 (2026-08-15, PM):** 조건부 승인. 도메인 코드 수정이 아니라 테스트 데이터 조작이라 parallel-work의 hard 소유 대상이 아니다. 조건 넷 — (1) 스키마·마이그레이션 불가침, (2) localhost가 아니면 스크립트가 거부, (3) 파일은 `load-test/` 안에만, (4) **초기화 대상 테이블을 스크립트 주석과 문서에 명시.** (4)를 §3-4의 테이블 표로 반영했다.
 
 ### D6. 대조 시나리오는 3회 교차 실행 후 중앙값을 쓴다
 
@@ -697,6 +979,7 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** 대조 시나리오 하나에 40분이 든다. 두 개면 80분이고, 8/16 저녁~8/17이라는 일정에서 작지 않은 비용이다.
 - **대안이었던 것:** 1회씩만 측정(잡음을 신뢰할 수 없음), 5회 이상(시간이 부족).
 - **확인 질문:** 대조 시나리오에 40분씩 쓰는 것에 동의합니까? 일정이 빠듯하면 S8을 1회씩으로 줄이고 S5만 3회로 갈 수도 있습니다.
+- **검토 결과 (2026-08-15, PM):** 승인. 일정이 밀리면 S8만 1회로 축소하는 것도 함께 승인받았다. S5는 앱 재기동 6회가 붙어 소요를 50분으로 상향했다(§5).
 
 ### D7. 테이블·컬럼명을 잠정으로 쓰고, 스크립트는 상수 파일 한 곳에서 참조한다
 
@@ -705,23 +988,37 @@ S1~S4를 먼저 돌리는 이유: **가장 짧고 가장 명확한 명제부터 
 - **트레이드오프:** 확정 시점에 이름 대조 작업이 한 번 필요하고, 빠뜨리면 쿼리가 조용히 0행을 반환해 "불변식 통과"로 오독될 수 있다. **그래서 초기화 스크립트에 "초기 상태 검증"(예약 0건, 재고 = 설정값)을 넣어, 쿼리가 실제로 데이터를 잡고 있는지 매번 확인한다.**
 - **대안이었던 것:** F01 스펙이 나올 때까지 대기(일정상 불가), F01 세션에 지금 물어보기(스펙 작성 중이라 답이 확정이 아님 — 다만 스펙 승인 직후 대조는 반드시 한다).
 - **확인 질문:** 잠정 이름으로 설계를 확정하고, F01 스펙 승인 직후 대조하는 방식에 동의합니까?
+- **검토 결과 (2026-08-15, PM):** **해소.** F01 API 계약 확정본이 도착해 §6을 확정본으로 교체했다. 다만 계약 자체가 F01의 D1·D4·D7·D10 승인을 전제하며, **D7(확인번호)이 기각되면 경로가 `{code}` → `{id}` 정수로 바뀐다.** PM도 상수 집약 방식이 정확한 대비책이라고 확인했으므로 `config.js` 단일 지점 참조를 그대로 유지한다. 테이블·컬럼명은 **여전히 잠정**이며 V001 마이그레이션과 대조해 확정한다 (§8 Q12).
 
 ## 8. 열린 질문
 
 작성자가 결정하지 못한 것입니다. **F01·F02·F03 스펙이 확정되면 대부분 자동으로 닫힙니다.** 실행 전에 비워야 합니다.
 
+### 닫힌 질문 (2026-08-15 PM 회신)
+
+| # | 질문 | 답 | 반영 |
+|---|---|---|---|
+| Q1 | 엔드포인트 경로와 요청·응답 형식 | 확정본 도착 | §6 |
+| Q2 | 멱등 재요청은 200인가 409인가 | **200 + 동일 본문.** 처리 중 재요청만 409 REQUEST_IN_PROGRESS | S3 판정표 |
+| Q3 | 여러 실 동시 예약을 지원하는가 | **지원 (`roomCount`)** | **S1-C 신설** |
+| Q5 | 수동 EXPIRE 트리거가 있는가 | **있음** (`POST /api/internal/reservations/expire`). no-show 트리거도 있음 | **S4-B 신설** |
+
+### 남은 질문
+
 | # | 질문 | 누구에게 | 왜 필요한가 |
 |---|---|---|---|
-| Q1 | 예약 생성·확정·취소의 엔드포인트 경로와 요청·응답 형식은? | F01 (관리자 경유) | 스크립트 작성. §6 표를 채우는 데 필요 |
-| Q2 | 멱등 재요청에 200(저장된 결과)을 주는가, 409를 주는가? | F01 | S3의 `rsv_replayed` 판정 기준이 갈린다 |
-| Q3 | 예약이 여러 실을 한 번에 잡는 것을 지원하는가? | F01 | 지원하면 "재고 10에 3실 요청 여러 건" 같은 부분 소진 경합을 S1에 추가할 가치가 있다 |
-| Q4 | 예약 상태 이력 테이블이 있는가? | F01 | 있으면 S4에서 "금지 전이가 시도됐다가 막혔다"를 DB로 직접 증명할 수 있다. 없으면 최종 상태와 응답 조합으로 간접 증명해야 한다 |
-| Q5 | 수동 EXPIRE 트리거 API가 있는가? | F01 | 있으면 "만료 × 확정" 경합을 S4에 추가한다. 00 문서 UC-5가 명시적으로 이 경합을 관심사로 들고 있다 |
-| Q6 | F03 캐시 TTL은 몇 초인가? | F03 | S8의 stale window 합격선 숫자를 못 채운다 |
-| Q7 | 특가 재고와 일반 재고는 어떤 관계인가? (특가가 팔리면 일반 재고도 줄어드는가) | F02 | S7 I5의 판정식이 달라진다 |
-| Q8 | 리포트에 넣을 목표 수치가 따로 있는가? | 관리자 | 지금 임계값은 전부 작성자가 로컬 환경 기준으로 잡은 값이다. 과제 제출 관점에서 "이 정도는 나와야 한다"는 기준이 따로 있다면 반영한다 |
+| Q4 | 예약 상태 이력 테이블이 있는가? | F01 | 있으면 S4·S4-B에서 "금지 전이가 시도됐다가 막혔다"를 DB로 직접 증명할 수 있다. 없으면 최종 상태와 응답 조합으로 간접 증명해야 한다. **PM이 재질의 중** |
+| Q6 | F03 캐시 TTL은 몇 초인가? | F03 | S8의 stale window 합격선 숫자를 못 채운다. **PM이 전달함, 회신 대기** |
+| Q7 | 특가 재고와 일반 재고는 어떤 관계인가? | F02 / 관리자 | S7 I5의 판정식이 두 경우로 갈린다. 경우 2(별도 재고)면 S7-B를 신설해야 한다. **관리자 결정 사항** |
+| Q8 | 리포트에 넣을 목표 수치가 따로 있는가? | 관리자 | 지금 임계값은 전부 작성자가 로컬 환경 기준으로 잡은 값이다. **PM 의견은 "절대 수치 목표를 두지 말자"이고 작성자도 같은 생각이다.** 로컬 한 대에서 잰 TPS 절대값은 검토관에게 의미가 없고, 목표는 "불변식 위반 0건"과 "락·캐시 유무의 상대 차이"여야 이 과제가 증명하겠다고 선언한 것과 맞는다 |
+| Q9 | **모의 결제의 거절률은 몇 %인가?** | F01 | S4에서 "CONFIRM이 경합에 졌다"와 "결제가 거절됐다"가 최종 상태로는 구분되지 않는다. 거절률을 알아야 기대 분포를 숫자로 적을 수 있다. **0%(항상 성공)라면 S4 판정이 가장 깔끔해진다** |
+| Q10 | **`expiresAt`은 생성 후 몇 분인가? 그리고 그 값을 테스트에서 짧게 만들 수 있는가?** | F01 | S4-B는 "곧 만료될 PENDING 예약 400건"이 필요하다. 만료가 30분 뒤라면 부하테스트로 재현할 수 없다. 설정으로 짧게(예: 5초) 만들 수 있으면 그대로 쓰고, 없으면 DB에서 `expires_at`을 직접 당기는 방식으로 시드해야 한다 |
+| Q11 | **멱등 성공 7칸은 구체적으로 어느 조합인가?** | F01 | 전이 API가 200(상태 불변)을 주는 칸을 알아야 `transition_idem`을 정상으로 세고 나머지를 위반으로 판정할 수 있다. 모르면 200을 무조건 성공으로 세게 되어 금지 전이 통과를 놓칠 수 있다 |
+| Q12 | 테이블·컬럼 실제 이름 (`reservation`, `room_daily_inventory`, `confirmation_code`, `check_in`, `room_count`, `idempotency_key`, `expires_at`) | F01 | 검증 SQL이 조용히 0행을 반환하면 "불변식 통과"로 오독된다. §3-4의 초기 상태 검증이 1차 방어지만, V001 대조가 정답이다 |
 
-**Q1~Q7은 F01·F02·F03 세션에 직접 묻지 않고 PM을 경유해 전달한다** (`docs/architecture/parallel-work.md` 세션 간 소통 규칙).
+**모든 질문은 F01·F02·F03 세션에 직접 묻지 않고 PM을 경유해 전달한다** (`docs/architecture/parallel-work.md` 세션 간 소통 규칙).
+
+**Q9·Q10·Q11이 새로 생긴 질문이다.** 셋 다 계약 확정본을 읽으면서 드러난 것으로, **Q10이 특히 급하다.** `expiresAt`을 짧게 만들 수 없으면 S4-B를 API만으로는 재현할 수 없고 DB를 직접 건드려 시드해야 하는데, 그건 §3-4 초기화 대상 표에 항목을 하나 더 추가해야 하는 일이다.
 
 ## 9. 학습 노트 후보
 
