@@ -11,7 +11,7 @@
 //   여기 한 곳에 모은다.
 
 import { Counter } from 'k6/metrics';
-import { ERROR_CODE, RESPONSE_FIELDS, STATUS } from '../config.js';
+import { ERROR_CODE, RESPONSE_FIELDS, STATUS, IDEMPOTENT_CELLS, ACTION_EVENT, isExplainable200 } from '../config.js';
 
 export const M = {
     rsvCreated: new Counter('rsv_created'),
@@ -31,6 +31,9 @@ export const M = {
     // 전이 요청이 전부 404로 떨어지는데, 404는 "예약이 없다"로 읽혀서
     // 원인을 찾는 데 오래 걸린다. 그래서 따로 세고 하드 게이트로 둔다.
     notFound: new Counter('not_found'),
+    // 거부 34칸에서 200이 나왔다. 명제 (다)의 직접적인 반증이다.
+    // 성능 지표가 아니라 결론을 뒤집는 사건이므로 하드 게이트로 둔다.
+    forbiddenPassed: new Counter('forbidden_transition_passed'),
 };
 
 function parse(res) {
@@ -100,12 +103,26 @@ export function classifyTransition(res, opts = {}) {
     const status = body && body[RESPONSE_FIELDS.status];
 
     if (res.status === 200) {
+        // 전이 표 49칸 = 허용 8 + 멱등 7 + 거부 34.
+        // 200이 나왔다면 앞의 15칸 중 하나로 설명돼야 한다.
+        // 거부 34칸에서 200이 나왔다면 금지 전이가 통과한 것이다.
+        // 이건 성능 지표가 아니라 명제 (다)의 반증이므로 즉시 실패로 센다.
+        if (!isExplainable200(opts.priorStatus, opts.action, status)) {
+            M.forbiddenPassed.add(1);
+            return { kind: 'forbidden_passed', status, body };
+        }
         // 결제 거절. 실패가 아니라 정상 처리 결과다 (§3-1).
+        //
+        // **200 + CANCELLED가 나오는 경로는 결제 거절 하나뿐이다.**
+        // 확정이 경합에서 지면 조건부 UPDATE가 0건을 반환해 409가 나가고,
+        // 이미 취소된 예약에 확정을 걸어도 전이 표상 거부라 409다.
+        // 그래서 상태 코드만으로 "졌다"와 "거절됐다"가 갈린다 — 최종 상태를
+        // 역추적할 필요가 없다.
         if (opts.action === 'confirm' && status === STATUS.CANCELLED) {
             M.paymentDeclined.add(1);
             return { kind: 'declined', status, body };
         }
-        // 이미 그 상태였다면 멱등 전이다 (전이 표의 멱등 성공 7칸).
+        // 이미 그 상태였다면 멱등 전이다 (멱등 성공 7칸).
         if (opts.priorStatus && status === opts.priorStatus) {
             M.transitionIdem.add(1);
             return { kind: 'idempotent', status, body };
@@ -150,4 +167,5 @@ export const BASE_THRESHOLDS = {
     server_error: ['count==0'],
     bad_request: ['count==0'],
     not_found: ['count==0'],
+    forbidden_transition_passed: ['count==0'],
 };

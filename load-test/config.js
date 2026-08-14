@@ -37,7 +37,16 @@ export const PATHS = {
     expire: '/api/internal/reservations/expire',
     noShow: '/api/internal/reservations/no-show',
     health: '/actuator/health',
+    // F03 검색. X-User-Id를 요구하지 않는다 (F03 스펙 D11).
+    availability: '/api/availability',
 };
+
+// F02 특가. 경로에 객실타입과 투숙일이 들어간다.
+// 특가 예약은 1실 고정이다 (F02 D4).
+export function promotionPath(roomTypeId, stayDate, sub) {
+    const base = `/api/promotions/${roomTypeId}/${stayDate}`;
+    return sub ? `${base}/${sub}` : base;
+}
 
 // 예약 식별자를 경로로 바꾸는 유일한 함수.
 // D7이 기각되면 여기와 idField()만 바꾼다. 다른 파일은 손대지 않는다.
@@ -94,6 +103,72 @@ export const STATUS = {
 // NO_SHOW는 재고를 복원하지 않으므로 여기 넣지 않는다 (전이 표 참조).
 export const RELEASED_STATUSES = [STATUS.CANCELLED, STATUS.EXPIRED];
 
+// ---------------------------------------------------------------------------
+// 전이 표 49칸 = 허용 전이 8 + 멱등 성공 7 + 거부 34
+// ---------------------------------------------------------------------------
+//
+// 멱등 성공 7칸: 상태가 안 바뀌고 200이 나가는 조합이다.
+//
+// 판정 규칙이 이 표 덕에 단순해진다:
+//   **200을 받았다면 허용 전이 8칸이거나 아래 7칸 중 하나여야 한다.**
+//   나머지 34칸에서 200이 나오면 금지 전이가 통과한 것이므로 즉시 실패다.
+//
+// NO_SHOW 칸은 F01 D4에 걸려 있다. D4가 기각되면 이 칸이 사라지고
+// 49칸이 36칸이 되므로, FEATURES.noShow 로 함께 껐다 켜지게 한다.
+const IDEMPOTENT_CELLS_ALL = [
+    [STATUS.CONFIRMED,   'CONFIRM'],
+    [STATUS.CANCELLED,   'CANCEL'],
+    [STATUS.CANCELLED,   'PAYMENT_FAILED'],
+    [STATUS.EXPIRED,     'EXPIRE'],
+    [STATUS.CHECKED_IN,  'CHECK_IN'],
+    [STATUS.CHECKED_OUT, 'CHECK_OUT'],
+    [STATUS.NO_SHOW,     'NO_SHOW'],
+];
+
+export const IDEMPOTENT_CELLS = IDEMPOTENT_CELLS_ALL
+    .filter(([state]) => FEATURES.noShow || state !== STATUS.NO_SHOW)
+    .map(([state, event]) => `${state}:${event}`);
+
+// 허용 전이 8칸. (현재 상태, 이벤트) -> 다음 상태
+const ALLOWED_ALL = {
+    'PENDING:CONFIRM':          STATUS.CONFIRMED,
+    'PENDING:PAYMENT_FAILED':   STATUS.CANCELLED,
+    'PENDING:CANCEL':           STATUS.CANCELLED,
+    'PENDING:EXPIRE':           STATUS.EXPIRED,
+    'CONFIRMED:CANCEL':         STATUS.CANCELLED,
+    'CONFIRMED:CHECK_IN':       STATUS.CHECKED_IN,
+    'CONFIRMED:NO_SHOW':        STATUS.NO_SHOW,
+    'CHECKED_IN:CHECK_OUT':     STATUS.CHECKED_OUT,
+};
+
+export const ALLOWED_TRANSITIONS = Object.fromEntries(
+    Object.entries(ALLOWED_ALL).filter(([k]) => FEATURES.noShow || !k.endsWith(':NO_SHOW')),
+);
+
+// HTTP 액션 이름 -> 전이 표의 이벤트 이름
+export const ACTION_EVENT = {
+    'confirm': 'CONFIRM',
+    'cancel': 'CANCEL',
+    'check-in': 'CHECK_IN',
+    'check-out': 'CHECK_OUT',
+};
+
+// 200 응답이 전이 표로 설명되는가.
+// priorStatus를 모르면 판정할 수 없으므로 그때는 true로 둔다(별도 지표로 센다).
+export function isExplainable200(priorStatus, action, resultStatus) {
+    if (!priorStatus) return true;
+    const event = ACTION_EVENT[action];
+    if (!event) return true;
+    const key = `${priorStatus}:${event}`;
+    if (IDEMPOTENT_CELLS.includes(key)) return resultStatus === priorStatus;
+    if (key in ALLOWED_TRANSITIONS) {
+        // 결제 거절은 CONFIRM이 CANCELLED로 끝나는 정상 경로다.
+        if (event === 'CONFIRM' && resultStatus === STATUS.CANCELLED) return true;
+        return resultStatus === ALLOWED_TRANSITIONS[key];
+    }
+    return false; // 거부 34칸에서 200이 나왔다 -> 금지 전이 통과
+}
+
 export const ERROR_CODE = {
     INVALID_REQUEST: 'INVALID_REQUEST',
     RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
@@ -102,6 +177,28 @@ export const ERROR_CODE = {
     DUPLICATE_REQUEST: 'DUPLICATE_REQUEST',
     REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
     LOCK_ACQUISITION_FAILED: 'LOCK_ACQUISITION_FAILED',
+    // F02 특가
+    PROMOTION_SOLD_OUT: 'PROMOTION_SOLD_OUT',
+};
+
+// F03 검색 응답 필드. 계측을 별도로 붙이지 않고 응답에서 직접 읽는다.
+export const SEARCH_FIELDS = {
+    source: 'source',                             // 'CACHE' | 'DB' — 이 비율이 곧 히트율이다
+    searchedAt: 'searchedAt',                     // 응답 시각과의 차이 = 그 응답이 얼마나 낡았는가
+    staleToleranceSeconds: 'staleToleranceSeconds',
+    items: 'items',
+    minRemaining: 'minRemaining',
+    emptyReason: 'emptyReason',                   // SOLD_OUT | NOT_YET_OPEN | NO_FITTING_ROOM_TYPE
+};
+
+// 검색 파라미터의 안전 구간 (F03 계약 2절).
+// 예약 API와 달리 검색은 과거 날짜를 400으로 막는다. 시드 범위 안이어도
+// 오늘 이전은 검색으로 도달할 수 없다.
+export const SEARCH_BOUNDS = {
+    minCheckIn: '2026-08-15',   // 오늘. 이보다 앞이면 400
+    maxCheckOut: '2026-10-30',  // 이보다 뒤면 200 + NOT_YET_OPEN
+    maxNights: 30,
+    hotelIds: [1, 2],           // 3 이상은 404
 };
 
 // ---------------------------------------------------------------------------

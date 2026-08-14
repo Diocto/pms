@@ -50,7 +50,7 @@ SELECT i.stay_date, i.remaining, rt.total_quantity,
 SELECT '--- 이중 만료: 예약당 EXPIRE 이력이 2줄 이상 (기대: 0행) ---' AS check_name;
 -- 이력 테이블이 없으면 이 쿼리는 실패한다. 그때는 I3의 합계 대조로 대신한다.
 SELECT h.reservation_id, COUNT(*) AS expire_events
-  FROM reservation_history h
+  FROM reservation_status_history h
   JOIN reservation r ON r.id = h.reservation_id
  WHERE r.check_in BETWEEN @from AND @to
    AND h.event = 'EXPIRE'

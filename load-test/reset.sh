@@ -8,7 +8,7 @@
 #
 # 초기화 대상 (PM 승인 D5 조건 4에 따른 명시)
 #   - reservation                 : 대상 날짜 대역 행 DELETE          [F01 소유]
-#   - reservation_history         : 대상 날짜 대역 행 DELETE          [F01 소유, 존재 시]
+#   - reservation_status_history  : 대상 날짜 대역 행 DELETE          [F01 소유]
 #   - room_daily_inventory        : remaining = total_quantity 로 복원 [F01 소유]
 #   - promotion_inventory         : S7 실행 시에만 초기값 복원        [F02 소유, 이름 미확정]
 #   - Redis 전체                  : FLUSHDB (멱등키·분산락·캐시)
@@ -94,13 +94,13 @@ echo "[reset] 시나리오=$SCENARIO 날짜=$FROM ~ $TO"
 # --------------------------------------------------------------------------
 # 1. 예약 삭제
 # --------------------------------------------------------------------------
-# 이력 테이블이 있으면 먼저 지운다. 없으면 조용히 넘어간다
-# (존재 여부가 아직 미확정이다 — scenarios.md §8 Q4).
+# 이력을 먼저 지운다 (reservation FK 때문에 순서가 중요하다).
+# F01이 아직 안 병합됐으면 테이블이 없으므로 조용히 넘어간다.
 mysql_run "
-DELETE h FROM reservation_history h
+DELETE h FROM reservation_status_history h
   JOIN reservation r ON r.id = h.reservation_id
  WHERE r.check_in BETWEEN '$FROM' AND '$TO';
-" 2>/dev/null || echo "[reset] reservation_history 없음 — 건너뜀"
+" 2>/dev/null || echo "[reset] reservation_status_history 없음 — 건너뜀"
 
 mysql_run "DELETE FROM reservation WHERE check_in BETWEEN '$FROM' AND '$TO';"
 

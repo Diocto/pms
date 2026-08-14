@@ -23,10 +23,14 @@
 // 설계: docs/load-test/scenarios.md §4 S6
 // 실행 전: ./reset.sh s6
 
+import http from 'k6/http';
 import exec from 'k6/execution';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
-import { ALL_ROOM_TYPES, PLAN, STATUS, idField, nightsAfter } from './config.js';
+import {
+    BASE_URL, PATHS, ALL_ROOM_TYPES, ROOM_TYPES, PLAN, STATUS,
+    idField, nightsAfter, headers, reservationBody,
+} from './config.js';
 import { installResponseCallback, createReservation, confirm, cancel, get } from './lib/api.js';
 import { BASE_THRESHOLDS } from './lib/metrics.js';
 
@@ -44,6 +48,17 @@ const createdTotal = new Counter('soak_created');
 const cancelledTotal = new Counter('soak_cancelled');
 const confirmedTotal = new Counter('soak_confirmed');
 
+// 과거 체크아웃 프로브.
+//
+// F01의 규칙은 대부분 DB CHECK 제약이 최후 방어선으로 받쳐준다. 애플리케이션이
+// 뚫려도 DB에서 멈춘다. 그런데 `checkOut > today` 하나만 예외다 —
+// MySQL CHECK에 CURDATE()를 쓸 수 없어 원리적으로 제약을 걸 수 없고,
+// **애플리케이션 검증 한 겹이 전부다.**
+//
+// 방어선이 한 겹뿐인 곳은 뚫려보는 값이 있다. 소량만 섞는다.
+const probeRejected = new Counter('past_checkout_rejected');  // 400으로 막힘 = 정상
+const probeLeaked = new Counter('past_checkout_leaked');      // 통과 = 규칙이 뚫렸다
+
 export const options = {
     scenarios: {
         soak: {
@@ -58,6 +73,8 @@ export const options = {
     thresholds: {
         ...BASE_THRESHOLDS,
         http_req_duration: ['p(95)<1000'],
+        // 방어선이 한 겹뿐인 규칙이 실제로 막는가. 하드 게이트다.
+        past_checkout_leaked: ['count==0'],
     },
 };
 
@@ -77,6 +94,12 @@ export default function () {
     const owner = `user-6${String(exec.vu.idInTest).padStart(4, '0')}`;
     const roll = n % 20;
 
+    // 50회에 1번(2%)만 과거 체크아웃 프로브를 섞는다. 무거울 필요가 없다.
+    if (n % 50 === 0) {
+        pastCheckoutProbe(owner, n);
+        return;
+    }
+
     // 예약 60% / 확정 20% / 취소 15% / 조회 5%
     if (roll < 12) {
         doCreate(owner, n);
@@ -87,6 +110,34 @@ export default function () {
     } else {
         doGet(owner);
     }
+}
+
+// 이미 끝난 투숙을 예약하려 시도한다. 400으로 막혀야 한다.
+//
+// classifyCreate를 쓰지 않고 직접 호출하는 이유:
+//   이 프로브의 400은 **의도된 것**이라 bad_request(하드 게이트, 0이어야 함)에
+//   섞이면 안 된다. §3-6의 "400을 만들지 않는다" 규약은 경합을 재는 요청에
+//   대한 것이고, 이건 규칙을 시험하는 요청이라 성격이 다르다.
+function pastCheckoutProbe(owner, n) {
+    // 시드 범위 안이면서 이미 지난 날짜. 오늘이 2026-08-15이므로 08-02~08-04는
+    // checkOut이 과거다. 재고 행 자체는 존재하므로 "행이 없어서" 막히는 것과
+    // 구분된다 — 순수하게 날짜 규칙만 시험한다.
+    const body = reservationBody(ROOM_TYPES.standard, '2026-08-02', { nights: 2 });
+    const res = http.post(`${BASE_URL}${PATHS.create}`, JSON.stringify(body), {
+        headers: headers(owner, `s6-probe-${exec.vu.idInTest}-${n}`),
+        tags: { op: 'past_checkout_probe' },
+    });
+
+    if (res.status === 400) {
+        probeRejected.add(1);
+    } else if (res.status === 201 || res.status === 200) {
+        // 규칙이 뚫렸다. DB CHECK가 없으므로 이 행은 그대로 저장된다.
+        probeLeaked.add(1);
+    }
+
+    check(res, {
+        '과거 체크아웃은 400으로 막힌다': (r) => r.status === 400,
+    });
 }
 
 function doCreate(owner, n) {
