@@ -4,7 +4,7 @@
 만들므로, 조건이 도중에 바뀌면 키와 값이 어긋난다.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -70,6 +70,15 @@ class SearchAvailableRoomsQuery(BaseModel):
     room_count: int
     fresh: bool = False
 
+    def cache_key(self) -> str:
+        """캐시 키 (스펙 7절). `fresh`만 뺀다 — 캐시를 읽을지 정하는 값이지
+        결과를 바꾸는 값이 아니다. 나머지 조건은 하나도 빼지 않는다 (I6)."""
+        return (
+            f"avail:{self.hotel_id}"
+            f":{self.stay.check_in.isoformat()}:{self.stay.check_out.isoformat()}"
+            f":{self.guest_count}:{self.room_count}"
+        )
+
 
 class EmptyReason(str, Enum):
     """빈 결과의 이유. 문자열이 곧 계약이다 — F04·F05가 생 문자열로 비교하므로
@@ -117,3 +126,26 @@ class AvailableRoomTypeView(BaseModel):
     min_remaining: int
     price_per_night: int
     total_price: int
+
+
+class Source(str, Enum):
+    """이 응답이 어디서 왔는가. F04가 생 문자열로 비교하는 계약이다 —
+    표본이 말라도 임계값 검사는 조용히 통과하므로, 값이 어긋나면 안 잡힌다."""
+
+    CACHE = "CACHE"
+    DB = "DB"
+
+
+class AvailableRoomsResult(BaseModel):
+    """검색 결과 전체. 낡음을 숨기지 않는다 — 언제 찍힌 스냅샷인지(`searched_at`),
+    어디서 왔는지(`source`), 얼마나 낡을 수 있는지(`stale_tolerance_seconds`)를
+    함께 실어 보낸다 (G2)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    searched_at: datetime
+    source: Source
+    stale_tolerance_seconds: int
+    items: list[AvailableRoomTypeView]
+    empty_reason: EmptyReason | None = None
+    sales_open_until: date | None = None
