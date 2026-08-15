@@ -3,6 +3,10 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
+### Node (F05 프론트엔드) ###
+node_modules/
+.next/
+
 ### IDE ###
 .idea/
 *.iml
