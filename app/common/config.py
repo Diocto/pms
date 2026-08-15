@@ -52,3 +52,12 @@ class Settings(BaseSettings):
     payment_decline_rate: float = Field(
         default=0.0, validation_alias="PMS_PAYMENT_DECLINE_RATE"
     )
+
+    # --- 검색 캐시 (F03) ---
+    # 절단 1순위(00 D4). 끈 채로도 전체가 돌아야 하므로 이 스위치가 계약이다.
+    search_cache_enabled: bool = Field(
+        default=True, validation_alias="PMS_SEARCH_CACHE_ENABLED"
+    )
+    search_cache_ttl_seconds: int = Field(
+        default=10, validation_alias="PMS_SEARCH_CACHE_TTL_SECONDS"
+    )
