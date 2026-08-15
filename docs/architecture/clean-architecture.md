@@ -9,18 +9,29 @@
 ## 레이어와 의존 방향
 
 ```
-   adapter (in/web, in/actuator, out/persistence, out/lock, out/cache)
-      │  의존
-      ▼
-   application (유스케이스, 포트)
-      │  의존
-      ▼
-   domain (애그리거트, VO, 도메인 서비스, 리포지토리 인터페이스)
+   presentation (라우터, 요청·응답 스키마, 운영 엔드포인트)   ← 들어오는 경계
+      │  의존                                    ▲
+      ▼                                          │ 구현
+   application (유스케이스, 포트) ────────────────┤
+      │  의존                                    │
+      ▼                                          │
+   domain (애그리거트, VO, 도메인 서비스)         │
+                                                 │
+   infrastructure (영속성, 분산락, 캐시)  ────────┘   ← 나가는 경계
 ```
 
-의존은 **안쪽으로만** 향한다. `domain`은 `application`을 모르고, `application`은 `adapter`를 모른다.
+**바깥 두 층은 안쪽을 향한다.** `presentation`은 `application`을 부르고, `infrastructure`는 `application`이 정의한 포트를 구현한다. `domain`은 아무도 모르고, `application`은 바깥 두 층을 모른다.
 
-바깥 기술을 안쪽에서 써야 할 때는 **포트**를 쓴다. 안쪽이 `Protocol`을 정의하고 바깥이 구현한다. 유스케이스가 분산락이 필요하면 `application/port/out/lock_port.py`에 `LockPort`를 정의하고, Redis 구현은 `adapter/out/lock/`에 둔다. 그러면 유스케이스 테스트에서 락을 가짜 구현으로 바꿔 끼울 수 있다.
+**두 바깥 층의 성격이 다르다.**
+
+| 층 | 방향 | 하는 일 |
+|---|---|---|
+| `presentation` | 들어오는 요청 | HTTP를 받아 `Command`로 옮기고, `Result`를 응답으로 옮긴다 |
+| `infrastructure` | 나가는 호출 | DB·Redis 같은 바깥 세계를 포트 뒤에 감춘다 |
+
+**이름과 자리를 일치시킨다.** 영속성 구현이 `presentation` 아래 있으면 읽는 사람이 "화면 계층에 왜 DB가 있나"에서 멈춘다. 들어오는 경계와 나가는 경계는 다루는 문제가 달라서 한 이름으로 묶을 이유가 없다.
+
+바깥 기술을 안쪽에서 써야 할 때는 **포트**를 쓴다. 안쪽이 `Protocol`을 정의하고 바깥이 구현한다. 유스케이스가 분산락이 필요하면 `application/ports.py`에 `LockPort`를 정의하고, Redis 구현은 `infrastructure/lock.py`에 둔다. 그러면 유스케이스 테스트에서 락을 가짜 구현으로 바꿔 끼울 수 있다.
 
 **파이썬은 의존 방향을 컴파일러가 지켜주지 않는다.** import 한 줄이면 안쪽에서 바깥을 부를 수 있고 아무도 막지 않는다. 그래서 **리뷰에서 import를 직접 본다.** 규칙 위반을 잡는 수단이 사람과 테스트뿐이라는 것을 전제로 코드를 쓴다.
 
@@ -42,17 +53,19 @@ app/
     │   ├── enums.py            상태·이벤트
     │   ├── transitions.py      전이 표 (데이터)
     │   ├── services.py         한 애그리거트에 담기지 않는 도메인 규칙
-    │   └── repositories.py     리포지토리 Protocol (구현은 adapter)
+    │   └── repositories.py     리포지토리 Protocol (구현은 infrastructure)
     ├── application/
     │   ├── ports.py            외부 의존 Protocol (락, 캐시, 멱등성 저장소, 확장 지점)
     │   ├── commands.py         유스케이스 입출력 (Command, Result)
     │   └── usecases/           유스케이스 구현
-    ├── adapter/
-    │   ├── web/                라우터, 요청·응답 스키마
-    │   ├── persistence/        리포지토리 구현, 쿼리
-    │   ├── lock/               Redis 분산락 구현
-    │   ├── cache/              Redis 캐시 구현
-    │   └── actuator/           설정 노출 등 운영 엔드포인트
+    ├── presentation/           들어오는 경계
+    │   ├── router.py           라우터
+    │   ├── schemas.py          요청·응답 스키마 (ApiModel 상속)
+    │   └── actuator.py         설정 노출 등 운영 엔드포인트
+    ├── infrastructure/         나가는 경계
+    │   ├── persistence.py      리포지토리 구현, 쿼리
+    │   ├── lock.py             Redis 분산락 구현
+    │   └── cache.py            Redis 캐시 구현
     └── container.py            이 컨텍스트의 프로바이더 묶음
 migrations/                     Alembic
 tests/
@@ -79,7 +92,7 @@ load-test/                      k6 (F04 소유)
 
 ## 조립은 컨테이너가 전담한다
 
-**유스케이스는 어댑터를 직접 만들지 않는다.** 생성자로 포트를 받고, 무엇이 들어오는지는 컨테이너가 정한다.
+**유스케이스는 구현체를 직접 만들지 않는다.** 생성자로 포트를 받고, 무엇이 들어오는지는 컨테이너가 정한다.
 
 ```python
 class CreateReservationUseCase:
@@ -103,7 +116,7 @@ class CreateReservationUseCase:
 
 **하지 않는다.** 비즈니스 판단. `if 상태 == 'PENDING'` 같은 분기가 유스케이스에 나타나면 그 규칙은 도메인에 있어야 한다.
 
-**유스케이스가 트랜잭션 경계의 주인이다.** 라우터나 어댑터가 세션을 열지 않는다. 자세한 규칙은 `coding-rules.md`의 트랜잭션 경계 절에 있다.
+**유스케이스가 트랜잭션 경계의 주인이다.** 라우터나 영속성 구현이 세션을 열지 않는다. 자세한 규칙은 `coding-rules.md`의 트랜잭션 경계 절에 있다.
 
 ## 라우터는 얇다
 
@@ -117,7 +130,7 @@ class CreateReservationUseCase:
 
 ## 조회 전용 경로는 도메인을 거치지 않아도 된다
 
-검색처럼 **읽기만 하고 상태를 바꾸지 않는** 경로는 애그리거트를 로드할 이유가 없다. 필요한 컬럼만 뽑는 쿼리를 어댑터에 두고 결과를 바로 응답 형태로 만든다.
+검색처럼 **읽기만 하고 상태를 바꾸지 않는** 경로는 애그리거트를 로드할 이유가 없다. 필요한 컬럼만 뽑는 쿼리를 `infrastructure`에 두고 결과를 바로 응답 형태로 만든다.
 
 이건 규칙 위반이 아니라 **의도된 분리**다. 쓰기 모델은 불변식을 지켜야 해서 애그리거트가 필요하지만, 읽기 모델은 화면에 필요한 모양이면 된다. 둘을 같은 모델로 억지로 맞추면 양쪽이 다 어색해진다.
 
@@ -129,7 +142,8 @@ class CreateReservationUseCase:
 |---|---|
 | DB·웹·Redis 없이 테스트할 수 있는가 | `domain` |
 | 여러 도메인 객체의 협력 순서를 정하는가 | `application/usecases` |
-| 특정 기술(SQL, Redis, HTTP)을 알고 있는가 | `adapter` |
+| HTTP 요청을 받아 옮기는가 | `presentation` |
+| DB·Redis 같은 바깥 세계를 다루는가 | `infrastructure` |
 | 안쪽이 필요로 하지만 바깥이 구현해야 하는가 | 포트 — 안쪽에 `Protocol`, 바깥에 구현 |
 | 여러 컨텍스트가 함께 쓰는가 | `common` — **단, 특정 컨텍스트에 의존하면 안 된다** |
 

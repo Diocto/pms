@@ -22,7 +22,7 @@
 
 **세션이 곧 트랜잭션 경계다.** SQLAlchemy는 세션 없이 쿼리할 수 없으므로 "트랜잭션을 열지 않는다"는 표현은 성립하지 않는다. 대신 **세션의 수명을 얼마나 짧게 잡는가**로 말한다.
 
-**세션은 유스케이스에서만 연다.** 라우터, 도메인, 리포지토리 어댑터가 스스로 세션을 만들지 않는다. 어댑터는 주입받은 세션을 쓰기만 한다.
+**세션은 유스케이스에서만 연다.** 라우터, 도메인, 리포지토리 구현이 스스로 세션을 만들지 않는다. 구현체는 주입받은 세션을 쓰기만 한다.
 
 ```python
 class CreateReservationUseCase:
@@ -285,9 +285,9 @@ DomainError (기반)
 
 ## 조립 (Dependency Injector)
 
-**포트는 `Protocol`로 정의하고 어댑터가 구현한다.** 유스케이스는 포트만 안다.
+**포트는 `Protocol`로 정의하고 `infrastructure`가 구현한다.** 유스케이스는 포트만 안다.
 
-**컨테이너가 조립을 전담한다.** 유스케이스 안에서 어댑터를 직접 만들지 않는다.
+**컨테이너가 조립을 전담한다.** 유스케이스 안에서 구현체를 직접 만들지 않는다.
 
 **확장 지점은 리스트 프로바이더로 둔다.** 구현이 0개면 빈 리스트라 아무 일도 일어나지 않고, 다른 feature가 하나 추가하면 자동으로 들어온다. 이렇게 하면 그 feature가 없어도 코어가 그대로 돈다.
 
@@ -304,7 +304,7 @@ DomainError (기반)
 | 유스케이스 출력 | `~Result` | `CreateReservationResult` |
 | 웹 요청·응답 | `~Request`, `~Response` | `CreateReservationRequest` |
 | 포트 | `~Port` | `DistributedLockPort` |
-| 어댑터 | `~Adapter` | `RedisLockAdapter` |
+| 포트 구현 | `~Adapter` | `RedisLockAdapter` |
 | 예외 | `~Error` | `InsufficientInventoryError` |
 
 모듈·함수·변수는 `snake_case`, 클래스는 `PascalCase`를 쓴다.
