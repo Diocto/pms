@@ -169,24 +169,49 @@ fi
 #
 # 그래서 S5는 스위치 확인에 실패하면 부하를 넣지 않는다.
 # (scenarios.md §3-10 S5 항목의 자동화가 이것이다)
+#
+# 값을 /actuator/info 에서 읽는다. /actuator/env 가 아니다.
+#   env 로 읽으려면 management.endpoint.env.show-values=ALWAYS 가 필요한데,
+#   그러면 설정 전체가 마스킹 없이 열려 DB 접속 정보까지 노출된다. 로컬
+#   전용이라 실질 위험은 없지만, 제출 문서에 "이 설정 그대로 실서비스에
+#   올리면 사고"라는 각주가 붙는다. info 는 이미 열려 있고 마스킹도 없으며
+#   우리가 실을 값만 싣는다. 노출을 늘리지 않는 쪽을 골랐다.
+#
+# 기대 응답 (F01 InfoContributor):
+#   {"loadTest":{"pms.lock.enabled":false,"pms.reservation.hold-minutes":10,...}}
+#   키는 스프링 설정 키 이름 그대로다. 이름을 바꾸지 않으므로 번역 과정에서
+#   어긋날 자리가 없다.
+INFO_URL="${BASE_URL:-http://localhost:8080}/actuator/info"
+
+# info 응답에서 키 하나의 값을 꺼낸다. 없으면 빈 문자열.
+info_value() {
+    local key="$1" body="$2" key_re
+    key_re=$(printf '%s' "$key" | sed 's/[.[\*^$]/\\&/g')   # 점을 정규식 메타로 안 읽게
+    printf '%s' "$body" \
+        | tr -d ' \n' \
+        | grep -o "\"${key_re}\":[^,}]*" \
+        | head -1 \
+        | sed "s/^\"[^\"]*\"://" \
+        | tr -d '"'
+}
+
 check_switch() {
     local key="$1" expected="$2"
-    local url="${BASE_URL:-http://localhost:8080}/actuator/env/${key}"
     local body actual
 
-    if ! body=$(curl -sf --max-time 5 "$url"); then
-        echo "[reset] 실패: ${url} 를 읽을 수 없다." >&2
-        echo "[reset] 앱이 안 떠 있거나 actuator env 엔드포인트가 안 열려 있다." >&2
+    if ! body=$(curl -sf --max-time 5 "$INFO_URL"); then
+        echo "[reset] 실패: ${INFO_URL} 를 읽을 수 없다." >&2
+        echo "[reset] 앱이 안 떠 있거나 actuator info 엔드포인트가 안 열려 있다." >&2
         echo "[reset] S5는 스위치가 실제 값인지 확인하지 못하면 의미가 없으므로 중단한다." >&2
         return 1
     fi
 
-    # {"property":{"source":"...","value":true}, ...} 에서 첫 value 를 뽑는다.
-    actual=$(printf '%s' "$body" | grep -o '"value":[^,}]*' | head -1 | cut -d: -f2 | tr -d ' "')
+    actual=$(info_value "$key" "$body")
 
     if [ -z "$actual" ] || [ "$actual" = "null" ]; then
-        echo "[reset] 실패: ${key} 설정이 존재하지 않는다 (응답에 값이 없다)." >&2
-        echo "[reset] 키 이름이 바뀌었는지 F01에 확인해라." >&2
+        echo "[reset] 실패: info 응답에 ${key} 가 없다." >&2
+        echo "[reset] 응답: ${body}" >&2
+        echo "[reset] F01의 InfoContributor 가 이 키를 싣고 있는지 확인해라." >&2
         return 1
     fi
     if [ "$actual" != "$expected" ]; then
@@ -200,6 +225,24 @@ check_switch() {
 case "$SCENARIO" in
     s5on)  check_switch "pms.lock.enabled" "true"  || exit 1 ;;
     s5off) check_switch "pms.lock.enabled" "false" || exit 1 ;;
+    s4b)   check_switch "pms.reservation.hold-minutes" "1" || exit 1 ;;
 esac
+
+# 실제 설정값을 리포트에 그대로 싣기 위해 통째로 저장해둔다.
+# 손으로 옮겨 적으면 틀리고, 틀려도 아무도 모른다. 실행 시점의 실제 값이
+# 파일로 남아야 "같은 조건에서 쟀다"가 증거가 된다.
+#
+# 저장 위치는 스크립트 위치 기준으로 잡는다. 상대 경로로 두면 저장소 루트에서
+# `load-test/reset.sh` 로 부를 때 저장소 밖에 파일이 생긴다.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+RESULTS_DIR="${SCRIPT_DIR}/../docs/load-test/results"
+
+if SNAPSHOT=$(curl -sf --max-time 5 "$INFO_URL"); then
+    mkdir -p "$RESULTS_DIR"
+    printf '%s\n' "$SNAPSHOT" > "${RESULTS_DIR}/settings-${SCENARIO}.json"
+    echo "[reset] 설정 스냅샷 저장: docs/load-test/results/settings-${SCENARIO}.json"
+else
+    echo "[reset] 경고: 설정 스냅샷을 못 남겼다 (info 응답 없음)." >&2
+fi
 
 echo "[reset] 준비 완료."
