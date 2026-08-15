@@ -3,17 +3,22 @@
 // S1 객실 검색 — 시안 S1의 상태 6종(정상·로딩·빈 3종·오류)을 전부 다룬다.
 // 검색 조건은 URL 쿼리가 진실이다(시안 D4) — 새로고침·뒤로가기·공유가 그대로 동작한다.
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/backend";
-import { ApiError } from "@/lib/api";
-import { messageFor } from "@/lib/error-messages";
+import { messageForError } from "@/lib/error-messages";
 import { HOTELS } from "@/lib/hotels";
 import { validateSearchForm, type SearchFormErrors } from "@/lib/search-form";
 import type { AvailabilityResponse } from "@/lib/contracts";
 
 function todayLocal(): string {
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -39,6 +44,7 @@ function SearchScreen() {
   const [roomCount, setRoomCount] = useState(Number(params.get("roomCount") ?? 1));
   const [errors, setErrors] = useState<SearchFormErrors>({});
   const [screen, setScreen] = useState<ScreenState>({ kind: "idle" });
+  const checkInRef = useRef<HTMLInputElement>(null);
 
   const urlQuery = params.toString();
 
@@ -64,9 +70,7 @@ function SearchScreen() {
       })
       .catch((e: unknown) => {
         if (cancelled) return;
-        const m =
-          e instanceof ApiError ? messageFor(e.code, e.traceId) : messageFor("UNKNOWN");
-        setScreen({ kind: "error", title: "검색하지 못했습니다", body: m.body });
+        setScreen({ kind: "error", title: "검색하지 못했습니다", body: messageForError(e).body });
       });
     return () => {
       cancelled = true;
@@ -141,6 +145,7 @@ function SearchScreen() {
           <div>
             <p className="label">체크인</p>
             <input
+              ref={checkInRef}
               type="date"
               className={`field mono tnum${errors.checkIn ? " bad" : ""}`}
               value={checkIn}
@@ -192,7 +197,7 @@ function SearchScreen() {
       </form>
 
       {screen.kind === "loading" && (
-        <div className="stack" aria-label="검색 중">
+        <div className="stack" role="status" aria-label="검색 중">
           {[0, 1].map((i) => (
             <div className="card card-pad between" key={i}>
               <div className="grow stack" style={{ gap: 8 }}>
@@ -286,6 +291,7 @@ function SearchScreen() {
       {screen.kind === "results" && screen.data.items.length === 0 && (
         <EmptyResult
           data={screen.data}
+          onChangeDates={() => checkInRef.current?.focus()}
           onChangeHotel={() => {
             const other = hotelId === 1 ? 2 : 1;
             setHotelId(other);
@@ -297,15 +303,20 @@ function SearchScreen() {
             submit({ roomCount: next });
           }}
           onBackInRange={() => {
-            setCheckIn("2026-10-27");
-            setCheckOut("2026-10-29");
-            submit({ checkIn: "2026-10-27", checkOut: "2026-10-29" });
+            // 하드코딩 대신 응답의 salesOpenUntil(판매 마지막 숙박일)로 계산한다
+            const until = screen.data.salesOpenUntil;
+            if (!until) return checkInRef.current?.focus();
+            const inDate = addDays(until, -1);
+            const outDate = addDays(until, 1); // 마지막 숙박일의 체크아웃은 다음 날
+            setCheckIn(inDate);
+            setCheckOut(outDate);
+            submit({ checkIn: inDate, checkOut: outDate });
           }}
         />
       )}
 
       {screen.kind === "error" && (
-        <div className="card">
+        <div className="card" role="alert">
           <div className="empty">
             <div className="big">{screen.title}</div>
             <p className="why">{screen.body}</p>
@@ -321,11 +332,13 @@ function SearchScreen() {
 
 function EmptyResult({
   data,
+  onChangeDates,
   onChangeHotel,
   onMoreRooms,
   onBackInRange,
 }: {
   data: AvailabilityResponse;
+  onChangeDates: () => void;
   onChangeHotel: () => void;
   onMoreRooms: () => void;
   onBackInRange: () => void;
@@ -380,6 +393,7 @@ function EmptyResult({
           있습니다.
         </p>
         <div className="actions">
+          <button className="btn sm" onClick={onChangeDates}>날짜 바꾸기</button>
           <button className="btn ghost sm" onClick={onChangeHotel}>다른 호텔 보기</button>
         </div>
       </div>

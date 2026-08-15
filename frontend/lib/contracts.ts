@@ -30,6 +30,11 @@ export const ERROR_CODES = {
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 
+export type ErrorCode = keyof typeof ERROR_CODES;
+
+// 계약 밖 상황(파싱 불가 본문 등)을 나타내는 프론트 내부 값. 계약 7종이 아니다.
+export const UNKNOWN_CODE = "UNKNOWN";
+
 export type ReservationStatus =
   | "PENDING"
   | "CONFIRMED"
@@ -111,7 +116,7 @@ export class ContractViolation extends Error {
 
 // ---- 좁히기 도우미 ----
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
@@ -216,5 +221,5 @@ export function parseErrorBody(raw: unknown): ErrorBody {
       traceId: typeof raw.traceId === "string" ? raw.traceId : undefined,
     };
   }
-  return { code: "UNKNOWN" };
+  return { code: UNKNOWN_CODE };
 }

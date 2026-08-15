@@ -9,12 +9,23 @@ const noSleep = () => Promise.resolve();
 // 시각을 주입한다 — 만료 시나리오를 결정적으로 만들기 위해서다.
 let nowMs: number;
 let api: ReturnType<typeof createApi>;
+let rawFetch: typeof fetch; // check-in/out 등 api 클라이언트에 없는 경로 호출용
 
 beforeEach(() => {
   nowMs = Date.parse("2026-08-15T12:00:00+09:00");
   const mock = createMockBackend({ now: () => nowMs });
+  rawFetch = mock.fetchLike;
   api = createApi({ fetchLike: mock.fetchLike, sleep: noSleep });
 });
+
+// 화면에 버튼이 없는 직원 액션(체크인·체크아웃)을 mock에 직접 호출한다
+async function staffAction(code: string, userId: string, action: string) {
+  const res = await rawFetch(`/api/reservations/${code}/${action}`, {
+    method: "POST",
+    headers: { "X-User-Id": userId },
+  });
+  return { status: res.status, body: await res.json() };
+}
 
 const search = {
   hotelId: 1, checkIn: "2026-09-01", checkOut: "2026-09-04", guestCount: 2, roomCount: 1,
@@ -144,6 +155,122 @@ describe("확정·취소·만료", () => {
     await expect(api.getReservation(r.confirmationCode, "u-other")).rejects.toMatchObject({
       code: "RESOURCE_NOT_FOUND",
       status: 404,
+    });
+  });
+});
+
+// 라운드1 중요-7 — 예약 생성의 날짜 창
+describe("날짜 창 (F01 D21·시드 범위)", () => {
+  it("이미 끝난 숙박(checkOut <= today)은 400 — 실 백엔드와 같은 거절", async () => {
+    await expect(
+      api.createReservation(
+        { ...book, checkIn: "2026-07-01", checkOut: "2026-07-05" },
+        { userId: "u", idempotencyKey: "k" },
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST", status: 400 });
+  });
+
+  it("진행 중 투숙(checkIn 과거, checkOut 미래)은 허용된다 — D21", async () => {
+    const r = await api.createReservation(
+      { ...book, checkIn: "2026-08-14", checkOut: "2026-08-17" },
+      { userId: "u", idempotencyKey: "k" },
+    );
+    expect(r.status).toBe("PENDING");
+  });
+
+  it("판매 개시일(2026-08-01) 이전 시작은 재고 행이 없어 409", async () => {
+    await expect(
+      api.createReservation(
+        { ...book, checkIn: "2026-07-30", checkOut: "2026-08-20" },
+        { userId: "u", idempotencyKey: "k" },
+      ),
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_INVENTORY", status: 409 });
+  });
+
+  it("검색의 과거 checkIn은 400이다 (F03: 검색은 과거를 막는다)", async () => {
+    await expect(
+      api.searchAvailability({ ...search, checkIn: "2026-08-10", checkOut: "2026-08-12" }),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST", status: 400 });
+  });
+});
+
+// 라운드1 중요-8 — 전이 기계의 도달 가능 칸 전수 (F01 1.4 전수 표의 주의 칸 포함)
+describe("전이 표 — 스펙이 강조한 칸", () => {
+  it("EXPIRED + CANCEL = 409 — '이미 취소됨'으로 조용히 성공시키지 않는다", async () => {
+    const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });
+    nowMs += 11 * 60 * 1000;
+    await expect(api.cancelReservation(r.confirmationCode, "u")).rejects.toMatchObject({
+      code: "INVALID_STATE_TRANSITION",
+      status: 409,
+    });
+  });
+
+  it("CANCELLED + CONFIRM = 409", async () => {
+    const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });
+    await api.cancelReservation(r.confirmationCode, "u");
+    await expect(api.confirmReservation(r.confirmationCode, "u")).rejects.toMatchObject({
+      code: "INVALID_STATE_TRANSITION",
+    });
+  });
+
+  it("CONFIRMED + CANCEL = 취소되고 재고가 복원된다", async () => {
+    const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });
+    await api.confirmReservation(r.confirmationCode, "u");
+    const c = await api.cancelReservation(r.confirmationCode, "u");
+    expect(c.status).toBe("CANCELLED");
+    const s = await api.searchAvailability(search);
+    expect(s.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(10);
+  });
+
+  it("만료 후 반복 조회·취소 시도에도 복원은 정확히 한 번 — 잔여가 총량을 넘지 않는다", async () => {
+    const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });
+    nowMs += 11 * 60 * 1000;
+    await api.getReservation(r.confirmationCode, "u");
+    await api.getReservation(r.confirmationCode, "u");
+    await api.cancelReservation(r.confirmationCode, "u").catch(() => {});
+    const s = await api.searchAvailability({ ...search, guestCount: 4 });
+    expect(s.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(10); // 10 초과 금지
+  });
+
+  it("만료된 PENDING은 예약을 따로 읽지 않아도 검색에서 복원돼 보인다 (스윕)", async () => {
+    for (let i = 0; i < 10; i += 1) {
+      await api.createReservation(book, { userId: `user-${i}`, idempotencyKey: `k-${i}` });
+    }
+    nowMs += 11 * 60 * 1000;
+    const s = await api.searchAvailability({ ...search, guestCount: 4 });
+    expect(s.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(10);
+  });
+});
+
+// 라운드1 제안 — mock의 체크인·체크아웃 경로 (화면 버튼은 D8대로 없음)
+describe("체크인·체크아웃 (직원 액션, mock 경로)", () => {
+  const stay = { ...book, checkIn: "2026-08-15", checkOut: "2026-08-17" }; // 오늘 체크인
+
+  it("CONFIRMED에서 체크인 → CHECKED_IN, 재체크인은 멱등", async () => {
+    const r = await api.createReservation(stay, { userId: "u", idempotencyKey: "k" });
+    await api.confirmReservation(r.confirmationCode, "u");
+    expect((await staffAction(r.confirmationCode, "u", "check-in")).body.status).toBe("CHECKED_IN");
+    expect((await staffAction(r.confirmationCode, "u", "check-in")).status).toBe(200);
+  });
+
+  it("PENDING 체크인은 409 — 전이 표에 없는 조합", async () => {
+    const r = await api.createReservation(stay, { userId: "u", idempotencyKey: "k" });
+    expect((await staffAction(r.confirmationCode, "u", "check-in")).status).toBe(409);
+  });
+
+  it("체크인 가능 기간 밖(미래 숙박)은 CONFIRMED여도 409", async () => {
+    const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" }); // 9월 숙박
+    await api.confirmReservation(r.confirmationCode, "u");
+    expect((await staffAction(r.confirmationCode, "u", "check-in")).status).toBe(409);
+  });
+
+  it("CHECKED_IN → 체크아웃 → CHECKED_OUT (종료 상태). 취소는 409", async () => {
+    const r = await api.createReservation(stay, { userId: "u", idempotencyKey: "k" });
+    await api.confirmReservation(r.confirmationCode, "u");
+    await staffAction(r.confirmationCode, "u", "check-in");
+    expect((await staffAction(r.confirmationCode, "u", "check-out")).body.status).toBe("CHECKED_OUT");
+    await expect(api.cancelReservation(r.confirmationCode, "u")).rejects.toMatchObject({
+      code: "INVALID_STATE_TRANSITION",
     });
   });
 });

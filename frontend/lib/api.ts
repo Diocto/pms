@@ -49,7 +49,9 @@ interface ApiDeps {
   baseUrl?: string;
 }
 
-const IN_PROGRESS_MAX_ATTEMPTS = 3;
+// "자동 최대 3회"는 재시도 3회(총 4요청)다 — 시안 매핑 표의 재시도 열은
+// INSUFFICIENT_INVENTORY(재시도 2회)와 같은 기준으로 읽는다 (리뷰 라운드1 중요-2).
+const IN_PROGRESS_MAX_RETRIES = 3;
 const IN_PROGRESS_WAIT_MS = 1000;
 
 export function createApi(deps: ApiDeps = {}) {
@@ -91,7 +93,7 @@ export function createApi(deps: ApiDeps = {}) {
     params: CreateReservationParams,
     opts: { userId: string; idempotencyKey: string },
   ): Promise<ReservationResponse> {
-    for (let attempt = 1; ; attempt += 1) {
+    for (let retriesUsed = 0; ; retriesUsed += 1) {
       const res = await fetchLike(`${base}/api/reservations`, {
         method: "POST",
         headers: {
@@ -105,7 +107,7 @@ export function createApi(deps: ApiDeps = {}) {
 
       const body = parseErrorBody(await readJson(res));
       const inProgress = res.status === 409 && body.code === ERROR_CODES.REQUEST_IN_PROGRESS;
-      if (inProgress && attempt < IN_PROGRESS_MAX_ATTEMPTS) {
+      if (inProgress && retriesUsed < IN_PROGRESS_MAX_RETRIES) {
         await sleep(IN_PROGRESS_WAIT_MS);
         continue; // 같은 멱등성 키로 다시 — 키를 바꾸면 멱등성이 무의미해진다
       }

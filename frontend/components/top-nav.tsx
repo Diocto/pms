@@ -41,7 +41,7 @@ export function TopNav() {
               setEditing(false);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Enter") e.currentTarget.blur();
             }}
           />
         ) : (

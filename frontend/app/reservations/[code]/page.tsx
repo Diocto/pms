@@ -13,7 +13,8 @@ import { api } from "@/lib/backend";
 import { ApiError } from "@/lib/api";
 import { ERROR_CODES, type ReservationResponse } from "@/lib/contracts";
 import { computeRemainingSeconds, formatMmSs } from "@/lib/countdown";
-import { messageFor } from "@/lib/error-messages";
+import { messageFor, messageForError } from "@/lib/error-messages";
+import { hotelIdOfRoomType } from "@/lib/hotels";
 import { viewOf } from "@/lib/reservation-view";
 import { useUserId } from "@/components/user-context";
 
@@ -40,17 +41,22 @@ export default function ReservationDetailPage({
   const [screen, setScreen] = useState<ScreenState>({ kind: "loading" });
   const [acting, setActing] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // 상태 충돌(409) 후 재조회로 수렴했을 때 사용자에게 남기는 일회성 안내 (라운드1 제안)
+  const [notice, setNotice] = useState<string | null>(null);
+  // 재조회마다 증가 — Countdown을 재시작시켜 새 응답 기준으로 다시 계산하게 한다 (라운드1 제안)
+  const [loadSeq, setLoadSeq] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const r = await api.getReservation(code, userId);
       setScreen({ kind: "loaded", r });
+      setLoadSeq((v) => v + 1);
     } catch (e) {
       if (e instanceof ApiError && e.code === ERROR_CODES.RESOURCE_NOT_FOUND) {
         setScreen({ kind: "not-found" });
         return;
       }
-      const m = e instanceof ApiError ? messageFor(e.code, e.traceId) : messageFor("UNKNOWN");
+      const m = messageForError(e);
       setScreen({ kind: "error", title: m.title, body: m.body });
     }
   }, [code, userId]);
@@ -62,15 +68,20 @@ export default function ReservationDetailPage({
 
   async function runAction(action: () => Promise<ReservationResponse>) {
     setActing(true);
+    setNotice(null);
     try {
       const r = await action();
       setScreen({ kind: "loaded", r });
+      setLoadSeq((v) => v + 1);
     } catch (e) {
       if (e instanceof ApiError && e.code === ERROR_CODES.INVALID_STATE_TRANSITION) {
-        // 화면이 알던 상태가 낡았다 — 서버의 현재 상태를 다시 받아 그린다
+        // 화면이 알던 상태가 낡았다 — 서버의 현재 상태를 다시 받아 그리되,
+        // 충돌이 있었다는 사실은 배너로 남긴다 (조용히 바꾸지 않는다)
         await load();
+        const m = messageFor(ERROR_CODES.INVALID_STATE_TRANSITION);
+        setNotice(`${m.title} — ${m.body}`);
       } else {
-        const m = e instanceof ApiError ? messageFor(e.code, e.traceId) : messageFor("UNKNOWN");
+        const m = messageForError(e);
         setScreen({ kind: "error", title: m.title, body: m.body });
       }
     } finally {
@@ -81,7 +92,7 @@ export default function ReservationDetailPage({
 
   if (screen.kind === "loading") {
     return (
-      <div className="stack" aria-label="불러오는 중">
+      <div className="stack" role="status" aria-label="불러오는 중">
         <div className="card card-pad">
           <div className="skel" style={{ width: 180, height: 18, marginBottom: 8 }} />
           <div className="skel" style={{ width: 280, height: 12 }} />
@@ -126,7 +137,11 @@ export default function ReservationDetailPage({
   const { r } = screen;
   const view = viewOf(r);
 
+  // 재예약은 이 예약의 소속 호텔로 — 응답에 hotelId가 없어 roomTypeId(시드)로 유도한다
+  // (리뷰 라운드1 중요-1). 유도 불가면 hotelId를 빼고 검색 기본값에 맡긴다.
+  const rebookHotelId = hotelIdOfRoomType(r.roomTypeId);
   const rebookQuery = new URLSearchParams({
+    ...(rebookHotelId !== undefined ? { hotelId: String(rebookHotelId) } : {}),
     ...(r.checkIn && r.checkOut
       ? { checkIn: r.checkIn, checkOut: r.checkOut }
       : {}),
@@ -136,6 +151,15 @@ export default function ReservationDetailPage({
 
   return (
     <>
+      {notice && (
+        <div
+          className="card card-pad"
+          role="alert"
+          style={{ marginBottom: 14, borderColor: "var(--info)", background: "var(--info-tint)" }}
+        >
+          <div style={{ fontSize: 13.5, color: "var(--info)" }}>{notice}</div>
+        </div>
+      )}
       <div className="card card-pad" style={{ marginBottom: 14 }}>
         <div className="between" style={{ alignItems: "flex-start" }}>
           <div>
@@ -149,12 +173,18 @@ export default function ReservationDetailPage({
             <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{view.description}</div>
           </div>
           {view.showCountdown && r.expiresAt && (
-            <Countdown expiresAt={r.expiresAt} onExpired={() => void load()} />
+            // key로 재조회마다 재시작 — 0 도달 재조회 후 서버가 여전히 PENDING이면
+            // 새 응답 기준으로 남은 시간을 다시 계산한다 (00:00 영구 정지 방지)
+            <Countdown
+              key={`${r.expiresAt}-${loadSeq}`}
+              expiresAt={r.expiresAt}
+              onExpired={() => void load()}
+            />
           )}
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 18 }} className="detail-grid">
+      <div className="two-col">
         <div className="card card-pad">
           <p className="label">예약 내용</p>
           {r.checkIn && r.checkOut && (
@@ -226,8 +256,8 @@ export default function ReservationDetailPage({
                 </button>
               ))}
             {view.actions.includes("rebook") && (
-              <button className="btn" onClick={() => router.push(`/search?hotelId=1&${rebookQuery}`)}>
-                같은 조건으로 다시 예약
+              <button className="btn" onClick={() => router.push(`/search?${rebookQuery}`)}>
+                {view.rebookLabel ?? "다시 예약"}
               </button>
             )}
           </div>
@@ -242,7 +272,6 @@ export default function ReservationDetailPage({
           )}
         </div>
       </div>
-      <style>{`@media (max-width: 760px) { .detail-grid { grid-template-columns: 1fr !important; } }`}</style>
     </>
   );
 }

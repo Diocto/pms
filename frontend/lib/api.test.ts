@@ -45,17 +45,17 @@ describe("createReservation", () => {
     expect(a.confirmationCode).toBe(b.confirmationCode);
   });
 
-  it("REQUEST_IN_PROGRESS면 같은 키로 자동 재요청한다 (최대 3회)", async () => {
+  it("REQUEST_IN_PROGRESS면 같은 키로 자동 재요청한다 — 재시도 최대 3회 = 총 4요청", async () => {
     let calls = 0;
     const fetchLike = vi.fn(async () => {
       calls += 1;
-      if (calls < 3) return jsonResponse(409, { code: "REQUEST_IN_PROGRESS" });
+      if (calls < 4) return jsonResponse(409, { code: "REQUEST_IN_PROGRESS" });
       return jsonResponse(200, reservationBody);
     });
     const api = createApi({ fetchLike, sleep: noSleep });
     const r = await api.createReservation(createParams, { userId: "u", idempotencyKey: "k" });
     expect(r.status).toBe("PENDING");
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
     // 세 번 모두 같은 멱등성 키였는지 — 키가 바뀌면 멱등성이 무의미해진다
     for (const call of fetchLike.mock.calls) {
       const [, init] = call as [string, RequestInit];
@@ -63,12 +63,13 @@ describe("createReservation", () => {
     }
   });
 
-  it("REQUEST_IN_PROGRESS가 3회를 넘으면 그 코드의 ApiError로 던진다", async () => {
-    const fetchLike = async () => jsonResponse(409, { code: "REQUEST_IN_PROGRESS" });
+  it("재시도 3회가 전부 소진되면(총 4요청) 그 코드의 ApiError로 던진다", async () => {
+    const fetchLike = vi.fn(async () => jsonResponse(409, { code: "REQUEST_IN_PROGRESS" }));
     const api = createApi({ fetchLike, sleep: noSleep });
     await expect(
       api.createReservation(createParams, { userId: "u", idempotencyKey: "k" }),
     ).rejects.toMatchObject({ code: "REQUEST_IN_PROGRESS" });
+    expect(fetchLike).toHaveBeenCalledTimes(4);
   });
 
   it("409 INSUFFICIENT_INVENTORY는 재시도 없이 즉시 던진다 — 재시도 판단은 화면(4단계 흐름) 몫", async () => {

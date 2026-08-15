@@ -16,6 +16,8 @@ export interface ReservationView {
   description: string;
   actions: ReservationAction[];
   showCountdown: boolean;
+  /** rebook 행동의 버튼 라벨 — 사용자 취소만 "다른 날짜 검색" (시안 S3 상태 4) */
+  rebookLabel?: string;
 }
 
 interface ViewInput {
@@ -53,6 +55,7 @@ export function viewOf(r: ViewInput): ReservationView {
             "잡아 두었던 방은 다시 판매됩니다. 결제 수단을 확인한 뒤 처음부터 다시 예약해 주세요.",
           actions: ["rebook"],
           showCountdown: false,
+          rebookLabel: "같은 조건으로 다시 예약",
         };
       }
       return {
@@ -62,6 +65,7 @@ export function viewOf(r: ViewInput): ReservationView {
         description: "방은 다시 판매됩니다.",
         actions: ["rebook"],
         showCountdown: false,
+        rebookLabel: "다른 날짜 검색",
       };
     case "EXPIRED":
       return {
@@ -72,6 +76,7 @@ export function viewOf(r: ViewInput): ReservationView {
           "10분 안에 결제가 완료되지 않아 방이 다시 판매되었습니다. 같은 조건으로 다시 예약할 수 있습니다.",
         actions: ["rebook"],
         showCountdown: false,
+        rebookLabel: "같은 조건으로 다시 예약",
       };
     case "CHECKED_IN":
       return {

@@ -4,13 +4,13 @@
 // 이 화면이 지는 책임 둘: ① 멱등성 키를 여기서 만들고 성공할 때까지 유지한다.
 // ② 409를 오류가 아니라 4단계 정상 흐름으로 처리한다 (booking-flow.ts).
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/backend";
 import { ApiError } from "@/lib/api";
 import { attemptBooking, type BookingPhase } from "@/lib/booking-flow";
 import { ERROR_CODES } from "@/lib/contracts";
-import { messageFor } from "@/lib/error-messages";
+import { messageForError } from "@/lib/error-messages";
 import { HOTELS } from "@/lib/hotels";
 import { useUserId } from "@/components/user-context";
 
@@ -33,7 +33,10 @@ function BookScreen() {
     const roomTypeId = Number(params.get("roomTypeId"));
     const checkIn = params.get("checkIn") ?? "";
     const checkOut = params.get("checkOut") ?? "";
-    if (!roomTypeId || !checkIn || !checkOut) return null;
+    // hotelId도 필수다 — 없으면 기본값으로 메우지 않고 거부한다. 기본값 1로 메우면
+    // 409 시 fresh 재검색이 엉뚱한 호텔을 본다 (리뷰 라운드1 중요-1)
+    const hotelIdRaw = params.get("hotelId");
+    if (!roomTypeId || !checkIn || !checkOut || !hotelIdRaw) return null;
     const nights = Math.max(
       1,
       Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000),
@@ -41,7 +44,7 @@ function BookScreen() {
     const roomCount = Number(params.get("roomCount") ?? 1);
     const pricePerNight = Number(params.get("pricePerNight") ?? 0);
     return {
-      hotelId: Number(params.get("hotelId") ?? 1),
+      hotelId: Number(hotelIdRaw),
       roomTypeId,
       roomTypeName: params.get("roomTypeName") ?? `객실타입 ${roomTypeId}`,
       capacity: Number(params.get("capacity") ?? 0),
@@ -61,6 +64,12 @@ function BookScreen() {
   const idemKeyRef = useRef<string>(crypto.randomUUID());
   const [screen, setScreen] = useState<ScreenState>({ kind: "idle" });
 
+  // 사용자 식별값이 바뀌면 새 키 — 서버의 중복 판정 키는 (X-User-Id, Idempotency-Key)
+  // 쌍이라, 사용자가 바뀌면 "다른 예약 시도"다 (리뷰 라운드1 concurrency 제안)
+  useEffect(() => {
+    idemKeyRef.current = crypto.randomUUID();
+  }, [userId]);
+
   if (!order) {
     return (
       <div className="card">
@@ -76,7 +85,8 @@ function BookScreen() {
   }
 
   const hotelName = HOTELS.find((h) => h.id === order.hotelId)?.name ?? "";
-  const busy = screen.kind === "phase";
+  // 마감 판정 후에도 버튼을 살려두면 없는 재고에 다시 부딪힌다 (리뷰 라운드1 제안)
+  const locked = screen.kind === "phase" || screen.kind === "sold-out";
 
   async function submit() {
     try {
@@ -116,9 +126,8 @@ function BookScreen() {
       }
       setScreen({ kind: "sold-out" });
     } catch (e) {
-      const code = e instanceof ApiError ? e.code : "UNKNOWN";
-      const traceId = e instanceof ApiError ? e.traceId : undefined;
-      const m = messageFor(code, traceId);
+      const code = e instanceof ApiError ? e.code : "";
+      const m = messageForError(e);
       setScreen({ kind: "error", code, title: m.title, body: m.body });
     }
   }
@@ -128,7 +137,7 @@ function BookScreen() {
       <h1 className="h1">예약 내용을 확인해 주세요</h1>
       <p className="sub">아직 방이 잡히지 않았습니다. 예약 버튼을 눌러야 객실이 확보됩니다.</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 18 }} className="book-grid">
+      <div className="two-col">
         <div className="stack">
           <div className="card card-pad">
             <p className="label">투숙 정보</p>
@@ -158,7 +167,7 @@ function BookScreen() {
           </div>
 
           {screen.kind === "phase" && screen.phase.kind !== "submitting" && (
-            <div className="card card-pad" style={{ borderColor: "var(--warn)" }}>
+            <div className="card card-pad" role="status" style={{ borderColor: "var(--warn)" }}>
               <div className="inline" style={{ gap: 8, marginBottom: 6 }}>
                 <span className="badge warn">방금 마감됨</span>
               </div>
@@ -179,7 +188,7 @@ function BookScreen() {
           )}
 
           {screen.kind === "sold-out" && (
-            <div className="card card-pad" style={{ borderColor: "var(--danger)" }}>
+            <div className="card card-pad" role="alert" style={{ borderColor: "var(--danger)" }}>
               <div className="inline" style={{ gap: 8, marginBottom: 6 }}>
                 <span className="badge danger">마감</span>
               </div>
@@ -208,12 +217,15 @@ function BookScreen() {
           )}
 
           {screen.kind === "error" && (
-            <div className="card card-pad" style={{ borderColor: "var(--warn)" }}>
+            <div className="card card-pad" role="alert" style={{ borderColor: "var(--warn)" }}>
               <div style={{ fontSize: 15.5, fontWeight: 700 }}>{screen.title}</div>
               <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 3 }}>{screen.body}</div>
               <div className="inline" style={{ marginTop: 12 }}>
-                {screen.code === ERROR_CODES.LOCK_ACQUISITION_FAILED && (
-                  // 혼잡은 같은 키로 그대로 재시도한다 — 입력은 남아 있다
+                {(screen.code === ERROR_CODES.LOCK_ACQUISITION_FAILED ||
+                  screen.code === ERROR_CODES.REQUEST_IN_PROGRESS) && (
+                  // 같은 키로 그대로 재시도한다. REQUEST_IN_PROGRESS도 같은 키 재제출이
+                  // 1순위 동선이다 — 새 키(재검색→새 주문서)로 유도하면 중복 예약이 된다
+                  // (리뷰 라운드1 중요-3)
                   <button className="btn sm" onClick={submit}>다시 시도</button>
                 )}
                 <button className="btn ghost sm" onClick={() => router.push("/search")}>
@@ -248,10 +260,10 @@ function BookScreen() {
           <button
             className="btn brass"
             style={{ width: "100%", marginTop: 14 }}
-            disabled={busy}
+            disabled={locked}
             onClick={submit}
           >
-            {busy ? "예약 처리 중…" : "예약하기"}
+            {screen.kind === "phase" ? "예약 처리 중…" : screen.kind === "sold-out" ? "마감됨" : "예약하기"}
           </button>
           <p className="note" style={{ marginTop: 11 }}>
             <span>ⓘ</span>
@@ -265,7 +277,6 @@ function BookScreen() {
           </div>
         </div>
       </div>
-      <style>{`@media (max-width: 760px) { .book-grid { grid-template-columns: 1fr !important; } }`}</style>
     </>
   );
 }
