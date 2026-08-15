@@ -22,23 +22,31 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# 코드 → (이름, 브랜치 후보, 담당, 우선순위). 브랜치는 앞의 것부터 찾아 먼저 있는 것을 쓴다.
+# 코드 → (이름, 브랜치 후보, 담당, 우선순위, 가동 상태).
 #
 # 우선순위는 PM이 중재하는 값이라 여기 한 곳에서만 관리한다. 세션마다 자기 파일에
 # 적게 하면 다섯 곳이 서로 어긋나고, 어긋난 걸 아무도 못 본다.
 # 뜻: 자원 경합(공유 파일 중재·리뷰 순서·병합 순서)이 나면 위쪽이 이긴다.
+#
+# 가동 상태는 세션이 지금 도는지를 말한다 (2026-08-15 관리자 지시).
+# F02·F03·F04는 F01 완료까지 세션 작업을 하지 않는다. 진척이 멈춰 있는 것과
+# 멈추라고 해서 멈춘 것은 다르다 — 현황판이 그 둘을 구분하지 못하면
+# 관리자가 "왜 아무도 일을 안 하지"로 읽는다.
 SESSIONS = [
     ("F01", "예약 코어", ["worktree-F01"],
-     "예약 생명주기 · 재고 차감 · 동시성 · 멱등성", "매우 급함"),
+     "예약 생명주기 · 재고 차감 · 동시성 · 멱등성", "매우 급함", "가동"),
     ("F02", "선착순 특가", ["worktree-f02-promotion-rebased", "worktree-f02-promotion"],
-     "UC-7 한정 수량 특가", "중요"),
+     "UC-7 한정 수량 특가", "중요", "정지"),
     ("F04", "부하테스트", ["worktree-F04"],
-     "k6 시나리오 · 실행 · 리포트", "중요"),
+     "k6 시나리오 · 실행 · 리포트", "중요", "정지"),
     ("F03", "객실 검색", ["worktree-F03"],
-     "UC-1 검색 · Redis 캐시", "보통"),
+     "UC-1 검색 · Redis 캐시", "보통", "정지"),
     ("F05", "프론트엔드", ["worktree-F05"],
-     "검색 · 예약 · 상세 3화면", "보통"),
+     "검색 · 예약 · 상세 3화면", "보통", "가동"),
 ]
+
+# 정지 사유. 화면에 그대로 뜬다 — 이유 없는 정지는 방치와 구분되지 않는다.
+HALT_REASON = "F01 완료까지 대기 (2026-08-15 관리자 지시)"
 
 ARTIFACTS = {
     "F01": ["docs/spec/F01-예약-코어.md", "docs/reports/F01-spec-reapproval.md", "docs/tasks/F01.md"],
@@ -85,9 +93,11 @@ def collect() -> dict:
     }
 
     sessions = []
-    for code, name, candidates, role, prio in SESSIONS:
+    for code, name, candidates, role, prio, live in SESSIONS:
         branch = next((c for c in candidates if c in remote), None)
-        s = {"code": code, "name": name, "role": role, "priority": prio, "branch": branch,
+        s = {"code": code, "name": name, "role": role, "priority": prio,
+             "live": live, "halt": None if live == "가동" else HALT_REASON,
+             "branch": branch,
              "tasks": [], "current": None, "phase": "미착수", "blocked": []}
 
         if not branch:
@@ -191,6 +201,13 @@ width:100%;text-align:left;font:inherit;color:inherit}
 .pr-중요{color:var(--ink2)}
 .pr-보통{color:var(--ink3);font-weight:400}
 .pr b{font-size:13px;vertical-align:-1px;margin-right:3px}
+/* 정지한 세션은 흐리게. 가동 중인 것이 눈에 들어와야 한다 */
+.row.off{opacity:.52}
+.row.off:hover{opacity:.82}
+.halt{font-family:var(--mono);font-size:10.5px;color:var(--ink3);margin-top:2px}
+.haltbar{background:var(--sunk);border:1px dashed var(--rule);border-radius:8px;
+padding:11px 15px;margin:0 0 18px;font-size:13.5px;color:var(--ink2)}
+.haltbar b{color:var(--ink)}
 .prog{font-family:var(--mono);font-size:12px;color:var(--ink3);text-align:right;font-variant-numeric:tabular-nums}
 .bar{height:3px;background:var(--soft);border-radius:2px;margin-top:5px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -243,11 +260,14 @@ function renderList(){
       : (total ? '진행 중인 Task 없음' : 'Task 목록 없음');
     var phaseKey = s.phase === 'Task 확정' ? 'Task' : s.phase;
     var dot = { '매우 급함': '●', '중요': '●', '보통': '○' }[s.priority] || '○';
-    return '<button class="row" data-code="' + s.code + '">' +
+    var off = s.live !== '가동';
+    return '<button class="row' + (off ? ' off' : '') + '" data-code="' + s.code + '">' +
       '<span class="code">' + esc(s.code) + '</span>' +
       '<span class="pr pr-' + s.priority.replace(/\s/g, '') + '"><b>' + dot + '</b>' +
         esc(s.priority) + '</span>' +
-      '<span class="nm">' + esc(s.name) + '<div class="role">' + esc(s.role) + '</div></span>' +
+      '<span class="nm">' + esc(s.name) +
+        (off ? '<div class="halt">■ 정지</div>' : '<div class="role">' + esc(s.role) + '</div>') +
+      '</span>' +
       '<span class="cur' + (s.current ? '' : ' none') + '">' + cur + '</span>' +
       '<span><span class="pill p-' + phaseKey + '">' + esc(s.phase) + '</span></span>' +
       '<span class="prog">' + (total ? c.완료 + '/' + total : '—') +
@@ -261,8 +281,19 @@ function renderList(){
         ' <span class="sub">' + esc(p.headRefName) + '</span></li>'; }).join('')
     : '<li class="sub">열린 PR 없음</li>';
 
+  var halted = S.sessions.filter(function(s){ return s.live !== '가동'; });
+  var banner = halted.length
+    ? '<div class="haltbar"><b>' + halted.map(function(s){ return s.code; }).join(' · ') +
+      ' 정지 중</b> — ' + esc(halted[0].halt) +
+      '. 진척이 멈춘 것이 아니라 <b>멈추라고 해서 멈춘 것</b>이다. ' +
+      '가동 중인 세션은 <b>' +
+      S.sessions.filter(function(s){ return s.live === '가동'; })
+        .map(function(s){ return s.code; }).join(' · ') + '</b>.</div>'
+    : '';
+
   return '<h1>PMS 운영 현황판</h1>' +
     '<p class="meta">' + esc(S.generated) + ' · 20초마다 갱신 · main <b>' + esc(S.main) + '</b></p>' +
+    banner +
     '<h2>세션</h2>' +
     '<div class="list"><div class="hd"><span>코드</span><span>우선순위</span><span>담당</span>' +
     '<span>현재 Task</span><span>상태</span><span style="text-align:right">완료</span></div>' +
@@ -305,6 +336,9 @@ function renderDetail(code){
 
     body =
       '<dl class="kv">' +
+      '<dt>가동</dt><dd>' + (s.live === '가동'
+          ? '<b>가동 중</b>'
+          : '<b>정지</b> <span class="sub">— ' + esc(s.halt) + '</span>') + '</dd>' +
       '<dt>우선순위</dt><dd><span class="pr pr-' + s.priority.replace(/\s/g, '') + '">' +
         esc(s.priority) + '</span></dd>' +
       '<dt>브랜치</dt><dd class="mono">' + esc(s.branch) + '</dd>' +
