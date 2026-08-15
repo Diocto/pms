@@ -94,7 +94,7 @@ TDD 구현 → 테스트 실행 → 리뷰어 3명 병렬 → 피드백 반영 �
 
 ### 동시성 코드에는 반드시 동시성 테스트를 붙인다
 
-`docs/architecture/tdd.md`의 동시성 테스트 절을 따른다. `CountDownLatch`로 동시에 출발시키고, 결과 카운트가 아니라 **최종 DB 상태**를 검증한다.
+`docs/architecture/tdd.md`의 동시성 테스트 절을 따른다. `threading.Barrier`로 동시에 출발시키고, 결과 카운트가 아니라 **최종 DB 상태**를 검증한다.
 
 **1차 방어선을 끈 테스트도 쓴다.** 분산락 없이도 불변식이 지켜지는지 확인하는 테스트다. 이게 없으면 Redis 장애 시 데이터가 깨진다.
 
@@ -107,7 +107,8 @@ TDD 구현 → 테스트 실행 → 리뷰어 3명 병렬 → 피드백 반영 �
 전체를 돌린다. 자기 feature 것만 돌리지 않는다.
 
 ```bash
-./gradlew test
+docker compose up -d    # Testcontainers가 쓸 Docker가 떠 있어야 한다
+pytest
 ```
 
 **결과를 그대로 기록한다.** 통과 개수와 실패 내용을 다음 단계에서 쓴다.

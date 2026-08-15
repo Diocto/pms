@@ -78,7 +78,10 @@ export const options = {
 
 ```bash
 docker compose up -d
-./gradlew bootRun &          # 또는 bootJar 후 java -jar
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1 &
+# 워커는 반드시 1이다. 여럿이면 프로세스마다 카운터를 따로 세서
+# 합산 안 된 값이 조용히 진짜처럼 나간다. /api/internal/config의
+# processId를 두 번 찍어 같은지 확인한다
 k6 run load-test/<시나리오>.js --summary-export=docs/load-test/results/<시나리오>-summary.json
 ```
 
