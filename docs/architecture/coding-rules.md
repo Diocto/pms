@@ -280,11 +280,51 @@ class LockPort(Protocol):
 
 **그 값의 출처는 실제로 쓰는 그 객체여야 한다.** 설정을 두 곳에 따로 선언하면 "꺼졌다고 보고하는데 실제로는 도는" 상태가 만들어진다. **검증 장치가 검증 대상과 다른 곳을 보면 검증이 아니다.** Dependency Injector 컨테이너에서 같은 프로바이더를 양쪽에 주입해 구조적으로 어긋날 수 없게 한다.
 
-### 분산락 규칙
+### Redis 분산락
 
-- 락 키는 자원 단위로 잡는다. `lock:inventory:{room_type_id}:{stay_date}` 형태
-- **반드시 TTL을 건다.** 프로세스가 죽어도 락이 풀려야 한다
-- **자기가 건 락만 푼다.** 값에 고유 토큰을 넣고, 해제는 Lua 스크립트로 값 비교와 삭제를 원자적으로 한다. 그렇지 않으면 TTL로 풀린 뒤 남의 락을 지운다
+**락은 정확성을 책임지지 않는다.** 경합을 DB 앞에서 흡수해 비용을 줄이는 장치다. 이 전제가 아래 설계 전부를 정한다 — 락이 만료되거나 Redis가 죽어도 데이터는 안 깨지고 느려지기만 한다.
+
+#### 포트
+
+```python
+class LockPort(Protocol):
+    def acquire_all(self, keys: list[str], *, wait_ms: int, ttl_s: int
+                    ) -> AbstractContextManager[None]:
+        """받은 키를 정렬해서 전부 잠근다. 하나라도 실패하면 LockAcquisitionError."""
+```
+
+**정렬은 이 안에서 한다.** 호출부는 순서를 신경 쓸 기회조차 없다 — 넘기는 것은 집합이고 순서는 구현의 몫이다.
+
+#### 획득
+
+```python
+@contextmanager
+def acquire_all(self, keys, *, wait_ms, ttl_s):
+    ordered = sorted(set(keys))          # ← 정렬과 중복 제거가 여기서
+    token = uuid4().hex                  # ← 획득 1회당 1개. 프로세스 단위가 아니다
+    held: list[str] = []
+    deadline = self._clock.monotonic() + wait_ms / 1000
+
+    try:
+        for key in ordered:
+            while not self._redis.set(key, token, nx=True, px=ttl_s * 1000):
+                if self._clock.monotonic() >= deadline:
+                    raise LockAcquisitionError(key)
+                time.sleep(0.01)         # 짧게 물러났다 재시도
+            held.append(key)
+        yield
+    finally:
+        for key in reversed(held):       # ← 역순 해제
+            self._release(key, token)
+```
+
+**토큰은 획득할 때마다 새로 만든다.** 프로세스 단위로 재사용하면, 같은 프로세스의 다른 요청이 TTL로 풀린 내 락을 자기 것으로 착각하고 지운다.
+
+**`finally`에 해제를 둔다.** 중간에 실패해도 이미 잡은 것은 반드시 풀린다. **역순인 이유**는 다른 요청이 오름차순으로 잡고 있기 때문이다 — 같은 방향으로 풀면 앞쪽 키를 놓는 순간 상대가 그것만 잡고 뒤쪽에서 다시 막힌다.
+
+**대기는 전체에 한 번만 건다.** 키마다 상한을 주면 3박 예약이 상한의 세 배까지 기다린다.
+
+#### 해제 — 반드시 원자적으로
 
 ```python
 _RELEASE = """
@@ -295,9 +335,34 @@ return 0
 """
 ```
 
-- 락 획득 대기에 상한을 둔다. 무한 대기하지 않는다
-- 일부만 획득한 채 실패하면 **역순으로 전체 해제**한 뒤 실패를 알린다
-- 컨텍스트 매니저로 감싸 예외가 나도 반드시 풀리게 한다
+**"내 것인지 확인하고 지운다"를 두 명령으로 나누면 그 사이에 TTL이 만료되어 남의 락을 지운다.** Lua로 한 번에 실행한다. `redis-py`의 `register_script`로 미리 등록해 매번 스크립트를 보내지 않는다.
+
+#### TTL이 트랜잭션보다 짧으면
+
+**만료돼도 정확성은 안 깨진다. 그래서 연장하지 않는다.**
+
+TTL이 끝나 다른 요청이 같은 재고 행에 들어와도, **2차 조건부 UPDATE가 원자적이라 초과 판매가 생기지 않는다.** 최악의 경우 두 요청이 같은 행을 두드리며 느려질 뿐이다.
+
+Redlock처럼 워치독으로 TTL을 연장하는 방식은 쓰지 않는다. **정확성이 락에 걸려 있지 않은데 락을 정교하게 만드는 것은 값을 못 만든다.** 대신 TTL을 넉넉히 잡고(트랜잭션 예상 시간의 몇 배), 만료가 실제로 일어나는지 로그로 관찰한다.
+
+#### 끌 수 있어야 한다
+
+`PMS_LOCK_ENABLED=false`면 컨테이너가 **아무것도 하지 않는 구현**을 주입한다.
+
+```python
+class NoOpLockAdapter:
+    @contextmanager
+    def acquire_all(self, keys, *, wait_ms, ttl_s):
+        yield          # 잠그지 않는다
+```
+
+**이게 다층 방어의 증명 수단이다.** 락을 끄고 같은 부하를 돌려 불변식이 그대로면, 정확성이 2·3차에 있다는 것이 실험으로 증명된다. 끌 수 없는 층은 살아 있는지 확인할 방법이 없다.
+
+**둘을 바꿔 끼우는 것은 컨테이너 설정 한 곳**이고 유스케이스는 어느 쪽이 왔는지 모른다.
+
+#### 로그로 남길 것
+
+락 획득 실패(503), TTL 만료 감지, 해제 시 토큰 불일치 — 셋 다 남긴다. **부하테스트 결과를 해석할 때 이 로그가 근거가 된다.** 특히 토큰 불일치는 "내가 잡은 락이 이미 만료돼 남이 가져갔다"는 뜻이라 TTL 조정의 신호다.
 
 ## 스키마 표기는 ORM에 맡기지 않는다
 
@@ -372,6 +437,97 @@ DB에 `cancel`로 저장돼 있으면 **이 필터는 0행을 돌려주고 모�
 ```
 
 **멱등성 키만으로 중복을 막았다고 말하지 않는다.** Redis가 죽으면 뚫린다. DB에도 유니크 제약을 걸어 최종 방어선을 만든다. 어느 쪽이 무엇을 막는지 스펙에 명시한다.
+
+## 레이어 간 데이터는 Pydantic으로 주고받는다
+
+**계층을 넘는 모든 데이터 그릇은 `BaseModel`이다.** dataclass·dict·튜플로 넘기지 않는다.
+
+| 그릇 | 위치 | 표기 |
+|---|---|---|
+| `~Request` / `~Response` | `presentation/schemas.py` | JSON `camelCase` |
+| `~Command` / `~Result` | `application/commands.py` | 파이썬 `snake_case` |
+| 도메인 모델 | `domain/models.py` | SQLModel (그 자체가 Pydantic이다) |
+
+**이유 셋이다.**
+
+**SQLModel이 Pydantic이라 변환이 자연스럽다.** 도메인 모델에서 `Result`를 만들 때 `model_validate(reservation)`로 끝난다. dataclass를 섞으면 그 경계마다 손으로 옮기는 코드가 생기고, 필드가 늘 때 한 곳을 빠뜨린다.
+
+**FastAPI가 스키마를 자동으로 만든다.** 라우터에 `response_model`을 달면 Swagger 문서가 코드에서 나온다. **문서와 구현이 어긋날 자리가 없어진다** — 이 프로젝트에서 계약이 어긋나 생긴 사고가 이미 여러 번이었다.
+
+**검증이 경계에서 한 번에 끝난다.** 타입이 안 맞으면 그 자리에서 422이고, 유스케이스까지 잘못된 값이 내려가지 않는다.
+
+```python
+class ApiModel(BaseModel):
+    """presentation의 모든 스키마가 상속한다. 표기 변환은 여기 한 곳뿐이다."""
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
+class CreateReservationRequest(ApiModel):
+    room_type_id: int
+    check_in: date
+    check_out: date
+    room_count: int
+    guest_count: int
+    discounts: list[DiscountRef] = []
+```
+
+**`ApiModel`을 상속하지 않은 스키마는 그 엔드포인트만 `snake_case`로 나간다.** 조용히 어긋나므로 상속을 빠뜨리지 않는다.
+
+```python
+class CreateReservationCommand(BaseModel):
+    model_config = ConfigDict(frozen=True)      # 값이다. 만들어진 뒤 안 바뀐다
+    user_id: str
+    idempotency_key: str
+    ...
+```
+
+**`Command`·`Result`는 `frozen`으로 둔다.** 유스케이스가 입력을 고쳐 쓰면 어디서 바뀌었는지 추적할 수 없다.
+
+**주의 둘.**
+
+**Pydantic validator에 불변식을 두지 않는다.** 앞의 규칙 그대로다. validator는 "이 값이 형식에 맞는가"까지이고, "이 예약이 성립하는가"는 도메인 메서드다. **Pydantic을 쓰는 것과 불변식을 Pydantic에 두는 것은 다른 이야기다.**
+
+**도메인 모델을 그대로 응답으로 내보내지 않는다.** SQLModel 테이블 클래스를 `response_model`에 달면 내부 `id`·`idempotency_key`가 Swagger 문서와 응답에 그대로 새어 나간다. **`Response`는 별도 클래스다.**
+
+## 외부 연동은 언제든 갈아 끼울 수 있게 둔다
+
+결제처럼 바깥 세계에 의존하는 것은 **포트 뒤에 감춘다.** 지금은 가짜 구현을 쓰고, 실제 연동이 필요해지면 **컨테이너 설정 한 줄로 바꿔 끼운다.**
+
+```python
+# application/ports.py — 유스케이스가 아는 전부
+class PaymentPort(Protocol):
+    def charge(self, reservation_id: int, amount: int, idempotency_key: str) -> PaymentResult: ...
+
+class PaymentResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    approved: bool
+    transaction_id: str | None = None
+    decline_reason: str | None = None
+```
+
+**거절은 예외가 아니다.** 결제 거절은 정상적으로 일어나는 결과이고, 예약은 그때 `CANCELLED`로 간다. 예외로 던지면 유스케이스가 `try/except`로 정상 흐름을 다루게 되고, 진짜 장애(네트워크 끊김)와 구분이 사라진다. **예외는 "판단할 수 없었다"일 때만 던진다.**
+
+**가짜 구현은 결정적이어야 한다.**
+
+```python
+class FakePaymentAdapter:
+    def __init__(self, decline_rate: float) -> None: ...
+
+    def charge(self, reservation_id, amount, idempotency_key) -> PaymentResult:
+        # 0.0 → 항상 승인 · 1.0 → 항상 거절 (둘 다 결정적)
+        # 그 사이 → 확률적. 자동 테스트에서 쓰지 않는다
+```
+
+**기본값은 `0.0`이다.** 기본이 확률적이면 테스트가 가끔 깨지는데, 그때 원인이 경합인지 결제인지 구분되지 않는다. **비결정성은 명시적으로 켜야 한다.** `1.0`도 결정적이라 결제 실패 분기만 도는 회차를 만들 수 있다.
+
+**호출은 트랜잭션 밖에서 한다.** 외부 호출이 트랜잭션 안에 있으면 상대가 느릴 때 DB 커넥션과 락을 쥔 채 기다린다.
+
+**닫지 못한 틈은 숨기지 않는다.** 결제가 승인된 직후 프로세스가 죽으면, 결제는 됐는데 예약은 `PENDING`으로 남아 만료된다. 이 프로젝트는 모의 결제라 실해가 없으므로 **닫지 않고 한계로 문서화한다.** 실제 PG라면 결제 원장과 정산 대조 배치가 필요하다.
+
+**실제 연동을 붙일 때 바뀌는 것은 어댑터 하나와 컨테이너 한 줄이다.** 유스케이스·도메인·테스트는 손대지 않는다. 그게 포트를 둔 이유다.
 
 ## 예외
 
