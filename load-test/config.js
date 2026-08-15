@@ -2,32 +2,24 @@
 //
 // API 계약이 바뀌면 이 파일만 고친다. 시나리오 스크립트는 여기서만 값을 가져간다.
 //
-// 왜 한 곳에 몰아넣는가:
-//   F01의 D7(확인번호 기반 경로)이 기각되면 경로가 /{code} -> /{id} 정수로 바뀐다.
-//   그때 시나리오 8개를 전부 고치는 대신 아래 pathFor()/idField()만 고치면 끝난다.
-//
 // 근거: docs/load-test/scenarios.md §6 (F01 계약·시드 확정본, 2026-08-15)
 
 export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 
 // ---------------------------------------------------------------------------
-// 승인 리스크 스위치
+// 승인 리스크 스위치 — 전부 없앴다 (2026-08-15)
 // ---------------------------------------------------------------------------
 //
-// F01의 [필수] 결정 중 셋이 아직 관리자 승인 전이며, 기각되면 계약이 바뀐다.
-// 스크립트를 고치는 대신 아래 플래그만 뒤집어 대응한다.
+// F01의 [필수] 결정 셋이 승인 전이라 기각 대비 플래그로 격리해뒀었다.
+// 셋 다 판단이 끝났으므로 플래그를 전부 제거했다.
 //
-//   D7 confirmationCode -> 기각 시 CODE_BASED_PATH=false (경로·응답 필드가 id로)
-//   D1 guestCount       -> **채택됨** (2026-08-15). 플래그는 유지하되 기본값 그대로 쓴다.
+//   D7 confirmationCode -> **채택.** 경로는 코드 기반으로 확정
+//   D1 guestCount       -> **채택.** 요청 본문에 항상 싣는다
+//   D4 NO_SHOW          -> **유예(추후 작업).** 이번 범위에 없다
 //
-// D4(NO_SHOW)는 **기각됐다** (2026-08-15). NO_SHOW_ENABLED 플래그는 제거했다.
-// 다시 켤 일이 없는 스위치를 남겨두면 읽는 사람이 "언젠가 켜지는 기능"으로 오해한다.
-// 대비책으로 만들어둔 플래그가 실제로 값을 낸 사례이므로 경위는 아래에 남긴다:
-//   플래그로 격리해뒀던 덕에 기각 반영이 표 정의 한 곳 수정으로 끝났다.
-export const FEATURES = {
-    codeBasedPath: __ENV.CODE_BASED_PATH !== 'false',
-    sendGuestCount: __ENV.SEND_GUEST_COUNT !== 'false',
-};
+// 대비책은 값을 냈다. D4가 빠질 때 플래그로 격리해둔 덕에 반영이 표 정의
+// 한 곳 수정으로 끝났다. 그래도 플래그는 남기지 않는다 — 다시 뒤집힐 일이
+// 없는 스위치를 두면 읽는 사람이 "언젠가 켜지는 기능"으로 오해한다.
 
 // ---------------------------------------------------------------------------
 // 엔드포인트 — 계약 확정본
@@ -47,14 +39,25 @@ export const PATHS = {
 // 남겨두면 "특가 전용 경로가 있다"는 잘못된 단서가 된다.
 
 // 예약 식별자를 경로로 바꾸는 유일한 함수.
-// D7이 기각되면 여기와 idField()만 바꾼다. 다른 파일은 손대지 않는다.
 export function pathFor(ref, action) {
     const base = `/api/reservations/${ref}`;
     return action ? `${base}/${action}` : base;
 }
 
+// 확인번호 형식: 260901-H1R3-K7M2XQ4R (20자, 체크인 yyMMdd + 호텔/객실타입 + 무작위 8자)
+//
+// **이 코드를 절대 파싱하지 않는다.** 형식에서 날짜나 객실타입을 뽑아 쓰고
+// 싶어질 수 있지만(예: 시나리오별 필터링) 하지 않는다. 이유 둘:
+//
+//   1. 관리자 제약이 "key 포맷에 의한 로직은 넣지 말자"다. F01은 만드는
+//      함수만 두고 읽는 함수를 두지 않았으며, 타입도 CHAR가 아니라 VARCHAR다
+//      (길이에 기대지 않겠다는 선언). 부하 스크립트가 파싱하면 그 규칙을
+//      우회하는 셈이다.
+//   2. 형식이 또 바뀌면 조용히 깨진다. 지금 이 주석의 예시도 그때 거짓말이 된다.
+//
+// 필요한 값은 전부 응답 본문의 필드에서 읽는다. 길이도 가정하지 않는다.
 export function idField() {
-    return FEATURES.codeBasedPath ? 'confirmationCode' : 'id';
+    return 'confirmationCode';
 }
 
 export const ACTIONS = {
@@ -129,7 +132,7 @@ export const RELEASED_STATUSES = [STATUS.CANCELLED, STATUS.EXPIRED];
 // 전이 표 36칸 = 허용 전이 7 + 멱등 성공 6 + 거부 23
 // ---------------------------------------------------------------------------
 //
-// 상태 6개 x 이벤트 6개. F01 D4(NO_SHOW) 기각으로 49칸에서 줄었다 (2026-08-15).
+// 상태 6개 x 이벤트 6개. F01 D4(NO_SHOW) 유예로 49칸에서 줄었다 (2026-08-15).
 //
 // 멱등 성공 6칸: 상태가 안 바뀌고 200이 나가는 조합이다.
 //
@@ -147,7 +150,7 @@ export const IDEMPOTENT_CELLS = [
 
 // 허용 전이 7칸. (현재 상태, 이벤트) -> 다음 상태
 //
-// CONFIRMED에서 자동으로 빠져나가는 출구가 없다. D4 기각의 결과이며,
+// CONFIRMED에서 자동으로 빠져나가는 출구가 없다. D4 유예의 결과이며,
 // 노쇼 손님의 예약은 운영자가 수동 취소해야 한다. F01이 이 구멍을
 // 제출 문서에 절단 근거와 함께 명시했다. 리포트에서 "전이 완결성"을
 // 주장할 때 이 예외를 반드시 함께 적는다.
@@ -317,7 +320,7 @@ export const PROMOTIONS = {
 // 있어 오늘 기준으로 잡아야 한다. F01 시드가 오늘을 범위 안에 넣어준 덕에
 // 가능하다.
 //
-// D4 기각 이후 체크인 상한(today < checkOut)의 비중이 커졌다.
+// D4 유예 이후 체크인 상한(today < checkOut)의 비중이 커졌다.
 // 노쇼 스케줄러가 없어져, 기간이 지난 예약의 체크인을 막는 유일한 장치가 됐다.
 // S6의 과거 체크아웃 프로브가 그 상한을 때리는 유일한 검증이다.
 export const TODAY_BASED = {
@@ -356,10 +359,8 @@ export function reservationBody(roomType, checkInDate, opts = {}) {
         [FIELDS.checkOut]: nightsAfter(checkInDate, nights),
         [FIELDS.roomCount]: roomCount,
     };
-    // D1이 기각되면 이 필드가 계약에서 사라진다.
-    if (FEATURES.sendGuestCount) {
-        body[FIELDS.guestCount] = opts.guestCount || safeGuestCount(roomCount);
-    }
+    // D1 채택으로 확정 필드다. 항상 싣는다.
+    body[FIELDS.guestCount] = opts.guestCount || safeGuestCount(roomCount);
     // 일반 예약은 discounts를 아예 보내지 않는다. S1~S6·S8이 여기 해당한다.
     if (opts.discounts) {
         body[FIELDS.discounts] = opts.discounts;

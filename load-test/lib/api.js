@@ -1,8 +1,10 @@
 // F04 부하테스트 — API 호출 래퍼
 //
 // 시나리오 스크립트는 URL을 직접 만들지 않는다. 전부 이 파일을 거친다.
-// F01의 D7(confirmationCode)이 기각돼 경로가 /{code} -> /{id}로 바뀌어도
-// config.js의 pathFor()와 idField()만 고치면 여기서 흡수된다.
+// 경로 형태가 바뀌어도 config.js의 pathFor()와 idField()만 고치면 흡수된다.
+//
+// 확인번호는 응답에서 받은 문자열을 **그대로** 경로에 넣는다.
+// 파싱하지 않고 길이도 가정하지 않는다 (config.js의 idField() 주석 참조).
 
 import http from 'k6/http';
 import { BASE_URL, PATHS, ACTIONS, pathFor, headers, reservationBody } from '../config.js';
