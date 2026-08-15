@@ -22,13 +22,22 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# 코드 → (이름, 브랜치 후보, 담당). 브랜치는 앞의 것부터 찾아 먼저 있는 것을 쓴다.
+# 코드 → (이름, 브랜치 후보, 담당, 우선순위). 브랜치는 앞의 것부터 찾아 먼저 있는 것을 쓴다.
+#
+# 우선순위는 PM이 중재하는 값이라 여기 한 곳에서만 관리한다. 세션마다 자기 파일에
+# 적게 하면 다섯 곳이 서로 어긋나고, 어긋난 걸 아무도 못 본다.
+# 뜻: 자원 경합(공유 파일 중재·리뷰 순서·병합 순서)이 나면 위쪽이 이긴다.
 SESSIONS = [
-    ("F01", "예약 코어", ["worktree-F01"], "예약 생명주기 · 재고 차감 · 동시성 · 멱등성"),
-    ("F02", "선착순 특가", ["worktree-f02-promotion-rebased", "worktree-f02-promotion"], "UC-7 한정 수량 특가"),
-    ("F03", "객실 검색", ["worktree-F03"], "UC-1 검색 · Redis 캐시"),
-    ("F04", "부하테스트", ["worktree-F04"], "k6 시나리오 · 실행 · 리포트"),
-    ("F05", "프론트엔드", ["worktree-F05"], "검색 · 예약 · 상세 3화면"),
+    ("F01", "예약 코어", ["worktree-F01"],
+     "예약 생명주기 · 재고 차감 · 동시성 · 멱등성", "매우 급함"),
+    ("F02", "선착순 특가", ["worktree-f02-promotion-rebased", "worktree-f02-promotion"],
+     "UC-7 한정 수량 특가", "중요"),
+    ("F04", "부하테스트", ["worktree-F04"],
+     "k6 시나리오 · 실행 · 리포트", "중요"),
+    ("F03", "객실 검색", ["worktree-F03"],
+     "UC-1 검색 · Redis 캐시", "보통"),
+    ("F05", "프론트엔드", ["worktree-F05"],
+     "검색 · 예약 · 상세 3화면", "보통"),
 ]
 
 ARTIFACTS = {
@@ -76,9 +85,9 @@ def collect() -> dict:
     }
 
     sessions = []
-    for code, name, candidates, role in SESSIONS:
+    for code, name, candidates, role, prio in SESSIONS:
         branch = next((c for c in candidates if c in remote), None)
-        s = {"code": code, "name": name, "role": role, "branch": branch,
+        s = {"code": code, "name": name, "role": role, "priority": prio, "branch": branch,
              "tasks": [], "current": None, "phase": "미착수", "blocked": []}
 
         if not branch:
@@ -157,7 +166,7 @@ h2{font-size:14px;margin:30px 0 11px;font-weight:650;letter-spacing:.01em;color:
 
 /* 목록 */
 .list{border:1px solid var(--rule);border-radius:9px;overflow:hidden;background:var(--surf)}
-.hd,.row{display:grid;grid-template-columns:78px 1fr 1.4fr 118px 96px;gap:14px;align-items:center;padding:11px 16px}
+.hd,.row{display:grid;grid-template-columns:78px 88px 1fr 1.3fr 108px 92px;gap:12px;align-items:center;padding:11px 16px}
 .hd{background:var(--sunk);border-bottom:1px solid var(--rule);font-family:var(--mono);
 font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-weight:600}
 .row{border-bottom:1px solid var(--soft);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;
@@ -176,6 +185,12 @@ width:100%;text-align:left;font:inherit;color:inherit}
 .p-Task{background:var(--accent-s);color:var(--accent)}
 .p-문서{background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait)}
 .p-미착수{background:color-mix(in srgb,var(--hot) 14%,transparent);color:var(--hot)}
+/* 우선순위 — 급한 것만 색을 쓴다. 셋 다 물들이면 아무것도 안 급해 보인다 */
+.pr{font-family:var(--mono);font-size:10.5px;font-weight:650;white-space:nowrap}
+.pr-매우급함{color:var(--hot)}
+.pr-중요{color:var(--ink2)}
+.pr-보통{color:var(--ink3);font-weight:400}
+.pr b{font-size:13px;vertical-align:-1px;margin-right:3px}
 .prog{font-family:var(--mono);font-size:12px;color:var(--ink3);text-align:right;font-variant-numeric:tabular-nums}
 .bar{height:3px;background:var(--soft);border-radius:2px;margin-top:5px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -227,8 +242,11 @@ function renderList(){
       ? '<span class="tid">' + esc(s.current.id) + '</span>' + esc(s.current.title)
       : (total ? '진행 중인 Task 없음' : 'Task 목록 없음');
     var phaseKey = s.phase === 'Task 확정' ? 'Task' : s.phase;
+    var dot = { '매우 급함': '●', '중요': '●', '보통': '○' }[s.priority] || '○';
     return '<button class="row" data-code="' + s.code + '">' +
       '<span class="code">' + esc(s.code) + '</span>' +
+      '<span class="pr pr-' + s.priority.replace(/\s/g, '') + '"><b>' + dot + '</b>' +
+        esc(s.priority) + '</span>' +
       '<span class="nm">' + esc(s.name) + '<div class="role">' + esc(s.role) + '</div></span>' +
       '<span class="cur' + (s.current ? '' : ' none') + '">' + cur + '</span>' +
       '<span><span class="pill p-' + phaseKey + '">' + esc(s.phase) + '</span></span>' +
@@ -246,9 +264,11 @@ function renderList(){
   return '<h1>PMS 운영 현황판</h1>' +
     '<p class="meta">' + esc(S.generated) + ' · 20초마다 갱신 · main <b>' + esc(S.main) + '</b></p>' +
     '<h2>세션</h2>' +
-    '<div class="list"><div class="hd"><span>코드</span><span>담당</span><span>현재 Task</span>' +
-    '<span>상태</span><span style="text-align:right">완료</span></div>' + rows + '</div>' +
-    '<p class="note">행을 누르면 상세가 열린다. <b>상태</b>는 문서 → Task 확정 → 구현 순으로 나아간다.</p>' +
+    '<div class="list"><div class="hd"><span>코드</span><span>우선순위</span><span>담당</span>' +
+    '<span>현재 Task</span><span>상태</span><span style="text-align:right">완료</span></div>' +
+    rows + '</div>' +
+    '<p class="note">행을 누르면 상세가 열린다. <b>상태</b>는 문서 → Task 확정 → 구현 순으로 나아간다. ' +
+    '<b>우선순위</b>는 자원이 부딪힐 때 누가 이기는지를 뜻한다 — 공유 파일 중재, 리뷰 순서, 병합 순서.</p>' +
     '<h2>열린 PR</h2><ul>' + prs + '</ul>';
 }
 
@@ -285,6 +305,8 @@ function renderDetail(code){
 
     body =
       '<dl class="kv">' +
+      '<dt>우선순위</dt><dd><span class="pr pr-' + s.priority.replace(/\s/g, '') + '">' +
+        esc(s.priority) + '</span></dd>' +
       '<dt>브랜치</dt><dd class="mono">' + esc(s.branch) + '</dd>' +
       '<dt>HEAD</dt><dd class="mono">' + esc(s.head) + '</dd>' +
       '<dt>main 대비</dt><dd>' + s.ahead + ' 앞 · ' + stale + ' <span class="sub">· ' + esc(s.last) + '</span></dd>' +
