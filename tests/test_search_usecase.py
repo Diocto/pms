@@ -177,6 +177,15 @@ def test_T11_fresh면_캐시가_있어도_DB를_부르고_다시_채운다():
 
 
 def test_T12_캐시_장애에도_검색은_동작한다(caplog):
+    # 전체 스위트에서는 conftest의 Alembic fileConfig가 로깅을 재구성하며
+    # 기존 로거를 비활성화한다(disable_existing_loggers). 이 테스트는 WARN
+    # 발생 자체가 관심사이므로 대상 로거를 다시 살리고 잰다
+    import logging
+
+    from app.inventory.query.application.usecases import search_available_rooms
+
+    logging.getLogger(search_available_rooms.__name__).disabled = False
+
     db = FakeQueryAdapter()
     with caplog.at_level("WARNING"):
         result = _usecase(db, BrokenCache()).execute(_query())
