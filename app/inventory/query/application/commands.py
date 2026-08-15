@@ -52,3 +52,33 @@ class StayRange(BaseModel):
     def ensure_not_past(self, today: date) -> None:
         if self.check_in < today:
             raise InvalidRequestError("체크인은 오늘보다 앞설 수 없습니다")
+
+
+class SearchAvailableRoomsQuery(BaseModel):
+    """검색 조건 — 캐시 키가 이 값들로만 만들어진다.
+
+    조건 하나가 빠지면 곧바로 다른 조건의 결과를 돌려주는 버그가 되므로
+    한 객체로 묶고, `fresh`만 캐시 우회 지시라 키에 넣지 않는다.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    hotel_id: int
+    stay: StayRange
+    guest_count: int
+    room_count: int
+    fresh: bool = False
+
+
+class AvailableRoomTypeView(BaseModel):
+    """객실타입 한 줄. `min_remaining`이 "이 기간을 통째로 몇 개까지 잡을 수
+    있는가"다 — 기간 중 가장 빡빡한 날의 잔여."""
+
+    model_config = ConfigDict(frozen=True)
+
+    room_type_id: int
+    room_type_name: str
+    capacity: int
+    min_remaining: int
+    price_per_night: int
+    total_price: int
