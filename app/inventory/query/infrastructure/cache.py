@@ -23,10 +23,13 @@ class NoOpAvailabilityCacheAdapter:
 
 
 class RedisAvailabilityCacheAdapter:
-    """캐시 켬. 구현은 T7(TDD 15~17)에서 빨간 테스트로 채운다.
+    """캐시 켬. 값은 결과 스냅샷의 JSON이고, `searched_at`이 값 안에 함께
+    들어간다 — 히트 응답이 저장 시각을 그대로 내보내는 근거다 (I7).
 
-    그때까지 모든 메서드는 실패한다 — 유스케이스가 fail-open(D7)이라
-    검색은 DB 직행으로 동작하고, WARN 로그가 미구현을 드러낸다.
+    **`SET`에 만료를 반드시 함께 건다.** TTL이 빠지면 낡음의 상한이
+    사라지고 스스로 회복되지 않는다 — 7절에서 유일하게 회복 불가인
+    실패(I5)다. 히트 시 TTL을 연장하지도 않는다 (연장하면 인기 검색어일수록
+    더 오래 낡는다).
     """
 
     def __init__(self, redis_client: redis.Redis, ttl_seconds: int) -> None:
@@ -34,10 +37,16 @@ class RedisAvailabilityCacheAdapter:
         self._ttl_seconds = ttl_seconds
 
     def get(self, key: str) -> AvailableRoomsResult | None:
-        raise NotImplementedError("T7에서 구현한다 (TDD 15~17)")
+        value = self._redis.get(key)
+        if value is None:
+            return None
+        return AvailableRoomsResult.model_validate_json(value)
 
     def put(self, key: str, result: AvailableRoomsResult) -> None:
-        raise NotImplementedError("T7에서 구현한다 (TDD 15~17)")
+        self._redis.set(key, result.model_dump_json(), ex=self._ttl_seconds)
 
     def evict_hotel(self, hotel_id: int) -> None:
-        raise NotImplementedError("T7에서 구현한다 (TDD 15~17)")
+        # 호텔 단위 키 설계(avail:{hotelId}:...)라 패턴 하나로 다 걷힌다.
+        # KEYS는 전체 블로킹이라 안 쓴다 — SCAN으로 순회한다
+        for key in self._redis.scan_iter(match=f"avail:{hotel_id}:*"):
+            self._redis.delete(key)
