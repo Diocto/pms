@@ -5,11 +5,12 @@
 """
 
 from datetime import date, timedelta
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from app.common.errors import InvalidRequestError
+from app.common.errors import InvalidRequestError, NotFoundError
 
 # 상한을 두는 이유: 기간이 길수록 집계 쿼리가 만지는 행 수가 늘어나는데,
 # 상한이 없으면 요청 하나가 쿼리 비용을 마음대로 키울 수 있다
@@ -68,6 +69,40 @@ class SearchAvailableRoomsQuery(BaseModel):
     guest_count: int
     room_count: int
     fresh: bool = False
+
+
+class EmptyReason(str, Enum):
+    """빈 결과의 이유. 문자열이 곧 계약이다 — F04·F05가 생 문자열로 비교하므로
+    대문자 고정이고 name과 value가 같다. 값을 바꾸면 상대 검증이 조용히 죽는다."""
+
+    SOLD_OUT = "SOLD_OUT"
+    NOT_YET_OPEN = "NOT_YET_OPEN"
+    NO_FITTING_ROOM_TYPE = "NO_FITTING_ROOM_TYPE"
+
+
+class AvailabilityDiagnosis(BaseModel):
+    """진단 쿼리 한 발의 결과. 집계가 비었을 때만 만들어진다 (스펙 8절)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    room_type_count: int
+    fitting_room_type_count: int
+    sales_open_until: date | None
+
+    def empty_reason(self, stay: StayRange) -> EmptyReason:
+        """판정 순서가 계약이다 — 위에서부터 먼저 걸리는 것을 쓴다.
+
+        `sales_open_until`은 재고 행이 존재하는 마지막 날짜이고, 체크아웃
+        당일은 점유하지 않으므로 마지막 투숙 밤과 비교한다 (D9).
+        """
+        if self.room_type_count == 0:
+            raise NotFoundError("호텔을 찾을 수 없습니다")
+        if self.fitting_room_type_count == 0:
+            return EmptyReason.NO_FITTING_ROOM_TYPE
+        last_night = stay.check_out - timedelta(days=1)
+        if self.sales_open_until is None or self.sales_open_until < last_night:
+            return EmptyReason.NOT_YET_OPEN
+        return EmptyReason.SOLD_OUT
 
 
 class AvailableRoomTypeView(BaseModel):

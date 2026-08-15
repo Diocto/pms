@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.inventory.query.application.commands import (
+    AvailabilityDiagnosis,
     AvailableRoomTypeView,
     SearchAvailableRoomsQuery,
 )
@@ -33,6 +34,20 @@ _SEARCH_SQL = text(
     HAVING COUNT(*)        = :nights
        AND MIN(i.remaining) >= :room_count
      ORDER BY rt.base_price ASC, rt.id ASC
+    """
+)
+
+
+# 집계가 비었을 때만 나간다 — 정상 경로는 쿼리 1회를 유지한다 (스펙 8절)
+_DIAGNOSE_SQL = text(
+    """
+    SELECT COUNT(DISTINCT rt.id)                                  AS room_type_count,
+           COUNT(DISTINCT CASE WHEN rt.capacity * :room_count >= :guest_count
+                               THEN rt.id END)                    AS fitting_room_type_count,
+           MAX(i.stay_date)                                       AS sales_open_until
+      FROM room_type rt
+      LEFT JOIN room_daily_inventory i ON i.room_type_id = rt.id
+     WHERE rt.hotel_id = :hotel_id
     """
 )
 
@@ -64,3 +79,20 @@ class MySqlAvailabilityQueryAdapter:
             )
             for row in rows
         ]
+
+    def diagnose(
+        self, session: Session, query: SearchAvailableRoomsQuery
+    ) -> AvailabilityDiagnosis:
+        row = session.execute(
+            _DIAGNOSE_SQL,
+            {
+                "hotel_id": query.hotel_id,
+                "guest_count": query.guest_count,
+                "room_count": query.room_count,
+            },
+        ).mappings().one()
+        return AvailabilityDiagnosis(
+            room_type_count=row["room_type_count"],
+            fitting_room_type_count=row["fitting_room_type_count"],
+            sales_open_until=row["sales_open_until"],
+        )
