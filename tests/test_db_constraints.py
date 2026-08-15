@@ -13,8 +13,17 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-# MySQL: CHECK 위반은 OperationalError(3819), UK/PK/FK 위반은 IntegrityError
+# MySQL: CHECK 위반은 OperationalError(3819), UK/PK 위반은 IntegrityError(1062)
 CONSTRAINT_ERRORS = (IntegrityError, OperationalError)
+
+# CHECK 위반(3819)·중복 키(1062)만 통과다. 락 타임아웃(1205) 같은 무관한
+# OperationalError까지 통과시키면 "제약이 거부했다"는 판정이 흐려진다 (리뷰 지적)
+_ALLOWED_ERRNO = {3819, 1062}
+
+
+def _assert_constraint_rejection(excinfo) -> None:
+    errno = getattr(excinfo.value.orig, "args", [None])[0]
+    assert errno in _ALLOWED_ERRNO, f"제약 위반이 아닌 오류다: errno={errno}"
 
 
 @pytest.fixture(scope="module")
@@ -28,8 +37,16 @@ def engine(database_url):
 def clean_reservation(engine):
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM reservation_status_history"))
-        conn.execute(text("DELETE FROM reservation WHERE user_id LIKE 'test-%'"))
+        # 자기 데이터만 지운다 — 병렬 실행 시 남의 검증 데이터를 지우면 안 된다
+        conn.execute(
+            text(
+                "DELETE FROM reservation_status_history WHERE reservation_id IN"
+                " (SELECT id FROM reservation WHERE user_id LIKE 'test-constraint-%')"
+            )
+        )
+        conn.execute(
+            text("DELETE FROM reservation WHERE user_id LIKE 'test-constraint-%'")
+        )
 
 
 RESERVATION_INSERT = text(
@@ -61,59 +78,66 @@ def _reservation_row(**overrides) -> dict:
 
 
 def test_T30_remaining은_음수가_될_수_없다(engine):
-    with pytest.raises(CONSTRAINT_ERRORS), engine.begin() as conn:
+    with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             text(
                 "UPDATE room_daily_inventory SET remaining = -1"
                 " WHERE room_type_id = 1 AND stay_date = '2026-09-01'"
             )
         )
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T31_remaining은_총량을_넘을_수_없다_이중_복원_방어선(engine):
-    with pytest.raises(CONSTRAINT_ERRORS), engine.begin() as conn:
+    with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             text(
                 "UPDATE room_daily_inventory SET remaining = total_quantity + 1"
                 " WHERE room_type_id = 1 AND stay_date = '2026-09-01'"
             )
         )
+    _assert_constraint_rejection(excinfo)
 
 
 @pytest.mark.parametrize("bad_count", [0, -5])
 def test_T32_객실_수는_1_이상이다(engine, clean_reservation, bad_count):
     # -5가 통과하면 차감 UPDATE의 remaining >= :count를 지나며 재고가 늘어난다
-    with pytest.raises(CONSTRAINT_ERRORS), engine.begin() as conn:
+    with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row(room_count=bad_count))
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T33_뒤집힌_기간은_저장될_수_없다(engine, clean_reservation):
     # 점유 날짜 목록이 비어 재고를 하나도 안 깎는 예약을 막는다
-    with pytest.raises(CONSTRAINT_ERRORS), engine.begin() as conn:
+    with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             RESERVATION_INSERT,
             _reservation_row(check_in="2026-09-04", check_out="2026-09-01"),
         )
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T33b_같은_날짜도_기간이_아니다(engine, clean_reservation):
-    with pytest.raises(CONSTRAINT_ERRORS), engine.begin() as conn:
+    with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             RESERVATION_INSERT,
             _reservation_row(check_in="2026-09-01", check_out="2026-09-01"),
         )
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T34_인원은_1_이상이다(engine, clean_reservation):
-    with pytest.raises(CONSTRAINT_ERRORS), engine.begin() as conn:
+    with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row(guest_count=0))
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T35_같은_사용자의_같은_멱등_키는_두_번_저장될_수_없다(engine, clean_reservation):
     with engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row())
-    with pytest.raises(IntegrityError), engine.begin() as conn:
+    with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row(code="TEST-OK-0002"))
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T35b_다른_사용자는_같은_키_문자열을_써도_간섭하지_않는다(engine, clean_reservation):
@@ -129,16 +153,17 @@ def test_T35b_다른_사용자는_같은_키_문자열을_써도_간섭하지_�
 def test_T36_확인번호는_중복될_수_없다(engine, clean_reservation):
     with engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row())
-    with pytest.raises(IntegrityError), engine.begin() as conn:
+    with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
         conn.execute(
             RESERVATION_INSERT,
             _reservation_row(user_id="test-constraint-02", idempotency_key="idem-0002"),
         )
+    _assert_constraint_rejection(excinfo)
 
 
 def test_T37_같은_타입_날짜의_재고_행은_둘일_수_없다(engine):
     # 뚫리면 잔여 수량의 진실이 두 곳이 된다
-    with pytest.raises(IntegrityError), engine.begin() as conn:
+    with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
         conn.execute(
             text(
                 "INSERT INTO room_daily_inventory"
@@ -147,3 +172,4 @@ def test_T37_같은_타입_날짜의_재고_행은_둘일_수_없다(engine):
                 " VALUES (1, '2026-09-01', 100, 100, NOW(6), NOW(6))"
             )
         )
+    _assert_constraint_rejection(excinfo)

@@ -37,7 +37,13 @@ def reservation_id(engine):
         inserted = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar_one()
     yield inserted
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM reservation_status_history"))
+        # 자기 예약의 이력만 지운다 (병렬 실행 대비)
+        conn.execute(
+            text(
+                "DELETE FROM reservation_status_history WHERE reservation_id = :id"
+            ),
+            {"id": inserted},
+        )
         conn.execute(text("DELETE FROM reservation WHERE id = :id"), {"id": inserted})
 
 
