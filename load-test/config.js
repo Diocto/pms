@@ -222,15 +222,19 @@ export function isExplainable200(priorStatus, action, resultStatus) {
     return false; // 거부 23칸에서 200이 나왔다 -> 금지 전이 통과
 }
 
+// 2026-08-15에 app/common/error_codes.py(계약의 기계 검증본)와 대조한 목록이다.
+// **여기 넣은 코드는 그 파일에 있어야 한다.** 계약에 없는 코드를 "아는 코드"로
+// 두면, 앱이 실수로 그 코드를 내보내도 분류기가 받아주고 게이트가 안 운다.
+// DUPLICATE_REQUEST 가 그래서 빠졌다 — 같은 키 재요청은 409가 아니라
+// 200 재반환(D18)으로 처리되므로 계약에 이 코드 자체가 없다.
 export const ERROR_CODE = {
     INVALID_REQUEST: 'INVALID_REQUEST',
     RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
     INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
     INSUFFICIENT_INVENTORY: 'INSUFFICIENT_INVENTORY',
-    DUPLICATE_REQUEST: 'DUPLICATE_REQUEST',
     REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
-    LOCK_ACQUISITION_FAILED: 'LOCK_ACQUISITION_FAILED',
-    // F02 특가
+    LOCK_ACQUISITION_FAILED: 'LOCK_ACQUISITION_FAILED',   // 503 (ServiceUnavailableError)
+    // F02 특가. error_codes.py 에는 아직 없다 — F02 병합 때 대조한다.
     PROMOTION_SOLD_OUT: 'PROMOTION_SOLD_OUT',
 };
 

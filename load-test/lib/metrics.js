@@ -40,16 +40,19 @@ export const M = {
 
 // 거절을 상태 코드가 아니라 **본문 code로** 판정한다.
 //
-// 2026-08-15에 파이썬 스택의 `app/common/error_handlers.py`를 읽고 고쳤다.
-// 그 파일의 예외→상태 표에는 400·404·409 **셋뿐이고 503이 없다.** 락 획득
-// 실패를 ConflictError로 만들면 409로 나가는데, 예전 분류기는 "503이면서
-// 코드가 LOCK_ACQUISITION_FAILED"일 때만 락 실패로 셌다. 그래서 락 실패가
-// 전부 "정당한 거절" 바구니로 들어가고 **에러율에서 빠진다.**
+// 2026-08-15에 `app/common/error_handlers.py`를 읽다가 예외→상태 표에
+// 503 자리가 없는 것을 발견했다. 그대로면 락 획득 실패가 400이나 409로
+// 나가는데, 예전 분류기는 "503이면서 코드가 LOCK_ACQUISITION_FAILED"일
+// 때만 락 실패로 셌다. 그러면 락 실패가 "잘못된 요청"이나 "정당한 거절"
+// 바구니로 들어가 **에러율에서 빠지고**, S5에서 락의 가격이 ON·OFF 양쪽
+// 0으로 나온다. "락을 켜도 비용이 없다"는 결론이 실리는데 실제로는 값을
+// 못 잰 것이다.
 //
-// 그러면 S5에서 락의 가격이 ON·OFF 양쪽 0으로 나오고, "락을 켜도 비용이
-// 없다"는 결론이 리포트에 실린다. 실제로는 값을 못 잰 것이다.
-// **상태 코드는 F01이 언제든 바꿀 수 있지만 code는 계약이다**
-// (`errors.py`: "code가 클라이언트와의 계약이다"). 그러니 code로 판정한다.
+// F01이 같은 구멍을 독립적으로 잡아 ServiceUnavailableError(503)를
+// 신설했다(main d9124f5). 상태 코드는 이제 503으로 맞지만 **판정은 계속
+// code로 한다** — 상태 코드는 변환 계층이 한 번 삐끗하면 바뀌는 값이고
+// (실제로 바뀔 뻔했다), code는 앱이 계약으로 못박은 값이기 때문이다
+// (`errors.py`: "code가 클라이언트와의 계약이다").
 function isLockFailure(code) {
     return code === ERROR_CODE.LOCK_ACQUISITION_FAILED;
 }
@@ -90,7 +93,9 @@ export function classifyCreate(res) {
             M.rejInventory.add(1);
             return { kind: 'inventory', body };
         }
-        if (code === ERROR_CODE.DUPLICATE_REQUEST || code === ERROR_CODE.REQUEST_IN_PROGRESS) {
+        // DUPLICATE_REQUEST 는 계약에 없다(같은 키 재요청 = 200 재반환).
+        // 멱등성 방어가 409로 나오는 건 "같은 키가 아직 처리 중"뿐이다.
+        if (code === ERROR_CODE.REQUEST_IN_PROGRESS) {
             M.rejDuplicate.add(1);
             return { kind: 'duplicate', body };
         }
@@ -166,7 +171,7 @@ export function classifyTransition(res, opts = {}) {
             M.rejTransition.add(1);
             return { kind: 'transition', status, body };
         }
-        if (code === ERROR_CODE.DUPLICATE_REQUEST || code === ERROR_CODE.REQUEST_IN_PROGRESS) {
+        if (code === ERROR_CODE.REQUEST_IN_PROGRESS) {
             M.rejDuplicate.add(1);
             return { kind: 'duplicate', status, body };
         }
