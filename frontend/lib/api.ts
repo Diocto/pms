@@ -7,6 +7,7 @@
 //   재시도는 재검색과 얽힌 화면 흐름(시안 S2 상태 3)이므로 여기서 하지 않는다.
 
 import {
+  ERROR_CODES,
   parseAvailabilityResponse,
   parseErrorBody,
   parseReservationResponse,
@@ -103,7 +104,7 @@ export function createApi(deps: ApiDeps = {}) {
       if (res.ok) return parseReservationResponse(await res.json());
 
       const body = parseErrorBody(await readJson(res));
-      const inProgress = res.status === 409 && body.code === "REQUEST_IN_PROGRESS";
+      const inProgress = res.status === 409 && body.code === ERROR_CODES.REQUEST_IN_PROGRESS;
       if (inProgress && attempt < IN_PROGRESS_MAX_ATTEMPTS) {
         await sleep(IN_PROGRESS_WAIT_MS);
         continue; // 같은 멱등성 키로 다시 — 키를 바꾸면 멱등성이 무의미해진다

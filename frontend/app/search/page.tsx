@@ -257,6 +257,7 @@ function SearchScreen() {
                           roomTypeId: String(it.roomTypeId),
                           roomTypeName: it.roomTypeName,
                           capacity: String(it.capacity),
+                          pricePerNight: String(it.pricePerNight),
                           checkIn: screen.data.checkIn,
                           checkOut: screen.data.checkOut,
                           guestCount: String(screen.data.guestCount),

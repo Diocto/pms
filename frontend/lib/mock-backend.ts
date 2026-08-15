@@ -12,6 +12,10 @@
 //   user-503     예약 생성이 항상 503 LOCK_ACQUISITION_FAILED — 혼잡 안내 확인
 //   user-decline 결제가 항상 거절 — 200 + CANCELLED + failureReason (시안 S3 상태 3)
 
+import { ERROR_CODES, type ReservationStatus } from "./contracts";
+
+const C = ERROR_CODES; // 가짜 서버도 계약 상수만 내보낸다 — 계약 변경이 여기까지 전파되게
+
 const HOLD_MINUTES = 10; // PMS_RESERVATION_HOLD_MINUTES 기본값과 동일
 const SALES_OPEN_FROM = "2026-08-01";
 const SALES_OPEN_UNTIL = "2026-10-29"; // 시드 재고의 마지막 날짜
@@ -45,7 +49,7 @@ interface MockReservation {
   guestCount: number;
   pricePerNight: number;
   totalPrice: number;
-  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED" | "EXPIRED";
+  status: ReservationStatus;
   expiresAtMs: number;
   confirmedAtMs?: number;
   terminatedAtMs?: number;
@@ -140,9 +144,9 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     const guestCount = Number(url.searchParams.get("guestCount"));
     const roomCount = Number(url.searchParams.get("roomCount") ?? "1");
 
-    if (![1, 2].includes(hotelId)) return error(404, "RESOURCE_NOT_FOUND", "없는 호텔");
+    if (![1, 2].includes(hotelId)) return error(404, C.RESOURCE_NOT_FOUND, "없는 호텔");
     if (!checkIn || !checkOut || checkOut <= checkIn || guestCount < 1)
-      return error(400, "INVALID_REQUEST", "검색 조건이 규칙에 어긋남");
+      return error(400, C.INVALID_REQUEST, "검색 조건이 규칙에 어긋남");
 
     const base = {
       hotelId, checkIn, checkOut,
@@ -186,11 +190,11 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
   function handleCreate(headers: Headers, bodyRaw: unknown): Response {
     const userId = headers.get("X-User-Id") ?? "";
     const idemKey = headers.get("Idempotency-Key") ?? "";
-    if (!userId || !idemKey) return error(400, "INVALID_REQUEST", "필수 헤더 없음");
+    if (!userId || !idemKey) return error(400, C.INVALID_REQUEST, "필수 헤더 없음");
 
     // 시연용 강제 실패 — 시안의 실패 상태를 언제든 재현할 수 있게 한다
-    if (userId === "user-409") return error(409, "INSUFFICIENT_INVENTORY", "남은 객실 없음(시연)");
-    if (userId === "user-503") return error(503, "LOCK_ACQUISITION_FAILED", "혼잡(시연)");
+    if (userId === "user-409") return error(409, C.INSUFFICIENT_INVENTORY, "남은 객실 없음(시연)");
+    if (userId === "user-503") return error(503, C.LOCK_ACQUISITION_FAILED, "혼잡(시연)");
 
     const b = bodyRaw as Record<string, unknown>;
     const roomTypeId = Number(b.roomTypeId);
@@ -208,15 +212,15 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     }
 
     const rt = ROOM_TYPES.find((r) => r.id === roomTypeId);
-    if (!rt) return error(404, "RESOURCE_NOT_FOUND", "없는 객실타입");
+    if (!rt) return error(404, C.RESOURCE_NOT_FOUND, "없는 객실타입");
     if (!checkIn || !checkOut || checkOut <= checkIn || roomCount < 1 || guestCount < 1)
-      return error(400, "INVALID_REQUEST", "입력이 규칙에 어긋남");
+      return error(400, C.INVALID_REQUEST, "입력이 규칙에 어긋남");
     if (guestCount > rt.capacity * roomCount)
-      return error(400, "INVALID_REQUEST", "정원 초과");
+      return error(400, C.INVALID_REQUEST, "정원 초과");
 
     const dates = occupiedDates(checkIn, checkOut);
     if (checkOut > "2026-10-30" || dates.some((d) => remainingOn(rt, d) < roomCount))
-      return error(409, "INSUFFICIENT_INVENTORY", "남은 객실 없음");
+      return error(409, C.INSUFFICIENT_INVENTORY, "남은 객실 없음");
 
     const code = `${checkIn.slice(2).replaceAll("-", "")}-H${rt.hotelId}R${rt.id}-M${String(seq++).padStart(4, "0")}`;
     const r: MockReservation = {
@@ -245,7 +249,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     const userId = headers.get("X-User-Id") ?? "";
     const r = reservations.get(code);
     // 남의 예약도 404 — 존재를 숨긴다 (계약)
-    if (!r || r.userId !== userId) return error(404, "RESOURCE_NOT_FOUND", "예약 없음");
+    if (!r || r.userId !== userId) return error(404, C.RESOURCE_NOT_FOUND, "예약 없음");
     settleExpiry(r);
 
     if (!action) return json(200, reservationBody(r));
@@ -253,7 +257,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     if (action === "confirm") {
       if (r.status === "CONFIRMED") return json(200, reservationBody(r)); // 멱등
       if (r.status !== "PENDING")
-        return error(409, "INVALID_STATE_TRANSITION", `${r.status}에서 확정 불가`);
+        return error(409, C.INVALID_STATE_TRANSITION, `${r.status}에서 확정 불가`);
       if (r.userId === "user-decline") {
         r.status = "CANCELLED";
         r.failureReason = "PAYMENT_DECLINED";
@@ -270,7 +274,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     if (action === "cancel") {
       if (r.status === "CANCELLED") return json(200, reservationBody(r)); // 멱등
       if (r.status !== "PENDING" && r.status !== "CONFIRMED")
-        return error(409, "INVALID_STATE_TRANSITION", `${r.status}에서 취소 불가`);
+        return error(409, C.INVALID_STATE_TRANSITION, `${r.status}에서 취소 불가`);
       r.status = "CANCELLED";
       r.terminatedAtMs = now();
       applyInventory(r, -1);
@@ -278,7 +282,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
       return json(200, reservationBody(r));
     }
 
-    return error(404, "RESOURCE_NOT_FOUND", "없는 동작");
+    return error(404, C.RESOURCE_NOT_FOUND, "없는 동작");
   }
 
   const fetchLike: typeof fetch = async (input, init) => {
@@ -295,7 +299,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     const m = path.match(/^\/api\/reservations\/([^/]+)(?:\/(confirm|cancel))?$/);
     if (m) return handleReservation(decodeURIComponent(m[1]), m[2], headers);
 
-    return error(404, "RESOURCE_NOT_FOUND", `알 수 없는 경로 ${path}`);
+    return error(404, C.RESOURCE_NOT_FOUND, `알 수 없는 경로 ${path}`);
   };
 
   return { fetchLike };

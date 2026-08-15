@@ -1,8 +1,34 @@
-// 백엔드 계약의 사본 — 진실은 F01 스펙 2장, F03 검색-API-계약이다.
-// 계약이 바뀌면 이 파일 하나만 고친다. 화면은 여기서 나간 타입만 본다.
+// 백엔드 계약의 사본 — 최종 진실은 F01이 완성한 Swagger(/openapi.json)다 (관리자 지시).
+// 그 전까지는 F01 스펙 2장·F03 검색-API-계약 문서에서 읽었다.
+// 계약이 바뀌면 이 파일 하나만 고친다. 화면은 여기서 나간 타입·상수만 본다 —
+// 필드 이름과 에러 코드 문자열이 이 파일 밖에 직접 나타나면 안 된다.
 //
 // 서버 응답은 타입 단언(as)으로 믿지 않고 이 파일의 parse 함수로 실제 검증한다.
 // 형태가 어긋나면 ContractViolation — 화면에서는 일반 오류로 떨어진다.
+//
+// ── 가정 대장 — Swagger가 나오면 아래 [가정]만 확인하면 된다 ─────────────────
+// [문서] 에러 코드 7종, 에러 본문 {code,message,traceId} (F01 2.1 에러 코드 계약)
+// [문서] 검색 응답 필드·emptyReason 3종·salesOpenUntil (F03 계약 3절)
+// [문서] 예약 생성 201 본문 필드 전부 (F01 2.2 응답 예시)
+// [문서] confirm 200 본문: status CONFIRMED+confirmedAt / CANCELLED+failureReason (F01 2.3)
+// [가정] GET /api/reservations/{code} 응답이 생성 201 본문과 같은 형태다 — 문서에
+//        "단건 조회"만 있고 본문 예시가 없다. parse가 대부분 필드를 선택으로 둔 이유.
+// [가정] cancel 200 본문도 같은 형태 (문서에는 출력 항목명만 있다: status·terminatedAt)
+// [가정] 날짜시각 문자열 형식 — expiresAt은 오프셋 없는 로컬(Asia/Seoul), searchedAt은
+//        오프셋 포함. 문서 예시가 그랬다. 화면은 Date 파싱만 하고 형식에 의존하지 않는다.
+// [가정] 검색 응답의 source 필드 존재(화면 미사용·타입에서 제외) — 대조만 하면 된다.
+// [확인 예정] 공용 설정 노출 계약 이름 ConfigReport→RuntimeReport (화면 무관, PM 공지)
+
+// 에러 코드 상수 — 화면·흐름 코드는 문자열 대신 반드시 이걸 쓴다.
+export const ERROR_CODES = {
+  INVALID_REQUEST: "INVALID_REQUEST",
+  RESOURCE_NOT_FOUND: "RESOURCE_NOT_FOUND",
+  INVALID_STATE_TRANSITION: "INVALID_STATE_TRANSITION",
+  INSUFFICIENT_INVENTORY: "INSUFFICIENT_INVENTORY",
+  REQUEST_IN_PROGRESS: "REQUEST_IN_PROGRESS",
+  LOCK_ACQUISITION_FAILED: "LOCK_ACQUISITION_FAILED",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+} as const;
 
 export type ReservationStatus =
   | "PENDING"
