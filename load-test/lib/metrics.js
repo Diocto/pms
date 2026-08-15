@@ -34,7 +34,25 @@ export const M = {
     // 거부 23칸에서 200이 나왔다. 명제 (다)의 직접적인 반증이다.
     // 성능 지표가 아니라 결론을 뒤집는 사건이므로 하드 게이트로 둔다.
     forbiddenPassed: new Counter('forbidden_transition_passed'),
+    // 우리가 아는 목록에 없는 거절 코드가 왔다. 아래 "거절을 코드로 판정한다" 참고.
+    unknownRejection: new Counter('unknown_rejection'),
 };
+
+// 거절을 상태 코드가 아니라 **본문 code로** 판정한다.
+//
+// 2026-08-15에 파이썬 스택의 `app/common/error_handlers.py`를 읽고 고쳤다.
+// 그 파일의 예외→상태 표에는 400·404·409 **셋뿐이고 503이 없다.** 락 획득
+// 실패를 ConflictError로 만들면 409로 나가는데, 예전 분류기는 "503이면서
+// 코드가 LOCK_ACQUISITION_FAILED"일 때만 락 실패로 셌다. 그래서 락 실패가
+// 전부 "정당한 거절" 바구니로 들어가고 **에러율에서 빠진다.**
+//
+// 그러면 S5에서 락의 가격이 ON·OFF 양쪽 0으로 나오고, "락을 켜도 비용이
+// 없다"는 결론이 리포트에 실린다. 실제로는 값을 못 잰 것이다.
+// **상태 코드는 F01이 언제든 바꿀 수 있지만 code는 계약이다**
+// (`errors.py`: "code가 클라이언트와의 계약이다"). 그러니 code로 판정한다.
+function isLockFailure(code) {
+    return code === ERROR_CODE.LOCK_ACQUISITION_FAILED;
+}
 
 function parse(res) {
     try {
@@ -62,6 +80,11 @@ export function classifyCreate(res) {
         M.rsvReplayed.add(1);
         return { kind: 'replayed', body };
     }
+    // 락 실패를 상태 코드보다 먼저 본다. 409로 오든 503으로 오든 락 실패다.
+    if (isLockFailure(code)) {
+        M.lockFailed.add(1);
+        return { kind: 'lock_failed', body };
+    }
     if (res.status === 409) {
         if (code === ERROR_CODE.INSUFFICIENT_INVENTORY) {
             M.rejInventory.add(1);
@@ -71,18 +94,21 @@ export function classifyCreate(res) {
             M.rejDuplicate.add(1);
             return { kind: 'duplicate', body };
         }
-        // 생성 요청에 전이 오류가 오면 그것대로 이상하지만, 삼키지 않고 센다.
-        M.rejTransition.add(1);
-        return { kind: 'transition', body };
+        if (code === ERROR_CODE.INVALID_STATE_TRANSITION) {
+            // 생성 요청에 전이 오류가 오면 그것대로 이상하지만, 삼키지 않고 센다.
+            M.rejTransition.add(1);
+            return { kind: 'transition', body };
+        }
+        // **모르는 거절 코드는 "정당한 거절"로 넘기지 않는다.**
+        // 예전에는 여기서 rejTransition 으로 흘려보냈고, 그 바구니는 에러율에서
+        // 빠지므로 새 실패 유형이 초록불 아래 숨었다.
+        M.unknownRejection.add(1);
+        return { kind: 'unknown_rejection', body };
     }
     if (res.status === 400) {
         // 앱 버그가 아니라 내 시나리오가 잘못된 요청을 보낸 것이다 (§3-6).
         M.badRequest.add(1);
         return { kind: 'bad_request', body };
-    }
-    if (res.status === 503 && code === ERROR_CODE.LOCK_ACQUISITION_FAILED) {
-        M.lockFailed.add(1);
-        return { kind: 'lock_failed', body };
     }
     M.serverError.add(1);
     return { kind: 'error', body };
@@ -130,13 +156,23 @@ export function classifyTransition(res, opts = {}) {
         M.transitionOk.add(1);
         return { kind: 'ok', status, body };
     }
+    // 생성 요청과 같은 이유로 상태 코드보다 먼저 본다.
+    if (isLockFailure(code)) {
+        M.lockFailed.add(1);
+        return { kind: 'lock_failed', status, body };
+    }
     if (res.status === 409) {
         if (code === ERROR_CODE.INVALID_STATE_TRANSITION) {
             M.rejTransition.add(1);
             return { kind: 'transition', status, body };
         }
-        M.rejDuplicate.add(1);
-        return { kind: 'duplicate', status, body };
+        if (code === ERROR_CODE.DUPLICATE_REQUEST || code === ERROR_CODE.REQUEST_IN_PROGRESS) {
+            M.rejDuplicate.add(1);
+            return { kind: 'duplicate', status, body };
+        }
+        // 여기도 모르는 코드를 중복으로 위장하지 않는다. 위 classifyCreate 주석 참고.
+        M.unknownRejection.add(1);
+        return { kind: 'unknown_rejection', status, body };
     }
     if (res.status === 400) {
         M.badRequest.add(1);
@@ -147,10 +183,6 @@ export function classifyTransition(res, opts = {}) {
         M.notFound.add(1);
         return { kind: 'not_found', status, body };
     }
-    if (res.status === 503 && code === ERROR_CODE.LOCK_ACQUISITION_FAILED) {
-        M.lockFailed.add(1);
-        return { kind: 'lock_failed', status, body };
-    }
     M.serverError.add(1);
     return { kind: 'error', status, body };
 }
@@ -158,14 +190,21 @@ export function classifyTransition(res, opts = {}) {
 // 모든 시나리오가 공유하는 임계값.
 // 시나리오별 임계값은 여기에 얹어 쓴다.
 //
-// 셋 다 하드 게이트다. 0이 아니면 성능 미달이 아니라 **무효 실행**이므로
+// 전부 하드 게이트다. 0이 아니면 성능 미달이 아니라 **무효 실행**이므로
 // 결과를 폐기하고 원인을 고쳐 다시 돌린다 (§3-6).
-//   server_error : 앱 장애
-//   bad_request  : 내 요청이 틀렸다
-//   not_found    : 예약 소유자를 잘못 물려 보냈다
+//   server_error      : 앱 장애
+//   bad_request       : 내 요청이 틀렸다
+//   not_found         : 예약 소유자를 잘못 물려 보냈다
+//   forbidden_...     : 금지 전이가 통과했다 (명제 (다) 반증)
+//   unknown_rejection : 우리가 모르는 거절 코드가 왔다
+//
+// 마지막 항목이 게이트인 이유는 성능과 무관하다. **모르는 거절을 아는 거절로
+// 취급하면 그 순간부터 리포트가 거짓말을 한다.** 새 코드가 생겼으면 그게 무슨
+// 뜻인지 정하고 config.js 의 ERROR_CODE 에 넣은 다음 다시 돌린다.
 export const BASE_THRESHOLDS = {
     server_error: ['count==0'],
     bad_request: ['count==0'],
     not_found: ['count==0'],
     forbidden_transition_passed: ['count==0'],
+    unknown_rejection: ['count==0'],
 };

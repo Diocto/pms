@@ -101,7 +101,7 @@ export function teardown() {
     console.log('[L5]     수백이면 만료 순간마다 그만큼이 한꺼번에 DB로 간 것이다.');
     console.log('[L5]  2. db_hit_elapsed_ms 분포가 10초 간격으로 뭉치는지 본다. 뭉치면 스탬피드다.');
     console.log('[L5]  3. 같은 구간의 p99 응답 시간이 주기적으로 튀는지 함께 본다.');
-    console.log('[L5]  4. HikariCP 활성 커넥션(최대 20)을 actuator/metrics 로 같이 기록한다.');
+    console.log('[L5]  4. DB 커넥션 풀의 활성·대기 커넥션을 같이 기록한다 (앱에 지표 엔드포인트가 없으면 DB 쪽에서 센다).');
     console.log('[L5] 판단 기준: 만료 순간 DB 조회가 한 자릿수면 방어 불필요, 수십~수백이면 근거.');
     console.log('[L5] 결론은 F03이 내린다. F04는 숫자만 싣는다.');
 }

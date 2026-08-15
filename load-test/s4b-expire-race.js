@@ -48,7 +48,13 @@ const DATES = TARGET.dates;     // 100실 × 4일 = 400건 확보
 const COUNT = 400;
 
 // 만료 배치가 보고한 만료 건수의 총합.
-// 최종 EXPIRED 행 수와 정확히 같아야 한다. 크면 이중 만료다.
+//
+// 판정은 **한쪽 방향으로만** 한다: 최종 EXPIRED 행 수보다 크면 이중 만료다.
+// 같기를 기대하지 않는다 — 앱에 PMS_RESERVATION_EXPIRE_SCAN_SECONDS(기본 30)
+// 주기의 배경 스캐너가 있어서, 내가 부르지 않은 만료가 섞인다. S4-B 는 hold 를
+// 1분으로 줄이고 최대 120초를 도니 그 스캐너가 반드시 한 번 이상 돈다.
+// 그러면 보고 합계가 실제 EXPIRED 보다 **작을 수 있고, 그건 정상이다.**
+// 등호로 걸어두면 정상 실행이 실패로 뜬다.
 const expiredReported = new Counter('expired_reported');
 // 확정에 성공한(200 + CONFIRMED) 예약 수. 최종 CONFIRMED 수와 대조한다.
 const confirmedOk = new Counter('confirm_succeeded');
@@ -142,7 +148,8 @@ export function expireAxis() {
 export function teardown() {
     console.log('[S4-B] verify/s4b.sql 로 확인할 것.');
     console.log('[S4-B] 기대: CONFIRMED + EXPIRED = 400, PENDING 0건');
-    console.log('[S4-B] 기대: expired_reported 합계 == 최종 EXPIRED 행 수. 크면 이중 만료다.');
+    console.log('[S4-B] 기대: expired_reported 합계 <= 최종 EXPIRED 행 수. 크면 이중 만료다.');
+    console.log('[S4-B]      (같기를 기대하지 않는다 — 배경 스캐너가 부른 만료는 여기 안 잡힌다)');
     console.log('[S4-B] 기대: confirm_succeeded == 최종 CONFIRMED 행 수. 다르면 확정된 예약이 만료된 것이다.');
     console.log('[S4-B] 기대: 잔여 + CONFIRMED 건수 = 총 객실 수. 잔여가 총량을 넘으면 복원 과다다.');
 }

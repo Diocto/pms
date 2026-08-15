@@ -170,24 +170,28 @@ fi
 # 그래서 S5는 스위치 확인에 실패하면 부하를 넣지 않는다.
 # (scenarios.md §3-10 S5 항목의 자동화가 이것이다)
 #
-# ⚠️ 경로 확정 대기 (2026-08-15 스택 전환).
-#   FastAPI 로 전환하면서 actuator 가 없어진다. F01 이 대체 엔드포인트
-#   (제안: GET /internal/config) 를 정하면 아래 기본값을 바꾼다.
+# ⚠️ 경로 확정 대기 (2026-08-15).
+#   FastAPI 로 전환하면서 actuator 가 사라졌다. 현재 앱에 있는 경로는 /health
+#   하나뿐이고(app/main.py 확인), 설정 노출 엔드포인트는 F01 스펙 기준
+#   GET /api/internal/config 다. **아직 구현 전이므로 기본값은 그 경로를
+#   가리키되, 없으면 여기서 멈춘다.** 다르게 정해지면 CONFIG_URL 로 덮어쓴다.
 #   **응답 계약과 "읽지 못하면 중단" 규칙은 그대로다.** 경로만 바뀐다.
-#   그때까지는 CONFIG_URL 환경변수로 덮어쓸 수 있게 해뒀다.
 #
-# 값을 /actuator/info 에서 읽었다. /actuator/env 가 아니다.
-#   env 로 읽으려면 management.endpoint.env.show-values=ALWAYS 가 필요한데,
-#   그러면 설정 전체가 마스킹 없이 열려 DB 접속 정보까지 노출된다. 로컬
-#   전용이라 실질 위험은 없지만, 제출 문서에 "이 설정 그대로 실서비스에
-#   올리면 사고"라는 각주가 붙는다. info 는 이미 열려 있고 마스킹도 없으며
-#   우리가 실을 값만 싣는다. 노출을 늘리지 않는 쪽을 골랐다.
+# 노출 범위를 최소로 잡는다.
+#   설정 전체를 그대로 여는 방식(예전 스택의 actuator env 마스킹 해제)은
+#   DB 접속 정보까지 같이 열린다. 로컬 전용이라 실질 위험은 없지만, 제출
+#   문서에 "이 설정 그대로 실서비스에 올리면 사고"라는 각주가 붙는다.
+#   우리가 확인해야 하는 값만 싣는 쪽을 골랐다.
 #
-# 기대 응답 (F01 InfoContributor):
-#   {"loadTest":{"pms.lock.enabled":false,"pms.reservation.hold-minutes":10,...}}
-#   키는 스프링 설정 키 이름 그대로다. 이름을 바꾸지 않으므로 번역 과정에서
-#   어긋날 자리가 없다.
-INFO_URL="${CONFIG_URL:-${BASE_URL:-http://localhost:8080}/actuator/info}"
+# 기대 응답 (2026-08-15 확정):
+#   {"loadTest":{"PMS_LOCK_ENABLED":false,"PMS_RESERVATION_HOLD_MINUTES":10,...}}
+#
+#   **바깥은 camelCase 인데 안쪽 키는 환경변수 이름 그대로다.** 표기 규칙에
+#   대놓고 어긋나지만 그렇게 정했다 — 조작자가 셸에 치는 문자열, 앱의
+#   validation_alias, 리포트에 적히는 이름이 전부 같아야 하기 때문이다.
+#   중간에 번역이 한 겹 끼면 리포트를 보고 재현하려는 사람이 그 문자열을
+#   그대로 붙여넣을 수 없다. 편의가 아니라 재현성 문제라서 규칙에 예외를 뒀다.
+INFO_URL="${CONFIG_URL:-${BASE_URL:-http://localhost:8080}/api/internal/config}"
 
 # info 응답에서 키 하나의 값을 꺼낸다. 없으면 빈 문자열.
 info_value() {

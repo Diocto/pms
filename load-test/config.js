@@ -28,7 +28,8 @@ export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 export const PATHS = {
     create: '/api/reservations',
     expire: '/api/internal/reservations/expire',
-    health: '/actuator/health',
+    // 2026-08-15 확인: app/main.py 에 실제로 있는 경로다 (actuator 는 없다).
+    health: '/health',
     // F03 검색. X-User-Id를 요구하지 않는다 (F03 스펙 D11).
     availability: '/api/availability',
 };
@@ -90,13 +91,42 @@ export const FIELDS = {
 // **이름은 조작자가 셸에 그대로 치는 환경변수 이름이다.** 스택 전환(2026-08-15)
 // 이후 표기를 이렇게 제안했다 — 리포트를 보고 재현하는 사람이 그대로 붙여넣을
 // 수 있어야 하기 때문이다. 실제 철자는 F01·F02가 확정한다.
+// 2026-08-15에 app/common/config.py 를 직접 읽고 맞춘 목록이다.
+// 그 파일의 validation_alias 가 계약이고, 조작자가 셸에 치는 이름과 같다.
 export const APP_SETTINGS = {
     lockEnabled: 'PMS_LOCK_ENABLED',                       // S5 대조
     holdMinutes: 'PMS_RESERVATION_HOLD_MINUTES',           // S4-B에서 1로
     declineRate: 'PMS_PAYMENT_DECLINE_RATE',               // 경합 0.0 / 결제 분기 1.0
-    searchCacheEnabled: 'PMS_SEARCH_CACHE_ENABLED',        // S8 대조
+    searchCacheEnabled: 'PMS_SEARCH_CACHE_ENABLED',        // S8 대조 (F03가 추가)
     // S7-C 대조. 실제 키 이름은 F02가 정한다. 병합 후 대조할 것.
     promotionGateEnabled: 'PMS_PROMOTION_GATE_ENABLED',
+};
+
+// **바꾸지는 않지만 반드시 기록하는 설정.**
+//
+// 위 APP_SETTINGS 는 우리가 회차마다 손대는 스위치고, 아래 셋은 손대지 않되
+// 값이 결과를 좌우하는 것들이다. 리포트에 안 적으면 재현이 안 된다.
+//
+//   PMS_LOCK_WAIT_MILLIS (기본 200)
+//     락을 얼마나 기다렸다 포기하는가. **S5-ON 의 락 실패 건수는 사실상 이
+//     값이 정한다.** 200ms 는 짧은 편이라 경합이 심하면 실패가 많이 나오는데,
+//     그건 락 설계가 나쁜 게 아니라 이 값이 그렇게 정해진 것이다.
+//     "락의 가격"을 말할 때 이 숫자를 같이 대지 않으면 근거가 아니다.
+//
+//   PMS_LOCK_TTL_SECONDS (기본 3)
+//     락을 자동으로 놓는 시간. **트랜잭션이 3초를 넘기면 내가 쥔 락이 남에게
+//     넘어간다.** 그때 redis-py 가 LockNotOwnedError 를 던지고, 그 순간
+//     임계 구역에 둘이 들어가 있었다는 뜻이 된다. 정상 동작에서는 안 나와야
+//     한다. 로그 관찰 항목이다 (scenarios.md §3-11).
+//
+//   PMS_RESERVATION_EXPIRE_SCAN_SECONDS (기본 30)
+//     만료 스캔 주기. S4-B 가 hold 를 1분으로 줄여도 만료는 정확히 1분에
+//     일어나지 않고 **그 뒤 첫 스캔 시점**에 일어난다. 대기 시간을 이 값까지
+//     더해서 잡지 않으면 "만료 0건"으로 끝난다.
+export const OBSERVED_SETTINGS = {
+    lockWaitMillis: 'PMS_LOCK_WAIT_MILLIS',
+    lockTtlSeconds: 'PMS_LOCK_TTL_SECONDS',
+    expireScanSeconds: 'PMS_RESERVATION_EXPIRE_SCAN_SECONDS',
 };
 
 // 특가 예약에 실을 할인 항목.
