@@ -102,11 +102,12 @@ k6 run s1-inventory-burst.js --summary-export=../docs/load-test/results/s1-summa
 
 | 스크립트 | 증명하는 것 | 의존 |
 |---|---|---|
-| `s7-promotion-spike.js` | 특가 20실에 8,000건이 몰려도 성공 정확히 20 | F02 |
 | `s8-search-cache.js` | 캐시 유무의 처리량·정합성 차이 | F03 |
 | `l5-cache-stampede.js` | TTL 만료 순간 DB로 몰리는 양 (**관찰 전용, 합격선 없음**) | F03 |
 
 L5는 F03이 스탬피드 방어 도입 여부를 "측정 후 판단"으로 미뤄서 그 근거를 만드는 시나리오다. **F04는 숫자만 싣고 결론은 F03이 낸다.**
+
+특가 스파이크(S7 계열)는 F02 폐기(ADR-0058, 2026-08-16)로 스크립트째 삭제했다. 설계 기록은 `docs/load-test/scenarios.md`에 폐기 표시와 함께 남아 있다.
 
 ## 밟기 쉬운 함정 셋
 

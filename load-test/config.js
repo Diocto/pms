@@ -34,10 +34,10 @@ export const PATHS = {
     availability: '/api/availability',
 };
 
-// F02 특가에는 전용 경로가 없다. 확정 계약은 일반 예약 경로(create)에
-// discounts 배열을 실어 보내는 방식이다. 초기 설계에 있던
-// /api/promotions/{roomTypeId}/{stayDate} 헬퍼는 계약이 뒤집히면서 삭제했다.
-// 남겨두면 "특가 전용 경로가 있다"는 잘못된 단서가 된다.
+// F02(선착순 특가)는 2026-08-16 관리자 결정으로 폐기됐다 (ADR-0058).
+// 특가 관련 경로·필드·코드·시드를 이 파일에서 전부 걷어냈다. 남겨두면
+// "언젠가 붙는 기능"으로 읽히고, 계약에 없는 코드를 아는 코드로 두는 셈이 된다.
+// 2026-08-16 대조: CreateReservationRequest 에 discounts 필드 자체가 없다 (D22).
 
 // 예약 식별자를 경로로 바꾸는 유일한 함수.
 export function pathFor(ref, action) {
@@ -78,10 +78,6 @@ export const FIELDS = {
     checkOut: 'checkOut',
     roomCount: 'roomCount',
     guestCount: 'guestCount',
-    // 할인 자리. 특가 예약은 **별도 엔드포인트가 아니라** 이 필드를 실어
-    // 같은 POST /api/reservations 로 보낸다.
-    // 0개 또는 1개. 2개 이상이면 400이다.
-    discounts: 'discounts',
 };
 
 // 부하 프로파일에서 조절하는 앱 설정 키.
@@ -97,9 +93,7 @@ export const APP_SETTINGS = {
     lockEnabled: 'PMS_LOCK_ENABLED',                       // S5 대조
     holdMinutes: 'PMS_RESERVATION_HOLD_MINUTES',           // S4-B에서 1로
     declineRate: 'PMS_PAYMENT_DECLINE_RATE',               // 경합 0.0 / 결제 분기 1.0
-    searchCacheEnabled: 'PMS_SEARCH_CACHE_ENABLED',        // S8 대조 (F03가 추가)
-    // S7-C 대조. 실제 키 이름은 F02가 정한다. 병합 후 대조할 것.
-    promotionGateEnabled: 'PMS_PROMOTION_GATE_ENABLED',
+    searchCacheEnabled: 'PMS_SEARCH_CACHE_ENABLED',        // S8 대조 (2026-08-16 main 대조 완료)
 };
 
 // **바꾸지는 않지만 반드시 기록하는 설정.**
@@ -127,16 +121,10 @@ export const OBSERVED_SETTINGS = {
     lockWaitMillis: 'PMS_LOCK_WAIT_MILLIS',
     lockTtlSeconds: 'PMS_LOCK_TTL_SECONDS',
     expireScanSeconds: 'PMS_RESERVATION_EXPIRE_SCAN_SECONDS',
+    // F03 캐시 TTL (기본 10초). S8 회차 길이가 TTL 의 몇 배인지에 따라
+    // 히트율 기대치가 정해지므로 기록 대상이다.
+    searchCacheTtlSeconds: 'PMS_SEARCH_CACHE_TTL_SECONDS',
 };
-
-// 특가 예약에 실을 할인 항목.
-// reference(프로모션 식별자)의 실제 값은 F02 V202 시드가 정한다.
-// **병합 후 채운다. 지금은 자리만 만든다.**
-export const PROMOTION_REFERENCE = __ENV.PROMOTION_REF || 'TODO-F02-V202';
-
-export function promotionDiscount(reference) {
-    return [{ type: 'PROMOTION', reference: reference || PROMOTION_REFERENCE }];
-}
 
 export const RESPONSE_FIELDS = {
     status: 'status',
@@ -234,15 +222,9 @@ export const ERROR_CODE = {
     INSUFFICIENT_INVENTORY: 'INSUFFICIENT_INVENTORY',
     REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
     LOCK_ACQUISITION_FAILED: 'LOCK_ACQUISITION_FAILED',   // 503 (ServiceUnavailableError)
-    // F02 특가 — 이 둘이 전부다 (2026-08-15 PM 확정). error_codes.py 에는
-    // 아직 없다 — F02 병합 때 대조한다.
-    //
-    // PROMOTION_ALREADY_CLAIMED 같은 셋째 코드는 없다. 1인 1건 제한이 없어서
-    // (D8) 다른 멱등 키로 같은 특가를 두 번 사면 두 장을 갖는 게 **정상
-    // 성공**이고, 발동 조건이 없는 코드를 목록에 두면 영원히 0건인 항목이
-    // 생긴다 — "0건이라 안심"인지 "발동 자체가 불가능"인지 구분이 안 된다.
-    PROMOTION_NOT_OPEN: 'PROMOTION_NOT_OPEN',
-    PROMOTION_SOLD_OUT: 'PROMOTION_SOLD_OUT',
+    // PROMOTION_NOT_OPEN·PROMOTION_SOLD_OUT 은 F02 폐기(ADR-0058)로 계약에서
+    // 빠졌다. 2026-08-16 대조: error_codes.py 는 위 6종 + INTERNAL_ERROR 로
+    // 끝이고, 이 목록과 1:1 이다.
 };
 
 // F03 검색 응답 필드. 계측을 별도로 붙이지 않고 응답에서 직접 읽는다.
@@ -313,52 +295,14 @@ export const PLAN = {
     // 만료×확정 400건. 100실 × 4일.
     s4b:  { roomType: ROOM_TYPES.standard,   dates: ['2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11'] },
     // 락 대조. S2와 같은 부하를 날짜만 갈아 두 번 돌린다.
-    // 09-14~16은 F02 특가가 점유했으므로 그 앞으로 잡는다.
+    // 09-14~16은 비워 둔다 — F02 특가가 점유했던 대역 (폐기됐지만 날짜를
+    // 옮기면 reset.sh 대역과 어긋나므로 그대로 둔다).
     s5on: { roomType: ROOM_TYPES.standard,   dates: ['2026-09-12'] },
     s5off:{ roomType: ROOM_TYPES.standard,   dates: ['2026-09-13'] },
     // 혼합 지속. 전 타입 × 10일.
     s6:   { roomTypes: ALL_ROOM_TYPES,       dateRange: ['2026-09-21', '2026-09-30'] },
     // 조회 폭주 + 캐시 대조.
     s8:   { roomTypes: ALL_ROOM_TYPES,       dateRange: ['2026-10-01', '2026-10-10'] },
-};
-
-// F02 특가 시드 (V202). 9월 14~16일은 특가가 점유했으므로 일반 경합
-// 시나리오(S1·S2·S5·S6)에 이 날짜를 쓰지 않는다. 같은 (객실타입, 날짜)는
-// 같은 재고 행이라 서로의 결과를 오염시킨다.
-//
-// P1의 대상이 스탠다드(100실)인 이유가 중요하다.
-//   20실 특가를 여는데 그날 일반 재고가 20 근처면, 8,000건이 몰릴 때 특가가
-//   소진되기 전에 일반 재고가 먼저 바닥난다. 그러면 재는 것이 "특가 선착순
-//   정확성"이 아니라 "일반 재고 고갈"로 조용히 바뀐다. 성공 20건이 나와도
-//   그게 특가 제약 때문인지 재고 때문인지 구분할 수 없다.
-//   100실이면 특가 20을 빼도 80이 남아 측정이 깨끗하다.
-//
-// S7의 부하 대상은 P1 하나다.
-//   P2는 대상이 아니다. 판매 창을 벽시계 T+5분이 아니라 절대 날짜로 잡았기
-//   때문이다. 그 판단이 옳다 — 오픈 시각을 실행 시각에 묶으면 시드가 부하테스트
-//   실행 시점에 종속돼, 고정 날짜에서 얻은 재현성이 그 한 줄로 무너진다.
-//   "닫혀 있다 열리는 순간"은 F02가 통합 테스트에서 Clock을 옮겨 재현한다.
-//   스파이크의 본질은 오픈 순간이 아니라 한 재고 행에 요청이 한꺼번에 몰리는
-//   것이고, 그건 이미 열린 P1에 램프업으로 충분히 만들어진다.
-//   P3(이미 종료)는 판매 창 밖 거부를 보는 단건 확인용이지 부하 대상이 아니다.
-// promoPrice: 실제로 청구되는 특가 단가. reservation.price_per_night 에
-//   이 값이 기록되므로 **금액 불변식을 DB로 검증할 수 있다.**
-//   특가 사용권이 발급된 예약에 정가가 박혀 있으면 그건 사용자가 요청하지
-//   않은 금액을 청구한 것이다.
-export const PROMOTIONS = {
-    p1: {
-        roomType: ROOM_TYPES.standard, date: '2026-09-14', quantity: 20,
-        promoPrice: 75000, listPrice: 150000,
-        window: '2026-08-01 ~ 2026-09-15', target: 'S7 스파이크',
-    },
-    p2: {
-        roomType: ROOM_TYPES.standard, date: '2026-09-15', quantity: 20,
-        price: 75000, window: '2026-09-01 ~ 2026-09-16', target: '부하 대상 아님',
-    },
-    p3: {
-        roomType: ROOM_TYPES.deluxe, date: '2026-09-16', quantity: 10,
-        price: 150000, window: '2026-08-01 ~ 2026-08-10 (종료)', target: '단건 확인',
-    },
 };
 
 // 보조 시나리오. 체크인은 날짜 조건(checkIn <= today < checkOut)이 걸려
@@ -406,10 +350,6 @@ export function reservationBody(roomType, checkInDate, opts = {}) {
     };
     // D1 채택으로 확정 필드다. 항상 싣는다.
     body[FIELDS.guestCount] = opts.guestCount || safeGuestCount(roomCount);
-    // 일반 예약은 discounts를 아예 보내지 않는다. S1~S6·S8이 여기 해당한다.
-    if (opts.discounts) {
-        body[FIELDS.discounts] = opts.discounts;
-    }
     return body;
 }
 

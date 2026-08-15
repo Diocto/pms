@@ -10,8 +10,9 @@
 #   - reservation                 : 대상 날짜 대역 행 DELETE          [F01 소유]
 #   - reservation_status_history  : 대상 날짜 대역 행 DELETE          [F01 소유]
 #   - room_daily_inventory        : remaining = total_quantity 로 복원 [F01 소유]
-#   - promotion_inventory         : S7 실행 시에만 초기값 복원        [F02 소유, 이름 미확정]
 #   - Redis 전체                  : FLUSHDB (멱등키·분산락·캐시)
+#
+# promotion_inventory 는 목록에서 뺐다 — F02 폐기 (ADR-0058, 2026-08-16).
 #
 # 스키마와 마이그레이션은 절대 건드리지 않는다. DDL을 실행하지 않으며 DML만 한다.
 # 위 목록에 없는 테이블을 초기화해야 할 상황이 생기면 스크립트를 고치기 전에
@@ -61,7 +62,7 @@ esac
 
 SCENARIO="${1:-}"
 if [ -z "$SCENARIO" ]; then
-    echo "사용법: ./reset.sh <시나리오>   (s1 s1c s2 s3 s4 s4b s5on s5off s6 s7 s8 all)" >&2
+    echo "사용법: ./reset.sh <시나리오>   (s1 s1c s2 s3 s4 s4b s5on s5off s6 s8 all)" >&2
     exit 1
 fi
 
@@ -77,7 +78,9 @@ case "$SCENARIO" in
     s4b)   FROM=2026-09-08; TO=2026-09-11 ;;
     s5on)  FROM=2026-09-12; TO=2026-09-12 ;;
     s5off) FROM=2026-09-13; TO=2026-09-13 ;;
-    s7)    FROM=2026-09-14; TO=2026-09-16 ;;
+    # 09-14~16 은 비어 있다. F02 특가(S7)가 점유했던 대역인데 폐기됐다 (ADR-0058).
+    # 다른 시나리오를 옮겨 붙이지 않는다 — 날짜를 옮기면 config.js PLAN 과
+    # 어긋나 초기화와 부하가 다른 날짜를 보게 된다.
     s6)    FROM=2026-09-21; TO=2026-09-30 ;;
     s8)    FROM=2026-10-01; TO=2026-10-10 ;;
     all)   FROM=2026-08-01; TO=2026-10-29 ;;
@@ -113,15 +116,6 @@ UPDATE room_daily_inventory i
    SET i.remaining = rt.total_quantity
  WHERE i.stay_date BETWEEN '$FROM' AND '$TO';
 "
-
-# 프로모션 재고 (S7 전용). 테이블 이름이 미확정이라 실패해도 넘어간다.
-if [ "$SCENARIO" = "s7" ] || [ "$SCENARIO" = "all" ]; then
-    mysql_run "
-    UPDATE promotion_inventory p
-       SET p.remaining = p.total_quantity
-     WHERE p.stay_date BETWEEN '$FROM' AND '$TO';
-    " 2>/dev/null || echo "[reset] promotion_inventory 없음 — 건너뜀 (F02 미병합)"
-fi
 
 # --------------------------------------------------------------------------
 # 3. Redis 비우기
@@ -170,12 +164,11 @@ fi
 # 그래서 S5는 스위치 확인에 실패하면 부하를 넣지 않는다.
 # (scenarios.md §3-10 S5 항목의 자동화가 이것이다)
 #
-# ⚠️ 경로 확정 대기 (2026-08-15).
-#   FastAPI 로 전환하면서 actuator 가 사라졌다. 현재 앱에 있는 경로는 /health
-#   하나뿐이고(app/main.py 확인), 설정 노출 엔드포인트는 F01 스펙 기준
-#   GET /api/internal/config 다. **아직 구현 전이므로 기본값은 그 경로를
-#   가리키되, 없으면 여기서 멈춘다.** 다르게 정해지면 CONFIG_URL 로 덮어쓴다.
-#   **응답 계약과 "읽지 못하면 중단" 규칙은 그대로다.** 경로만 바뀐다.
+# 경로 확정 (2026-08-16 대조 완료).
+#   GET /api/internal/config 가 main 에 실제로 있다
+#   (app/reservation/presentation/actuator.py). 응답의 바깥 필드는
+#   loadTest / implementations / counters / processId 넷이다.
+#   다르게 바뀌면 CONFIG_URL 로 덮어쓴다.
 #
 # 노출 범위를 최소로 잡는다.
 #   설정 전체를 그대로 여는 방식(예전 스택의 actuator env 마스킹 해제)은
@@ -245,6 +238,44 @@ case "$SCENARIO" in
     s5off) check_switch "$LOCK_KEY" "false" || exit 1 ;;
     s4b)   check_switch "$HOLD_KEY" "1"     || exit 1 ;;
 esac
+
+# --------------------------------------------------------------------------
+# 5-1. 프로세스 표본 — 워커가 실제로 몇 개 떠 있는지 실물로 잡는다
+# --------------------------------------------------------------------------
+# 응답의 processId 는 그 응답을 만든 프로세스의 pid 다. 여러 번 요청해
+# 서로 다른 pid 가 나오면 워커가 여럿이라는 **확정 증거**다. (전부 같으면
+# "여럿이 아니다"의 증명은 아니다 — 표본이 한 워커에만 갔을 수 있다.
+# 그래서 단일 확인용이 아니라 다중 적발용으로 쓴다.)
+#
+# 왜 설정이 아니라 pid 인가: --workers 는 조작자가 쳤다고 믿는 값이고
+# pid 는 실제로 떠 있는 값이다. 이 대조의 목적이 "선언과 실물의 어긋남"을
+# 잡는 것이므로 실물 쪽을 읽는다. (F01이 F04 요청으로 실어줬다)
+#
+# REQUIRE_SINGLE_PROCESS=1 로 부르면 pid 가 2종 이상일 때 중단한다.
+# 프로세스 단위 카운터(counters 칸)로 판정하는 회차가 이 모드를 쓴다.
+# 지금은 counters 를 채우는 컨텍스트가 없어(F02 폐기) 상시 모드는 아니고,
+# 카운터가 생기면 해당 회차의 실행 절차에 이 변수를 명시한다.
+PIDS=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    PID_BODY=$(curl -sf --max-time 5 "$INFO_URL") || PID_BODY=""
+    P=$(info_value "processId" "$PID_BODY")
+    [ -n "$P" ] && PIDS="$PIDS $P"
+done
+DISTINCT_PIDS=$(printf '%s\n' $PIDS | sort -u | grep -c . || true)
+echo "[reset] 프로세스 표본: 요청 10회, 관측 pid ${DISTINCT_PIDS}종 ($(printf '%s\n' $PIDS | sort -u | tr '\n' ' '))"
+
+if [ "${REQUIRE_SINGLE_PROCESS:-0}" = "1" ]; then
+    if [ "$DISTINCT_PIDS" = "0" ]; then
+        echo "[reset] 실패: processId 를 한 번도 못 읽었다. 확인 못 한 채 진행하지 않는다." >&2
+        exit 1
+    fi
+    if [ "$DISTINCT_PIDS" -gt 1 ]; then
+        echo "[reset] 실패: 워커가 여럿이다 (pid ${DISTINCT_PIDS}종)." >&2
+        echo "[reset] 프로세스 단위 카운터로 판정하는 회차는 워커 1이 아니면 판정이 무효다." >&2
+        echo "[reset] --workers 1 로 재기동한 뒤 다시 돌려라." >&2
+        exit 1
+    fi
+fi
 
 # 실제 설정값을 리포트에 그대로 싣기 위해 통째로 저장해둔다.
 # 손으로 옮겨 적으면 틀리고, 틀려도 아무도 모른다. 실행 시점의 실제 값이

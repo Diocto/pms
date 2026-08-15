@@ -61,7 +61,7 @@ run_sql_file() {
 # 일으키지 않는 시나리오에서 이력이 비어 있는 것은 정상이다.
 case "$SCENARIO" in
     s4|s4b|s6)  EXPECT_HISTORY=1 ;;   # 취소·만료·혼합 — 복원 이벤트가 반드시 나온다
-    *)          EXPECT_HISTORY=0 ;;   # 생성 전용(S1·S1-C·S2·S3·S5·S7·S8) 등
+    *)          EXPECT_HISTORY=0 ;;   # 생성 전용(S1·S1-C·S2·S3·S5·S8) 등
 esac
 
 echo "[verify] 시나리오=${SCENARIO:-(공통만)}  이력 기대=${EXPECT_HISTORY}"
