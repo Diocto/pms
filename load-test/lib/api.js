@@ -55,11 +55,4 @@ export function triggerExpire(opts = {}) {
     });
 }
 
-// NO_SHOW 트리거.
-// F01 D4가 절단 1순위라 이 함수를 쓰는 시나리오는 보조 실험으로만 둔다.
-export function triggerNoShow(opts = {}) {
-    return http.post(`${BASE_URL}${PATHS.noShow}`, null, {
-        headers: headers(opts.userId || 'user-batch'),
-        tags: { op: 'no-show' },
-    });
-}
+// NO_SHOW 트리거는 삭제했다. F01 D4 기각으로 엔드포인트 자체가 없다 (2026-08-15).

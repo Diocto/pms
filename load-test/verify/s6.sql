@@ -56,8 +56,10 @@ HAVING COUNT(*) > 1;
 
 SELECT '--- I5. 전이 표 밖 상태 (기대: 0행) ---' AS check_name;
 SELECT DISTINCT status FROM reservation
+-- 상태는 6개뿐이다. NO_SHOW는 D4 기각으로 사라졌으므로 여기 넣으면 안 된다.
+-- 목록에 남겨두면 있어서는 안 될 상태가 나와도 이 쿼리가 통과한다.
  WHERE status NOT IN ('PENDING','CONFIRMED','CANCELLED','EXPIRED',
-                      'CHECKED_IN','CHECKED_OUT','NO_SHOW');
+                      'CHECKED_IN','CHECKED_OUT');
 
 SELECT '--- 참고. 상태 분포 ---' AS check_name;
 SELECT status, COUNT(*) AS cnt

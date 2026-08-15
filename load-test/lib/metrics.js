@@ -31,7 +31,7 @@ export const M = {
     // 전이 요청이 전부 404로 떨어지는데, 404는 "예약이 없다"로 읽혀서
     // 원인을 찾는 데 오래 걸린다. 그래서 따로 세고 하드 게이트로 둔다.
     notFound: new Counter('not_found'),
-    // 거부 34칸에서 200이 나왔다. 명제 (다)의 직접적인 반증이다.
+    // 거부 23칸에서 200이 나왔다. 명제 (다)의 직접적인 반증이다.
     // 성능 지표가 아니라 결론을 뒤집는 사건이므로 하드 게이트로 둔다.
     forbiddenPassed: new Counter('forbidden_transition_passed'),
 };
@@ -103,9 +103,9 @@ export function classifyTransition(res, opts = {}) {
     const status = body && body[RESPONSE_FIELDS.status];
 
     if (res.status === 200) {
-        // 전이 표 49칸 = 허용 8 + 멱등 7 + 거부 34.
-        // 200이 나왔다면 앞의 15칸 중 하나로 설명돼야 한다.
-        // 거부 34칸에서 200이 나왔다면 금지 전이가 통과한 것이다.
+        // 전이 표 36칸 = 허용 7 + 멱등 6 + 거부 23.
+        // 200이 나왔다면 앞의 13칸 중 하나로 설명돼야 한다.
+        // 거부 23칸에서 200이 나왔다면 금지 전이가 통과한 것이다.
         // 이건 성능 지표가 아니라 명제 (다)의 반증이므로 즉시 실패로 센다.
         if (!isExplainable200(opts.priorStatus, opts.action, status)) {
             M.forbiddenPassed.add(1);
@@ -122,7 +122,7 @@ export function classifyTransition(res, opts = {}) {
             M.paymentDeclined.add(1);
             return { kind: 'declined', status, body };
         }
-        // 이미 그 상태였다면 멱등 전이다 (멱등 성공 7칸).
+        // 이미 그 상태였다면 멱등 전이다 (멱등 성공 6칸).
         if (opts.priorStatus && status === opts.priorStatus) {
             M.transitionIdem.add(1);
             return { kind: 'idempotent', status, body };

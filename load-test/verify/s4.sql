@@ -25,8 +25,7 @@ SELECT confirmation_code, check_in, status
    AND status = 'PENDING';
 
 SELECT '--- I2. 이 시나리오가 보내지 않은 이벤트의 상태 (기대: 0행) ---' AS check_name;
--- confirm/cancel만 보냈으므로 CHECKED_IN·CHECKED_OUT·NO_SHOW·EXPIRED가
--- 나오면 안 된다.
+-- confirm/cancel만 보냈으므로 CHECKED_IN·CHECKED_OUT·EXPIRED가 나오면 안 된다.
 SELECT status, COUNT(*) AS cnt
   FROM reservation
  WHERE room_type_id = @rt AND check_in BETWEEN @from AND @to

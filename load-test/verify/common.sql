@@ -27,7 +27,7 @@
 
 SELECT '=== (1) 이중 복원: 예약당 재고 복원이 두 번 이상 (기대: 0행) ===' AS check_name;
 -- 복원을 일으키는 이벤트는 정확히 셋이다.
--- NO_SHOW는 복원하지 않고, CONFIRM·CHECK_IN·CHECK_OUT도 재고를 안 건드린다.
+-- CONFIRM·CHECK_IN·CHECK_OUT은 재고를 건드리지 않는다.
 SELECT reservation_id, COUNT(*) AS restore_count
   FROM reservation_status_history
  WHERE event IN ('CANCEL', 'PAYMENT_FAILED', 'EXPIRE')
@@ -38,19 +38,20 @@ SELECT '=== (2) 종료 상태에 두 번 도달 (기대: 0행) ===' AS check_nam
 -- 종료 상태는 나갈 수 없다. 두 번 도달했다면 종료 상태에서 다시 움직인 것이다.
 SELECT reservation_id, COUNT(*) AS terminal_count
   FROM reservation_status_history
- WHERE to_status IN ('CANCELLED', 'EXPIRED', 'NO_SHOW', 'CHECKED_OUT')
+ WHERE to_status IN ('CANCELLED', 'EXPIRED', 'CHECKED_OUT')
  GROUP BY reservation_id
 HAVING COUNT(*) > 1;
 
-SELECT '=== (3) 실제로 일어난 전이 목록 — 허용 8행의 부분집합이어야 한다 ===' AS check_name;
--- 아래 8행 밖의 조합이 하나라도 나오면 명제 (다) 위반이다.
+SELECT '=== (3) 실제로 일어난 전이 목록 — 허용 7행의 부분집합이어야 한다 ===' AS check_name;
+-- 아래 7행 밖의 조합이 하나라도 나오면 명제 (다) 위반이다.
+-- 전이 표는 36칸(상태 6 x 이벤트 6) = 허용 7 + 멱등 6 + 거부 23이다.
+-- D4(NO_SHOW) 기각으로 49칸에서 줄었다 (2026-08-15).
 --   PENDING     CONFIRM         CONFIRMED
 --   PENDING     PAYMENT_FAILED  CANCELLED
 --   PENDING     CANCEL          CANCELLED
 --   PENDING     EXPIRE          EXPIRED
 --   CONFIRMED   CANCEL          CANCELLED
 --   CONFIRMED   CHECK_IN        CHECKED_IN
---   CONFIRMED   NO_SHOW         NO_SHOW      (F01 D4가 기각되면 사라진다)
 --   CHECKED_IN  CHECK_OUT       CHECKED_OUT
 SELECT from_status, event, to_status, COUNT(*) AS occurrences
   FROM reservation_status_history
@@ -67,7 +68,6 @@ SELECT from_status, event, to_status, COUNT(*) AS occurrences
         ('PENDING',    'EXPIRE',         'EXPIRED'),
         ('CONFIRMED',  'CANCEL',         'CANCELLED'),
         ('CONFIRMED',  'CHECK_IN',       'CHECKED_IN'),
-        ('CONFIRMED',  'NO_SHOW',        'NO_SHOW'),
         ('CHECKED_IN', 'CHECK_OUT',      'CHECKED_OUT'))
  GROUP BY from_status, event, to_status;
 

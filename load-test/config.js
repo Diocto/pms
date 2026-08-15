@@ -18,14 +18,15 @@ export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 // 스크립트를 고치는 대신 아래 플래그만 뒤집어 대응한다.
 //
 //   D7 confirmationCode -> 기각 시 CODE_BASED_PATH=false (경로·응답 필드가 id로)
-//   D1 guestCount       -> 기각 시 SEND_GUEST_COUNT=false (본문에서 필드 제거)
-//   D4 NO_SHOW          -> F01 스스로 "일정 밀리면 여기부터 자르자"고 추천했다.
-//                          절단 가능성이 가장 높으므로 NO_SHOW를 쓰는 코드는
-//                          이 플래그로 격리해, 꺼져도 나머지가 안 무너지게 한다.
+//   D1 guestCount       -> **채택됨** (2026-08-15). 플래그는 유지하되 기본값 그대로 쓴다.
+//
+// D4(NO_SHOW)는 **기각됐다** (2026-08-15). NO_SHOW_ENABLED 플래그는 제거했다.
+// 다시 켤 일이 없는 스위치를 남겨두면 읽는 사람이 "언젠가 켜지는 기능"으로 오해한다.
+// 대비책으로 만들어둔 플래그가 실제로 값을 낸 사례이므로 경위는 아래에 남긴다:
+//   플래그로 격리해뒀던 덕에 기각 반영이 표 정의 한 곳 수정으로 끝났다.
 export const FEATURES = {
     codeBasedPath: __ENV.CODE_BASED_PATH !== 'false',
     sendGuestCount: __ENV.SEND_GUEST_COUNT !== 'false',
-    noShow: __ENV.NO_SHOW_ENABLED !== 'false',
 };
 
 // ---------------------------------------------------------------------------
@@ -35,18 +36,15 @@ export const FEATURES = {
 export const PATHS = {
     create: '/api/reservations',
     expire: '/api/internal/reservations/expire',
-    noShow: '/api/internal/reservations/no-show',
     health: '/actuator/health',
     // F03 검색. X-User-Id를 요구하지 않는다 (F03 스펙 D11).
     availability: '/api/availability',
 };
 
-// F02 특가. 경로에 객실타입과 투숙일이 들어간다.
-// 특가 예약은 1실 고정이다 (F02 D4).
-export function promotionPath(roomTypeId, stayDate, sub) {
-    const base = `/api/promotions/${roomTypeId}/${stayDate}`;
-    return sub ? `${base}/${sub}` : base;
-}
+// F02 특가에는 전용 경로가 없다. 확정 계약은 일반 예약 경로(create)에
+// discounts 배열을 실어 보내는 방식이다. 초기 설계에 있던
+// /api/promotions/{roomTypeId}/{stayDate} 헬퍼는 계약이 뒤집히면서 삭제했다.
+// 남겨두면 "특가 전용 경로가 있다"는 잘못된 단서가 된다.
 
 // 예약 식별자를 경로로 바꾸는 유일한 함수.
 // D7이 기각되면 여기와 idField()만 바꾼다. 다른 파일은 손대지 않는다.
@@ -121,54 +119,47 @@ export const STATUS = {
     CHECKED_OUT: 'CHECKED_OUT',
     CANCELLED: 'CANCELLED',
     EXPIRED: 'EXPIRED',
-    NO_SHOW: 'NO_SHOW',
 };
 
 // 재고를 점유하지 않는 종료 상태. 보존식의 "활성 예약"에서 제외된다.
-// NO_SHOW는 재고를 복원하지 않으므로 여기 넣지 않는다 (전이 표 참조).
+// CHECKED_IN·CHECKED_OUT은 실제로 묵은 것이므로 점유를 유지한다.
 export const RELEASED_STATUSES = [STATUS.CANCELLED, STATUS.EXPIRED];
 
 // ---------------------------------------------------------------------------
-// 전이 표 49칸 = 허용 전이 8 + 멱등 성공 7 + 거부 34
+// 전이 표 36칸 = 허용 전이 7 + 멱등 성공 6 + 거부 23
 // ---------------------------------------------------------------------------
 //
-// 멱등 성공 7칸: 상태가 안 바뀌고 200이 나가는 조합이다.
+// 상태 6개 x 이벤트 6개. F01 D4(NO_SHOW) 기각으로 49칸에서 줄었다 (2026-08-15).
+//
+// 멱등 성공 6칸: 상태가 안 바뀌고 200이 나가는 조합이다.
 //
 // 판정 규칙이 이 표 덕에 단순해진다:
-//   **200을 받았다면 허용 전이 8칸이거나 아래 7칸 중 하나여야 한다.**
-//   나머지 34칸에서 200이 나오면 금지 전이가 통과한 것이므로 즉시 실패다.
-//
-// NO_SHOW 칸은 F01 D4에 걸려 있다. D4가 기각되면 이 칸이 사라지고
-// 49칸이 36칸이 되므로, FEATURES.noShow 로 함께 껐다 켜지게 한다.
-const IDEMPOTENT_CELLS_ALL = [
+//   **200을 받았다면 허용 전이 7칸이거나 아래 6칸 중 하나여야 한다.**
+//   나머지 23칸에서 200이 나오면 금지 전이가 통과한 것이므로 즉시 실패다.
+export const IDEMPOTENT_CELLS = [
     [STATUS.CONFIRMED,   'CONFIRM'],
     [STATUS.CANCELLED,   'CANCEL'],
     [STATUS.CANCELLED,   'PAYMENT_FAILED'],
     [STATUS.EXPIRED,     'EXPIRE'],
     [STATUS.CHECKED_IN,  'CHECK_IN'],
     [STATUS.CHECKED_OUT, 'CHECK_OUT'],
-    [STATUS.NO_SHOW,     'NO_SHOW'],
-];
+].map(([state, event]) => `${state}:${event}`);
 
-export const IDEMPOTENT_CELLS = IDEMPOTENT_CELLS_ALL
-    .filter(([state]) => FEATURES.noShow || state !== STATUS.NO_SHOW)
-    .map(([state, event]) => `${state}:${event}`);
-
-// 허용 전이 8칸. (현재 상태, 이벤트) -> 다음 상태
-const ALLOWED_ALL = {
+// 허용 전이 7칸. (현재 상태, 이벤트) -> 다음 상태
+//
+// CONFIRMED에서 자동으로 빠져나가는 출구가 없다. D4 기각의 결과이며,
+// 노쇼 손님의 예약은 운영자가 수동 취소해야 한다. F01이 이 구멍을
+// 제출 문서에 절단 근거와 함께 명시했다. 리포트에서 "전이 완결성"을
+// 주장할 때 이 예외를 반드시 함께 적는다.
+export const ALLOWED_TRANSITIONS = {
     'PENDING:CONFIRM':          STATUS.CONFIRMED,
     'PENDING:PAYMENT_FAILED':   STATUS.CANCELLED,
     'PENDING:CANCEL':           STATUS.CANCELLED,
     'PENDING:EXPIRE':           STATUS.EXPIRED,
     'CONFIRMED:CANCEL':         STATUS.CANCELLED,
     'CONFIRMED:CHECK_IN':       STATUS.CHECKED_IN,
-    'CONFIRMED:NO_SHOW':        STATUS.NO_SHOW,
     'CHECKED_IN:CHECK_OUT':     STATUS.CHECKED_OUT,
 };
-
-export const ALLOWED_TRANSITIONS = Object.fromEntries(
-    Object.entries(ALLOWED_ALL).filter(([k]) => FEATURES.noShow || !k.endsWith(':NO_SHOW')),
-);
 
 // HTTP 액션 이름 -> 전이 표의 이벤트 이름
 export const ACTION_EVENT = {
@@ -191,7 +182,7 @@ export function isExplainable200(priorStatus, action, resultStatus) {
         if (event === 'CONFIRM' && resultStatus === STATUS.CANCELLED) return true;
         return resultStatus === ALLOWED_TRANSITIONS[key];
     }
-    return false; // 거부 34칸에서 200이 나왔다 -> 금지 전이 통과
+    return false; // 거부 23칸에서 200이 나왔다 -> 금지 전이 통과
 }
 
 export const ERROR_CODE = {
@@ -322,12 +313,15 @@ export const PROMOTIONS = {
     },
 };
 
-// 보조 시나리오. 체크인·노쇼는 날짜 조건(checkIn <= today < checkOut)이 걸려
+// 보조 시나리오. 체크인은 날짜 조건(checkIn <= today < checkOut)이 걸려
 // 있어 오늘 기준으로 잡아야 한다. F01 시드가 오늘을 범위 안에 넣어준 덕에
 // 가능하다.
+//
+// D4 기각 이후 체크인 상한(today < checkOut)의 비중이 커졌다.
+// 노쇼 스케줄러가 없어져, 기간이 지난 예약의 체크인을 막는 유일한 장치가 됐다.
+// S6의 과거 체크아웃 프로브가 그 상한을 때리는 유일한 검증이다.
 export const TODAY_BASED = {
     checkIn:  { checkIn: '2026-08-15', checkOut: '2026-08-17' },
-    noShow:   { checkIn: '2026-08-14', checkOut: '2026-08-16' },
 };
 
 // 재고 행 자체가 없는 날짜. 409/404 경로 확인용.

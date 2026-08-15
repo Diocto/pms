@@ -159,4 +159,47 @@ if [ "$ROWS" = "0" ]; then
     exit 1
 fi
 
+# --------------------------------------------------------------------------
+# 5. 앱 스위치 검증 — S5 대조가 진짜 대조인지 확인한다
+# --------------------------------------------------------------------------
+# 이 검사가 없으면 가장 위험한 거짓 통과가 그대로 통과한다:
+#   락을 껐다고 생각했는데 실제로는 켜져 있으면, 두 회차가 같은 조건이 되어
+#   "락 유무에 차이가 없다"는 결론이 나온다. 그 문장은 그럴듯하게 읽히고,
+#   "우리는 락이 필요 없다"로 오독된다. 아무도 이상하게 여기지 않는다.
+#
+# 그래서 S5는 스위치 확인에 실패하면 부하를 넣지 않는다.
+# (scenarios.md §3-10 S5 항목의 자동화가 이것이다)
+check_switch() {
+    local key="$1" expected="$2"
+    local url="${BASE_URL:-http://localhost:8080}/actuator/env/${key}"
+    local body actual
+
+    if ! body=$(curl -sf --max-time 5 "$url"); then
+        echo "[reset] 실패: ${url} 를 읽을 수 없다." >&2
+        echo "[reset] 앱이 안 떠 있거나 actuator env 엔드포인트가 안 열려 있다." >&2
+        echo "[reset] S5는 스위치가 실제 값인지 확인하지 못하면 의미가 없으므로 중단한다." >&2
+        return 1
+    fi
+
+    # {"property":{"source":"...","value":true}, ...} 에서 첫 value 를 뽑는다.
+    actual=$(printf '%s' "$body" | grep -o '"value":[^,}]*' | head -1 | cut -d: -f2 | tr -d ' "')
+
+    if [ -z "$actual" ] || [ "$actual" = "null" ]; then
+        echo "[reset] 실패: ${key} 설정이 존재하지 않는다 (응답에 값이 없다)." >&2
+        echo "[reset] 키 이름이 바뀌었는지 F01에 확인해라." >&2
+        return 1
+    fi
+    if [ "$actual" != "$expected" ]; then
+        echo "[reset] 실패: ${key} 가 '${actual}' 이다. '${expected}' 를 기대했다." >&2
+        echo "[reset] 이대로 돌리면 두 회차가 같은 조건이 되어 대조가 성립하지 않는다." >&2
+        return 1
+    fi
+    echo "[reset] 스위치 확인: ${key} = ${actual} (기대와 일치)"
+}
+
+case "$SCENARIO" in
+    s5on)  check_switch "pms.lock.enabled" "true"  || exit 1 ;;
+    s5off) check_switch "pms.lock.enabled" "false" || exit 1 ;;
+esac
+
 echo "[reset] 준비 완료."
