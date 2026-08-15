@@ -10,6 +10,7 @@ autogenerate 대조(T28)가 성립하기 때문이다.
 """
 
 from datetime import date, datetime, timedelta
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
@@ -27,6 +28,7 @@ from sqlalchemy.dialects.mysql import DATETIME
 from sqlmodel import Field, SQLModel
 
 from app.common.errors import InvalidRequestError
+from app.reservation.domain.enums import ReservationStatus
 from app.reservation.domain.errors import InvalidStateTransitionError
 
 
@@ -36,12 +38,20 @@ class StayPeriod(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    MAX_NIGHTS: ClassVar[int] = 30  # D29. 기간이 곧 락 키·차감 행 수다
+
     check_in: date
     check_out: date
 
-    def model_post_init(self, _context) -> None:
+    def model_post_init(self, _context: Any) -> None:
         if self.check_out <= self.check_in:
             raise InvalidRequestError("체크아웃은 체크인보다 늦어야 합니다")
+        # 상한이 없으면 1,200박 요청 하나가 락 키 1,200개를 쥐고 정상 요청을
+        # 락 대기 초과로 밀어낸다 (2회차 리뷰, D29)
+        if self.nights() > self.MAX_NIGHTS:
+            raise InvalidRequestError(
+                f"투숙 기간은 최대 {self.MAX_NIGHTS}박입니다"
+            )
 
     def occupied_dates(self) -> list[date]:
         """재고를 쓰는 날짜들. 차감·복원·락 키가 전부 이 목록에서 나온다."""
@@ -60,7 +70,7 @@ class GuestCount(BaseModel):
 
     value: int
 
-    def model_post_init(self, _context) -> None:
+    def model_post_init(self, _context: Any) -> None:
         if self.value < 1:
             raise InvalidRequestError("인원은 1명 이상이어야 합니다")
 
@@ -123,11 +133,9 @@ class Reservation(SQLModel, table=True):
                 f"인원 {guest_count.value}명이 정원({capacity}명 × {room_count}실)을 넘습니다"
             )
 
-        from app.reservation.domain.services import calculate_total_price
-
-        total_price = calculate_total_price(
-            price_per_night=price_per_night, period=period, room_count=room_count
-        )
+        # 총액 = 단가 × 박수 × 객실 수. 애그리거트 자신의 데이터만 쓰는 규칙이라
+        # 서비스가 아니다 (2회차 리뷰) — 역산하지 않고 저장한다 (1.6절)
+        total_price = price_per_night.multiply(period.nights()).multiply(room_count)
         return cls(
             confirmation_code=confirmation_code,
             user_id=user_id,
@@ -138,14 +146,25 @@ class Reservation(SQLModel, table=True):
             guest_count=guest_count.value,
             price_per_night=price_per_night.amount,
             total_price=total_price.amount,
-            # 항상 .value로 넣는다. str-Enum 객체를 그대로 저장 경로에 태우면
-            # 드라이버의 문자열 변환이 'ReservationStatus.PENDING'을 만들 수 있다
-            status="PENDING",
+            # 항상 .value로 넣는다 — 순수 str이라 드라이버 문자열화 함정이 없고,
+            # 상태 이름 리팩터링 때 grep에 걸린다
+            status=ReservationStatus.PENDING.value,
             idempotency_key=idempotency_key,
             expires_at=now + timedelta(minutes=hold_minutes),
             created_at=now,
             updated_at=now,
         )
+
+    def assert_confirmable(self, now: datetime) -> None:
+        """확정 시간창 — `now < expiresAt` (스펙 1.4절 조건 열).
+
+        스케줄러(30초 주기)가 아직 안 돌았을 뿐 이미 만료된 예약의 확정을
+        막는다. 체크인 시간창과 같은 성격의 규칙이라 같은 자리(도메인)에 있다.
+        """
+        if now >= self.expires_at:
+            raise InvalidStateTransitionError(
+                f"만료 대기 중인 예약입니다 (만료 시각 {self.expires_at}, 현재 {now})"
+            )
 
     def assert_check_in_window(self, today: date) -> None:
         """체크인 시간창 — `checkIn <= today < checkOut`.

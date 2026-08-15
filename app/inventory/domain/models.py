@@ -9,6 +9,7 @@
 """
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
@@ -34,7 +35,7 @@ class Money(BaseModel):
 
     amount: int
 
-    def model_post_init(self, _context) -> None:
+    def model_post_init(self, _context: Any) -> None:
         # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (D27)
         if self.amount < 0:
             raise InvalidRequestError("금액은 음수가 될 수 없습니다")

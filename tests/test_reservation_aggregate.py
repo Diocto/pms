@@ -4,8 +4,8 @@
 부르는 것은 금지이고 T26이 그것을 정적으로 확인한다.
 """
 
-import subprocess
 from datetime import date, datetime
+from pathlib import Path
 
 import pytest
 
@@ -14,10 +14,7 @@ from app.inventory.domain.models import Money
 from app.reservation.domain.enums import ReservationStatus
 from app.reservation.domain.errors import InvalidStateTransitionError
 from app.reservation.domain.models import GuestCount, Reservation, StayPeriod
-from app.reservation.domain.services import (
-    calculate_total_price,
-    generate_confirmation_code,
-)
+from app.reservation.domain.services import generate_confirmation_code
 
 TODAY = date(2026, 8, 15)
 NOW = datetime(2026, 8, 15, 12, 0, 0)
@@ -71,6 +68,8 @@ class Test_체크인_시간창:  # T19~T21
             period=StayPeriod(check_in=check_in, check_out=check_out),
             today=check_in,  # 생성 조건(D21)은 여기서 관심사가 아니라 항상 통과시킨다
         )
+        # 전이 표 우회는 테스트 셋업 한정이다 — 프로덕션 쓰기 경로는
+        # apply_event()가 표를 강제한다
         reservation.status = ReservationStatus.CONFIRMED.value
         return reservation
 
@@ -95,6 +94,25 @@ class Test_체크인_시간창:  # T19~T21
         for check_in in (date(2026, 8, 15), date(2026, 8, 14)):
             reservation = self._confirmed(check_in, date(2026, 8, 17))
             reservation.assert_check_in_window(TODAY)  # 예외 없음
+
+
+class Test_확정_시간창:  # 스펙 1.4절 조건 열의 둘째 시간 조건 — now < expiresAt
+    def test_만료_시각_전이면_허용(self):
+        reservation = _create()  # expires_at = 12:10
+        reservation.assert_confirmable(datetime(2026, 8, 15, 12, 9, 59))  # 예외 없음
+
+    def test_만료_시각_이후면_거부(self):
+        # 스케줄러(30초 주기)가 아직 안 돌았을 뿐 이미 만료된 예약이다.
+        # 유스케이스가 이 검사를 빠뜨리면 만료됐어야 할 예약이 확정된다
+        reservation = _create()
+        with pytest.raises(InvalidStateTransitionError):
+            reservation.assert_confirmable(datetime(2026, 8, 15, 12, 10, 0))  # 경계
+
+    def test_거부_메시지에_만료_시각이_실린다(self):
+        reservation = _create()
+        with pytest.raises(InvalidStateTransitionError) as excinfo:
+            reservation.assert_confirmable(datetime(2026, 8, 15, 13, 0, 0))
+        assert "12:10" in str(excinfo.value)
 
 
 class Test_생성_조건_D21:  # T23a~T23d — checkOut > today이지 checkIn >= today가 아니다
@@ -125,12 +143,13 @@ class Test_생성_조건_D21:  # T23a~T23d — checkOut > today이지 checkIn >=
 
 
 def test_T24_총액은_단가_곱하기_박수_곱하기_객실수다():
-    total = calculate_total_price(
+    reservation = _create(
         price_per_night=Money(amount=250000),
         period=StayPeriod(check_in=date(2026, 9, 1), check_out=date(2026, 9, 3)),
         room_count=2,
+        guest_count=GuestCount(value=4),
     )
-    assert total.amount == 1000000  # 250000 × 2박 × 2실
+    assert reservation.total_price == 1000000  # 250000 × 2박 × 2실
 
 
 def test_T25_확인번호_형식():
@@ -157,11 +176,25 @@ def test_T26_도메인은_현재_시각을_직접_읽지_않는다():
     """`datetime.now()`·`date.today()`가 domain 모듈에 없다 — 정적 확인.
 
     시계를 주입받지 않고 직접 읽으면 KST 고정(D2)이 조용히 우회된다.
+    grep subprocess 판이 cwd에 따라 아무것도 검사하지 않고 통과했다
+    (리뷰가 /tmp 실행으로 실증) — 절대 경로 + 모집단 확인으로 다시 쓴다.
     """
-    result = subprocess.run(
-        ["grep", "-rn", "-e", r"datetime\.now\|date\.today\|\.now()",
-         "app/inventory/domain", "app/reservation/domain"],
-        capture_output=True,
-        text=True,
-    )
-    assert result.stdout == "", f"도메인이 시각을 직접 읽는다:\n{result.stdout}"
+    project_root = Path(__file__).resolve().parent.parent
+    domain_directories = [
+        project_root / "app" / "inventory" / "domain",
+        project_root / "app" / "reservation" / "domain",
+    ]
+    forbidden = ("datetime.now(", "date.today(", ".now()")
+    scanned = 0
+    violations: list[str] = []
+    for directory in domain_directories:
+        assert directory.is_dir(), f"도메인 디렉터리가 없다: {directory}"
+        for source in sorted(directory.glob("*.py")):
+            scanned += 1
+            for line_number, line in enumerate(
+                source.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if any(pattern in line for pattern in forbidden):
+                    violations.append(f"{source.name}:{line_number}: {line.strip()}")
+    assert scanned >= 6, f"검사한 파일이 {scanned}개뿐이다 — 순회가 깨졌다"
+    assert violations == [], f"도메인이 시각을 직접 읽는다: {violations}"

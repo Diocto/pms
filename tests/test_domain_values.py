@@ -12,24 +12,35 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from app.common.errors import DomainError
+from app.common.errors import InvalidRequestError
 from app.inventory.domain.models import Money
 from app.reservation.domain.models import GuestCount, StayPeriod
 
-REJECTED = (DomainError, ValidationError, TypeError)
+# 타입 오류(빈 입력·frozen 위반)는 Pydantic이 잡는다
+TYPE_REJECTED = (ValidationError, TypeError)
 
 
 def test_T1_체크아웃이_체크인보다_늦지_않으면_생성_거부():
-    with pytest.raises(REJECTED):
+    # 불변식 위반은 도메인 예외여야 한다. 넓은 튜플로 받으면 불변식을
+    # validator로 옮겨도(D27 위반) 초록이다 (리뷰 지적)
+    with pytest.raises(InvalidRequestError):
         StayPeriod(check_in=date(2026, 9, 4), check_out=date(2026, 9, 1))
-    with pytest.raises(REJECTED):
+    with pytest.raises(InvalidRequestError):
         StayPeriod(check_in=date(2026, 9, 1), check_out=date(2026, 9, 1))
 
 
+def test_T1b_투숙_기간은_최대_30박이다():
+    # D29. 기간이 곧 락 키·차감 행 수라 상한이 없으면 한 요청이 락을
+    # 수천 개 쥘 수 있다
+    StayPeriod(check_in=date(2026, 8, 16), check_out=date(2026, 9, 15))  # 30박 허용
+    with pytest.raises(InvalidRequestError):
+        StayPeriod(check_in=date(2026, 8, 16), check_out=date(2026, 9, 16))  # 31박
+
+
 def test_T2_빈_입력은_생성_거부():
-    with pytest.raises(REJECTED):
+    with pytest.raises(TYPE_REJECTED):
         StayPeriod(check_in=None, check_out=date(2026, 9, 4))
-    with pytest.raises(REJECTED):
+    with pytest.raises(TYPE_REJECTED):
         StayPeriod(check_in=date(2026, 9, 1), check_out=None)
 
 
@@ -60,12 +71,12 @@ def test_T6_백투백_예약은_점유가_겹치지_않는다():
 
 @pytest.mark.parametrize("bad", [0, -1])
 def test_T7_인원은_1_이상이다(bad):
-    with pytest.raises(REJECTED):
+    with pytest.raises(InvalidRequestError):
         GuestCount(value=bad)
 
 
 def test_T8_금액은_음수가_될_수_없다():
-    with pytest.raises(REJECTED):
+    with pytest.raises(InvalidRequestError):
         Money(amount=-1)
 
 
@@ -76,5 +87,5 @@ def test_T9_금액_연산은_값이_맞고_원본이_불변이다():
     assert total.amount == 900000
     assert combined.amount == 901000
     assert price.amount == 150000              # 원본 불변
-    with pytest.raises(REJECTED):
+    with pytest.raises(TYPE_REJECTED):
         price.amount = 0                        # frozen

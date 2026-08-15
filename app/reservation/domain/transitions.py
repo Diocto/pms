@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict
 from app.reservation.domain.enums import ReservationEvent, ReservationStatus
 from app.reservation.domain.errors import InvalidStateTransitionError
 
-_S = ReservationStatus
-_E = ReservationEvent
+_Status = ReservationStatus
+_Event = ReservationEvent
 
 
 class Resolution(BaseModel):
@@ -37,38 +37,38 @@ class Resolution(BaseModel):
 ALLOWED: dict[
     tuple[ReservationStatus, ReservationEvent], Resolution
 ] = {
-    (_S.PENDING, _E.CONFIRM): Resolution(
-        is_idempotent=False, next_status=_S.CONFIRMED, restores_inventory=False
+    (_Status.PENDING, _Event.CONFIRM): Resolution(
+        is_idempotent=False, next_status=_Status.CONFIRMED, restores_inventory=False
     ),
-    (_S.PENDING, _E.PAYMENT_FAILED): Resolution(
-        is_idempotent=False, next_status=_S.CANCELLED, restores_inventory=True
+    (_Status.PENDING, _Event.PAYMENT_FAILED): Resolution(
+        is_idempotent=False, next_status=_Status.CANCELLED, restores_inventory=True
     ),
-    (_S.PENDING, _E.CANCEL): Resolution(
-        is_idempotent=False, next_status=_S.CANCELLED, restores_inventory=True
+    (_Status.PENDING, _Event.CANCEL): Resolution(
+        is_idempotent=False, next_status=_Status.CANCELLED, restores_inventory=True
     ),
-    (_S.PENDING, _E.EXPIRE): Resolution(
-        is_idempotent=False, next_status=_S.EXPIRED, restores_inventory=True
+    (_Status.PENDING, _Event.EXPIRE): Resolution(
+        is_idempotent=False, next_status=_Status.EXPIRED, restores_inventory=True
     ),
-    (_S.CONFIRMED, _E.CANCEL): Resolution(
-        is_idempotent=False, next_status=_S.CANCELLED, restores_inventory=True
+    (_Status.CONFIRMED, _Event.CANCEL): Resolution(
+        is_idempotent=False, next_status=_Status.CANCELLED, restores_inventory=True
     ),
-    (_S.CONFIRMED, _E.CHECK_IN): Resolution(
-        is_idempotent=False, next_status=_S.CHECKED_IN, restores_inventory=False
+    (_Status.CONFIRMED, _Event.CHECK_IN): Resolution(
+        is_idempotent=False, next_status=_Status.CHECKED_IN, restores_inventory=False
     ),
-    (_S.CHECKED_IN, _E.CHECK_OUT): Resolution(
-        is_idempotent=False, next_status=_S.CHECKED_OUT, restores_inventory=False
+    (_Status.CHECKED_IN, _Event.CHECK_OUT): Resolution(
+        is_idempotent=False, next_status=_Status.CHECKED_OUT, restores_inventory=False
     ),
 }
 
 # 이미 목표 상태다 — 바꾸지 않고 성공으로 답한다. 스펙 1.4절 멱등 6칸과 1:1
 IDEMPOTENT: frozenset[tuple[ReservationStatus, ReservationEvent]] = frozenset(
     {
-        (_S.CONFIRMED, _E.CONFIRM),
-        (_S.CHECKED_IN, _E.CHECK_IN),
-        (_S.CHECKED_OUT, _E.CHECK_OUT),
-        (_S.CANCELLED, _E.PAYMENT_FAILED),
-        (_S.CANCELLED, _E.CANCEL),
-        (_S.EXPIRED, _E.EXPIRE),
+        (_Status.CONFIRMED, _Event.CONFIRM),
+        (_Status.CHECKED_IN, _Event.CHECK_IN),
+        (_Status.CHECKED_OUT, _Event.CHECK_OUT),
+        (_Status.CANCELLED, _Event.PAYMENT_FAILED),
+        (_Status.CANCELLED, _Event.CANCEL),
+        (_Status.EXPIRED, _Event.EXPIRE),
     }
 )
 

@@ -1,21 +1,16 @@
-"""한 애그리거트에 담기지 않는 도메인 규칙 — 가격 계산, 확인번호 생성."""
+"""한 애그리거트에 담기지 않는 도메인 규칙.
+
+가격 계산은 여기 없다 — 단가·기간·객실 수는 전부 애그리거트 자신의 데이터라
+`Reservation.create()` 안에 있다 (2회차 리뷰). 할인 해석이 붙는 가격 결정은
+3회차의 `DiscountResolver` 포트(D22) 몫이다.
+"""
 
 import secrets
 from datetime import date
 
-from app.inventory.domain.models import Money
-from app.reservation.domain.models import StayPeriod
-
 # 혼동 문자(0·O·1·I)를 뺀 알파벳. 전화로 불러줄 수 있어야 한다 (D7)
 _CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 _RANDOM_LENGTH = 8
-
-
-def calculate_total_price(
-    *, price_per_night: Money, period: StayPeriod, room_count: int
-) -> Money:
-    """총액 = 1박 단가 × 박수 × 객실 수. 역산하지 않고 저장한다 (스펙 1.6절)."""
-    return price_per_night.multiply(period.nights()).multiply(room_count)
 
 
 def generate_confirmation_code(
