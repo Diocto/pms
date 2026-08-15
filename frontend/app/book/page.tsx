@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/api";
 import { attemptBooking, type BookingPhase } from "@/lib/booking-flow";
 import { ERROR_CODES } from "@/lib/contracts";
 import { nightsBetween } from "@/lib/dates";
+import { createMyReservations } from "@/lib/my-reservations";
 import { messageForError } from "@/lib/error-messages";
 import { HOTELS } from "@/lib/hotels";
 import { useUserId } from "@/components/user-context";
@@ -138,6 +139,11 @@ function BookScreen() {
       if (!fresh()) return; // 그 사이 사용자가 바뀌었다 — 이 결과는 그리지 않는다
 
       if (outcome.kind === "created") {
+        // "내 예약" 목록용으로 확인번호만 남긴다 — 상태는 항상 서버 조회로 그린다
+        createMyReservations(window.localStorage).record(
+          userId,
+          outcome.reservation.confirmationCode,
+        );
         // 멱등 재요청(200)도 신규(201)와 똑같이 상세로 간다
         router.push(`/reservations/${encodeURIComponent(outcome.reservation.confirmationCode)}`);
         return;
