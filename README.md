@@ -4,24 +4,37 @@
 
 ## 실행 방법
 
-Docker가 필요합니다.
+Docker와 Python 3.12 이상이 필요합니다.
 
 ```bash
-docker compose up -d        # MySQL 8.4, Redis 7.4
-./gradlew bootRun
+docker compose up -d                  # MySQL 8.4, Redis 7.4
+
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+
+.venv/bin/alembic upgrade head        # 스키마 적용
+.venv/bin/uvicorn app.main:app --reload
 ```
+
+앱이 떴는지는 `curl localhost:8000/health`로 확인합니다.
 
 ## 테스트
 
-테스트는 H2가 아니라 Testcontainers로 실제 MySQL·Redis를 띄워 검증합니다.
+SQLite가 아니라 Testcontainers로 **실제 MySQL 8.4·Redis 7.4를 띄워** 검증합니다.
+SQLite는 행 수준 락이 없고 CHECK 동작도 달라서, 동시성이 주제인 이 프로젝트에서는
+통과해도 아무것도 증명하지 못합니다.
 
 ```bash
-./gradlew test
+.venv/bin/pytest                       # 전체
+.venv/bin/pytest -m "not concurrency"  # 개발 중 빠른 확인
 ```
 
 ## 기술 스택
 
-Java 21 · Spring Boot 4.0.7 (MVC) · MySQL 8.4 · Redis 7.4 · Flyway · Testcontainers · k6
+Python 3.12 · FastAPI · SQLModel(SQLAlchemy) · Dependency Injector · Alembic ·
+MySQL 8.4 · Redis 7.4 · Testcontainers · k6
+
+Java/Spring에서 전환한 이유는 [ADR-0050](docs/decisions/ADR-0050-기술-스택-전환.md)에 있습니다.
 
 ## 문서
 
