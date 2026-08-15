@@ -19,6 +19,7 @@ from app.reservation.application.ports import PaymentResult
 class FakePaymentAdapter:
     def __init__(self, decline_rate: float) -> None:
         self._decline_rate = decline_rate
+        self.refunded: list[str | None] = []   # 보상 호출 관찰용 (테스트가 본다)
 
     def charge(
         self, *, reservation_id: int, amount: int, idempotency_key: str
@@ -33,3 +34,7 @@ class FakePaymentAdapter:
         if declined:
             return PaymentResult(approved=False, decline_reason="PAYMENT_DECLINED")
         return PaymentResult(approved=True, transaction_id=uuid.uuid4().hex)
+
+    def refund(self, *, transaction_id: str | None) -> None:
+        """모의 환불 — 기록만 한다. 실 PG라면 결제 취소 API 호출이다."""
+        self.refunded.append(transaction_id)

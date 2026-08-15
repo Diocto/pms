@@ -9,21 +9,36 @@
 컨테이너를 `override`로 갈아끼울 자리가 생긴다.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.common.error_handlers import register_error_handlers
 from app.containers import AppContainer
 from app.reservation.presentation.actuator import router as actuator_router
+from app.reservation.presentation.router import router as reservation_router
+from app.reservation.presentation.scheduler import ExpireScheduler
 
 
 def create_app() -> FastAPI:
     container = AppContainer()
 
-    app = FastAPI(title="PMS 숙박 예약 시스템", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        scheduler = ExpireScheduler(
+            usecase_factory=container.reservation.expire_reservations,
+            interval_seconds=container.settings().reservation_expire_scan_seconds,
+        )
+        scheduler.start()
+        yield
+        scheduler.stop()
+
+    app = FastAPI(title="PMS 숙박 예약 시스템", version="0.1.0", lifespan=lifespan)
     app.state.container = container
 
     register_error_handlers(app)
     app.include_router(actuator_router)
+    app.include_router(reservation_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

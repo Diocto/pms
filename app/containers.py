@@ -39,7 +39,11 @@ class AppContainer(containers.DeclarativeContainer):
     transaction_manager = providers.Singleton(TransactionManager, session_factory)
 
     reservation = providers.Container(
-        ReservationContainer, settings=settings, redis_client=redis_client
+        ReservationContainer,
+        settings=settings,
+        redis_client=redis_client,
+        transaction_manager=transaction_manager,
+        clock=clock,
     )
 
     # 컨텍스트별 실행 상태 기여 (D26). F02·F03이 자기 기여자를 여기 추가한다 —

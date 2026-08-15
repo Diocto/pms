@@ -14,6 +14,17 @@ from dependency_injector import containers, providers
 
 from app.common.config import Settings
 from app.common.runtime_report import RuntimeReport
+from app.inventory.infrastructure.persistence import MySqlInventoryRepository
+from app.reservation.application.usecases.create_reservation import (
+    CreateReservationUseCase,
+)
+from app.reservation.application.usecases.transition_reservation import (
+    CancelReservationUseCase,
+    CheckInOutUseCase,
+    ConfirmReservationUseCase,
+    ExpireReservationsUseCase,
+    GetReservationUseCase,
+)
 from app.reservation.infrastructure.idempotency import RedisIdempotencyAdapter
 from app.reservation.infrastructure.lock import NoOpLockAdapter, RedisLockAdapter
 from app.reservation.infrastructure.payment import FakePaymentAdapter
@@ -72,6 +83,8 @@ class ReservationContainer(containers.DeclarativeContainer):
     # 루트가 넘겨준다 — 설정을 두 곳에서 따로 읽지 않는다
     settings = providers.Dependency(instance_of=Settings)
     redis_client = providers.Dependency()
+    transaction_manager = providers.Dependency()
+    clock = providers.Dependency()
 
     lock = providers.Singleton(_build_lock, settings, redis_client)
     lock_wait_s = providers.Callable(_lock_wait_seconds, settings)
@@ -80,7 +93,50 @@ class ReservationContainer(containers.DeclarativeContainer):
         FakePaymentAdapter, decline_rate=settings.provided.payment_decline_rate
     )
     repository = providers.Singleton(MySqlReservationRepository)
+    inventory_repository = providers.Singleton(MySqlInventoryRepository)
+
+    # 확장 지점 — F02가 자기 구현을 추가한다. 0개면 빈 리스트라 아무 일도
+    # 일어나지 않고, F02 병합 전에도 코어가 그대로 돈다 (T74)
+    pre_check_hooks = providers.List()
+    creation_hooks = providers.List()
+    release_hooks = providers.List()
+    discount_resolvers = providers.List()
 
     runtime_contributor = providers.Singleton(
         ReservationRuntimeContributor, settings=settings, lock=lock, payment=payment
     )
+
+    create_reservation = providers.Factory(
+        CreateReservationUseCase,
+        tx=transaction_manager,
+        lock=lock,
+        idempotency=idempotency,
+        inventory_repository=inventory_repository,
+        reservation_repository=repository,
+        clock=clock,
+        hold_minutes=settings.provided.reservation_hold_minutes,
+        lock_wait_s=lock_wait_s,
+        lock_ttl_s=settings.provided.lock_ttl_seconds,
+        pre_check_hooks=pre_check_hooks,
+        creation_hooks=creation_hooks,
+        discount_resolvers=discount_resolvers,
+    )
+
+    _transition_deps = dict(
+        tx=transaction_manager,
+        inventory_repository=inventory_repository,
+        reservation_repository=repository,
+        clock=clock,
+        release_hooks=release_hooks,
+    )
+    confirm_reservation = providers.Factory(
+        ConfirmReservationUseCase, payment=payment, **_transition_deps
+    )
+    cancel_reservation = providers.Factory(
+        CancelReservationUseCase, **_transition_deps
+    )
+    expire_reservations = providers.Factory(
+        ExpireReservationsUseCase, **_transition_deps
+    )
+    check_in_out = providers.Factory(CheckInOutUseCase, **_transition_deps)
+    get_reservation = providers.Factory(GetReservationUseCase, **_transition_deps)

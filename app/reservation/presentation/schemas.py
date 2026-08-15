@@ -1,6 +1,47 @@
-"""요청·응답 스키마 — 전부 `ApiModel` 상속, camelCase로 나간다."""
+"""요청·응답 스키마 — 전부 `ApiModel` 상속, camelCase로 나간다.
+
+도메인 모델(SQLModel)을 그대로 `response_model`에 달지 않는다 — 내부 `id`와
+`idempotency_key`가 새어 나간다. 응답은 `ReservationResult`에서 옮긴다.
+"""
+
+from datetime import date, datetime
 
 from app.common.response import ApiModel
+
+
+class DiscountRefRequest(ApiModel):
+    type: str            # "PROMOTION". 유스케이스에서 enum으로 좁힌다
+    reference: str
+
+
+class CreateReservationRequest(ApiModel):
+    room_type_id: int
+    check_in: date
+    check_out: date
+    room_count: int
+    guest_count: int
+    discounts: list[DiscountRefRequest] = []
+
+
+class ReservationResponse(ApiModel):
+    confirmation_code: str
+    status: str
+    room_type_id: int
+    check_in: date
+    check_out: date
+    room_count: int
+    guest_count: int
+    price_per_night: int
+    total_price: int
+    expires_at: datetime
+    confirmed_at: datetime | None = None
+    terminated_at: datetime | None = None
+    created_at: datetime
+    failure_reason: str | None = None
+
+
+class ExpireResponse(ApiModel):
+    expired_count: int
 
 
 class RuntimeConfigResponse(ApiModel):
