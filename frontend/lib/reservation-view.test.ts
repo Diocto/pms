@@ -25,6 +25,7 @@ describe("viewOf — 상태 6종 + 결제 거절 변형", () => {
     expect(v.badgeLabel).toBe("취소됨");
     expect(v.actions).toEqual(["rebook"]);
     expect(v.rebookLabel).toBe("다른 날짜 검색");
+    expect(v.rebookWithDates).toBe(false); // 날짜를 싣지 않는다 — 자동 검색 미발화
   });
 
   it("CANCELLED + failureReason: 결제 거절로 구분해 말한다 — 같은 상태여도 다른 사건", () => {
@@ -33,12 +34,14 @@ describe("viewOf — 상태 6종 + 결제 거절 변형", () => {
     expect(v.title).toContain("결제가 거절");
     expect(v.actions).toEqual(["rebook"]);
     expect(v.rebookLabel).toBe("같은 조건으로 다시 예약");
+    expect(v.rebookWithDates).toBe(true);
   });
 
-  it("EXPIRED: 시간 초과 + [다시 예약]", () => {
+  it("EXPIRED: 시간 초과 + [다시 예약] (날짜 실음)", () => {
     const v = viewOf({ ...base, status: "EXPIRED" });
     expect(v.badgeLabel).toBe("시간 초과");
     expect(v.actions).toEqual(["rebook"]);
+    expect(v.rebookWithDates).toBe(true);
   });
 
   it("CHECKED_IN / CHECKED_OUT: 표시만, 행동 없음 (체크인아웃 버튼 없음 — 시안 D8)", () => {

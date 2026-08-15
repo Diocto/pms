@@ -1,6 +1,6 @@
 // 카운트다운 계산 — 라운드1 중요-4로 분리·보강 (Z 형식·formatMmSs 추가).
 import { describe, expect, it } from "vitest";
-import { computeRemainingSeconds, formatMmSs } from "./countdown";
+import { computeRemainingSeconds, expiryFireDelayMs, formatMmSs } from "./countdown";
 
 describe("computeRemainingSeconds", () => {
   const now = Date.parse("2026-09-01T14:30:00+09:00");
@@ -23,6 +23,21 @@ describe("computeRemainingSeconds", () => {
 
   it("해석 불가 문자열은 null — 화면은 카운트다운을 숨긴다", () => {
     expect(computeRemainingSeconds("not-a-date", now)).toBeNull();
+  });
+});
+
+describe("expiryFireDelayMs — 0 도달 재조회 발화 판정 (라운드3)", () => {
+  it("0 이하로 마운트된 경우(서버가 아직 PENDING)는 1초 지연 — 폴링 상한", () => {
+    expect(expiryFireDelayMs(0)).toBe(1000);
+    expect(expiryFireDelayMs(-5)).toBe(1000);
+  });
+
+  it("남은 시간이 있던 경우(자연 도달)는 즉시 발화", () => {
+    expect(expiryFireDelayMs(300)).toBe(0);
+  });
+
+  it("해석 불가(null)는 즉시 취급 — 카운트다운 자체가 숨겨져 발화하지 않는다", () => {
+    expect(expiryFireDelayMs(null)).toBe(0);
   });
 });
 

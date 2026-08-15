@@ -224,8 +224,12 @@ describe("전이 표 — 24칸 전수", () => {
     EXPIRED: { confirm: 409, cancel: 409, "check-in": 409, "check-out": 409 },
   };
 
-  for (const [state, events] of Object.entries(TABLE) as [State, Record<Event, number | State>][]) {
-    for (const [event, expected] of Object.entries(events) as [Event, number | State][]) {
+  // Object.entries는 키를 string으로 넓혀 as가 필요해진다 — 타입된 키 배열로 순회 (라운드3)
+  const STATES: readonly State[] = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "EXPIRED"];
+  const EVENTS: readonly Event[] = ["confirm", "cancel", "check-in", "check-out"];
+  for (const state of STATES) {
+    for (const event of EVENTS) {
+      const expected = TABLE[state][event];
       it(`${state} + ${event} → ${typeof expected === "number" ? `거부 ${expected}` : expected}`, async () => {
         const code = await prepare(state);
         const res = await staffAction(code, "u", event);
@@ -290,6 +294,17 @@ describe("전이 표 — 스펙이 강조한 칸", () => {
     await api.cancelReservation(r.confirmationCode, "u").catch(() => {});
     const s = await api.searchAvailability({ ...search, guestCount: 4 });
     expect(s.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(10); // 10 초과 금지
+  });
+
+  it("CONFIRMED는 만료 시각이 지나도 만료되지 않는다 — 결제된 예약이 조회 순간 사라지면 안 된다", async () => {
+    // F01 1.4 "읽는 법 주의": CONFIRMED + EXPIRE = 거부. settleExpiry 가드의 회귀 감지용
+    const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });
+    await api.confirmReservation(r.confirmationCode, "u");
+    nowMs += 11 * 60 * 1000;
+    const g = await api.getReservation(r.confirmationCode, "u");
+    expect(g.status).toBe("CONFIRMED");
+    const s = await api.searchAvailability(search);
+    expect(s.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(9); // 재고 복원 없음
   });
 
   it("만료된 PENDING은 예약을 따로 읽지 않아도 검색에서 복원돼 보인다 (스윕)", async () => {

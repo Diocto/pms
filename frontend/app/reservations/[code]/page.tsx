@@ -12,8 +12,8 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/backend";
 import { ApiError } from "@/lib/api";
 import { ERROR_CODES, type ReservationResponse } from "@/lib/contracts";
-import { computeRemainingSeconds, formatMmSs } from "@/lib/countdown";
-import { addDays, todayLocal } from "@/lib/dates";
+import { computeRemainingSeconds, expiryFireDelayMs, formatMmSs } from "@/lib/countdown";
+import { clampStayFrom, todayLocal } from "@/lib/dates";
 import { messageFor, messageForError } from "@/lib/error-messages";
 import { hotelIdOfRoomType } from "@/lib/hotels";
 import { viewOf } from "@/lib/reservation-view";
@@ -83,6 +83,7 @@ export default function ReservationDetailPage({
       setScreen({ kind: "loaded", r });
       setLoadSeq((v) => v + 1);
     } catch (e) {
+      if (seq !== reqSeqRef.current) return; // 더 새 요청이 이겼다 — 이 실패 표시도 버린다
       if (e instanceof ApiError && e.code === ERROR_CODES.INVALID_STATE_TRANSITION) {
         // 화면이 알던 상태가 낡았다 — 서버의 현재 상태를 다시 받아 그리되,
         // 충돌이 있었다는 사실은 배너로 남긴다 (조용히 바꾸지 않는다)
@@ -150,19 +151,15 @@ export default function ReservationDetailPage({
   // (리뷰 라운드1 중요-1). 유도 불가면 hotelId를 빼고 검색 기본값에 맡긴다.
   const rebookHotelId = hotelIdOfRoomType(r.roomTypeId);
   // 날짜 처리 (라운드2 중요): 검색은 과거 checkIn을 400으로 막으므로, 지난 날짜를 그대로
-  // 실으면 "같은 조건으로 다시 예약"이 오류 화면으로 끝난다. 오늘 기준으로 보정한다.
-  // "다른 날짜 검색"(사용자 취소)은 라벨 의도대로 날짜를 싣지 않는다 — 자동 검색이
-  // 발화하지 않고 사용자가 새 날짜를 고른다.
-  const today = todayLocal();
-  const includeDates = view.rebookLabel !== "다른 날짜 검색" && r.checkIn && r.checkOut;
-  const clampedIn = r.checkIn && r.checkIn < today ? today : r.checkIn;
-  const clampedOut =
-    r.checkOut && clampedIn && r.checkOut <= clampedIn ? addDays(clampedIn, 1) : r.checkOut;
+  // 실으면 "같은 조건으로 다시 예약"이 오류 화면으로 끝난다 — clampStayFrom으로 보정.
+  // 날짜 탑재 여부는 문구 비교가 아니라 매핑 표의 rebookWithDates가 결정한다 (라운드3).
+  const clamped =
+    view.rebookWithDates && r.checkIn && r.checkOut
+      ? clampStayFrom(todayLocal(), r.checkIn, r.checkOut)
+      : null;
   const rebookQuery = new URLSearchParams({
     ...(rebookHotelId !== undefined ? { hotelId: String(rebookHotelId) } : {}),
-    ...(includeDates && clampedIn && clampedOut
-      ? { checkIn: clampedIn, checkOut: clampedOut }
-      : {}),
+    ...(clamped ?? {}),
     guestCount: String(r.guestCount ?? 2),
     roomCount: String(r.roomCount ?? 1),
   });
@@ -299,27 +296,34 @@ function Countdown({ expiresAt, onExpired }: { expiresAt: string; onExpired: () 
   const initial = useRef(computeRemainingSeconds(expiresAt, Date.now()));
   const [left, setLeft] = useState(initial.current);
   const firedRef = useRef(false);
-  // 이미 0으로 마운트된 경우(재조회 후에도 서버가 PENDING인 경우)를 구분한다
-  const mountedExpired = useRef((initial.current ?? 1) <= 0);
+  // onExpired를 ref로 들어 effect 의존성에서 뺀다 — 인라인 콜백이 재렌더마다 바뀌어
+  // effect가 재실행되면, 발화 대기 중인 타이머가 유실된다 (라운드3 concurrency 중요).
+  const onExpiredRef = useRef(onExpired);
+  onExpiredRef.current = onExpired;
 
   useEffect(() => {
-    if (left === null) return;
+    if (left === null || firedRef.current) return;
     if (left <= 0) {
       // 0이 됐다고 화면이 만료 처리하지 않는다 — 서버에 다시 물어본다.
-      // 단, 0으로 마운트된 재조회 반복은 1초 간격을 강제한다 — 서버가 만료 처리를
-      // 마칠 때까지 무간격 GET 연타가 되면 안 된다 (라운드2 concurrency 중요)
-      if (firedRef.current) return;
-      firedRef.current = true;
-      if (mountedExpired.current) {
-        const t = window.setTimeout(onExpired, 1000);
+      // 0으로 마운트된 반복 재조회는 1초 지연(폴링 상한 1req/s), 자연 도달은 즉시.
+      // firedRef는 실제 발화 시점에만 세운다 — 예약만 하고 세우면 StrictMode/재렌더의
+      // 클린업 한 번에 발화가 영영 사라진다.
+      const fire = () => {
+        if (firedRef.current) return;
+        firedRef.current = true;
+        onExpiredRef.current();
+      };
+      const delay = expiryFireDelayMs(initial.current);
+      if (delay > 0) {
+        const t = window.setTimeout(fire, delay);
         return () => window.clearTimeout(t);
       }
-      onExpired();
+      fire();
       return;
     }
     const t = window.setTimeout(() => setLeft((v) => (v === null ? v : v - 1)), 1000);
     return () => window.clearTimeout(t);
-  }, [left, onExpired]);
+  }, [left]);
 
   if (left === null) return null;
   const hot = left <= 60;

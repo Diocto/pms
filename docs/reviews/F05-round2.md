@@ -42,7 +42,7 @@
 | 화면의 "요청 번호"가 실제 전송 키와 어긋남 (ref 재발급이 렌더에 반영 안 됨) | conc | 수정함 — 키를 useState로 관리해 표시·전송 단일화, 마운트 직후 재발급 제거 |
 | 상세 화면 응답의 last-write-wins 경합 (자동 재조회 vs 사용자 액션) | conc | 수정함 — 요청 순번(reqSeq)으로 낡은 응답 폐기 |
 | mock 재고 키 날짜 라벨 하루 어긋남 (UTC 변환 함정) | domain | 수정함 — 날짜 산술을 UTC 순수 연산으로 교체 |
-| 판매 종료 경계 "2026-10-30" 리터럴 2곳 | domain·arch | 수정함 — `SALES_CHECKOUT_LIMIT = SALES_OPEN_UNTIL + 1일`로 유도 |
+| 판매 종료 경계 "2026-10-30" 리터럴 2곳 | domain·arch | ~~수정함~~ → **정정 (라운드3에서 발각):** 상수 선언만 하고 비교 지점 2곳 교체를 빠뜨렸다. 라운드3 반영 커밋에서 실제 교체 완료 |
 | api.test 주석이 옛 횟수("세 번") | domain | 수정함 |
 | 테스트 파일이 타입 검사 게이트 밖 + `tsc --noEmit` 실패 (as 캐스트 4곳) | arch | 수정함 — `vi.fn<typeof fetch>`로 캐스트 제거, `npm run typecheck` 스크립트 추가, 통과 확인 |
 | `messageFor`의 넓히기 캐스트 | arch | 수정함 — 타입 가드(`isKnownCode`)로 교체, as 0 |

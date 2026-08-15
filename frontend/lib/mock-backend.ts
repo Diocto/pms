@@ -19,6 +19,7 @@ import {
   type ReservationResponse,
   type ReservationStatus,
 } from "./contracts";
+import { addDays } from "./dates";
 
 const C = ERROR_CODES; // 가짜 서버도 계약 상수만 내보낸다 — 계약 변경이 여기까지 전파되게
 
@@ -26,13 +27,7 @@ const HOLD_MINUTES = 10; // PMS_RESERVATION_HOLD_MINUTES 기본값과 동일
 const SALES_OPEN_FROM = "2026-08-01";
 const SALES_OPEN_UNTIL = "2026-10-29"; // 시드 재고의 마지막 날짜
 // 마지막 숙박일의 체크아웃까지 허용 — SALES_OPEN_UNTIL에서 유도해 두 값이 따로 놀지 않게
-const SALES_CHECKOUT_LIMIT = shiftDate(SALES_OPEN_UNTIL, 1); // "2026-10-30"
-
-// 날짜 라벨 산술은 UTC로만 — "+09:00 파싱 후 toISOString" 조합은 라벨이 하루 어긋난다
-function shiftDate(date: string, days: number): string {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
-}
+const SALES_CHECKOUT_LIMIT = addDays(SALES_OPEN_UNTIL, 1); // "2026-10-30"
 
 interface SeedRoomType {
   id: number;
@@ -74,7 +69,7 @@ interface MockReservation {
 function occupiedDates(checkIn: string, checkOut: string): string[] {
   // 체크아웃 당일은 점유하지 않는다 (계약)
   const dates: string[] = [];
-  for (let d = checkIn; d < checkOut; d = shiftDate(d, 1)) dates.push(d);
+  for (let d = checkIn; d < checkOut; d = addDays(d, 1)) dates.push(d);
   return dates;
 }
 
@@ -179,7 +174,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     };
 
     // 판매 기간 밖(미래) — 200 + NOT_YET_OPEN
-    if (checkOut > "2026-10-30") {
+    if (checkOut > SALES_CHECKOUT_LIMIT) {
       return respond({ items: [], emptyReason: "NOT_YET_OPEN", salesOpenUntil: SALES_OPEN_UNTIL });
     }
 
@@ -244,7 +239,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
 
     const dates = occupiedDates(checkIn, checkOut);
     // 시드 범위 밖(개시 전·종료 후)은 재고 행이 없다 → 409 (F01 2.2 실패 표)
-    if (checkIn < SALES_OPEN_FROM || checkOut > "2026-10-30" || dates.some((d) => remainingOn(rt, d) < roomCount))
+    if (checkIn < SALES_OPEN_FROM || checkOut > SALES_CHECKOUT_LIMIT || dates.some((d) => remainingOn(rt, d) < roomCount))
       return error(409, C.INSUFFICIENT_INVENTORY, "남은 객실 없음");
 
     const code = `${checkIn.slice(2).replaceAll("-", "")}-H${rt.hotelId}R${rt.id}-M${String(seq++).padStart(4, "0")}`;

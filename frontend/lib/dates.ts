@@ -12,3 +12,19 @@ export function addDays(date: string, days: number): string {
   const t = Date.UTC(y, m - 1, d) + days * 86_400_000;
   return new Date(t).toISOString().slice(0, 10);
 }
+
+export function nightsBetween(checkIn: string, checkOut: string): number {
+  return Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000);
+}
+
+// 재예약 날짜 보정 — 검색이 과거 checkIn을 400으로 막으므로 오늘 기준으로 클램프한다.
+// checkOut이 보정된 checkIn 이하로 무너지면 최소 1박을 보장한다. (리뷰 라운드3)
+export function clampStayFrom(
+  today: string,
+  checkIn: string,
+  checkOut: string,
+): { checkIn: string; checkOut: string } {
+  const inDate = checkIn < today ? today : checkIn;
+  const outDate = checkOut <= inDate ? addDays(inDate, 1) : checkOut;
+  return { checkIn: inDate, checkOut: outDate };
+}

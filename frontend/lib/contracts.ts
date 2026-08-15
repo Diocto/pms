@@ -115,6 +115,15 @@ export class ContractViolation extends Error {
 }
 
 // ---- 좁히기 도우미 ----
+// 검증과 좁히기를 타입 가드로 묶는다 — 검증 줄을 지우면 좁히기도 같이 죽는다 (as 캐스트 금지)
+
+function isEmptyReason(v: string): v is EmptyReason {
+  return EMPTY_REASONS.has(v);
+}
+
+function isReservationStatus(v: string): v is ReservationStatus {
+  return RESERVATION_STATUSES.has(v);
+}
 
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -168,9 +177,9 @@ export function parseAvailabilityResponse(raw: unknown): AvailabilityResponse {
   let emptyReason: EmptyReason | undefined;
   if (raw.emptyReason !== undefined && raw.emptyReason !== null) {
     const reason = raw.emptyReason;
-    if (typeof reason !== "string" || !EMPTY_REASONS.has(reason))
+    if (typeof reason !== "string" || !isEmptyReason(reason))
       throw new ContractViolation(`emptyReason 값이 계약 밖: ${String(reason)}`);
-    emptyReason = reason as EmptyReason;
+    emptyReason = reason;
   }
 
   return {
@@ -191,12 +200,12 @@ export function parseAvailabilityResponse(raw: unknown): AvailabilityResponse {
 export function parseReservationResponse(raw: unknown): ReservationResponse {
   if (!isRecord(raw)) throw new ContractViolation("본문이 객체가 아님");
   const status = str(raw, "status");
-  if (!RESERVATION_STATUSES.has(status))
+  if (!isReservationStatus(status))
     throw new ContractViolation(`status 값이 계약 밖: ${status}`);
 
   return {
     confirmationCode: str(raw, "confirmationCode"),
-    status: status as ReservationStatus,
+    status,
     roomTypeId: optNum(raw, "roomTypeId"),
     checkIn: optStr(raw, "checkIn"),
     checkOut: optStr(raw, "checkOut"),

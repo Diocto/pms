@@ -18,6 +18,8 @@ export interface ReservationView {
   showCountdown: boolean;
   /** rebook 행동의 버튼 라벨 — 사용자 취소만 "다른 날짜 검색" (시안 S3 상태 4) */
   rebookLabel?: string;
+  /** rebook 링크에 원래 날짜를 싣는가 — 문구가 아니라 이 필드가 유스케이스 결정이다 (라운드3) */
+  rebookWithDates?: boolean;
 }
 
 interface ViewInput {
@@ -56,6 +58,7 @@ export function viewOf(r: ViewInput): ReservationView {
           actions: ["rebook"],
           showCountdown: false,
           rebookLabel: "같은 조건으로 다시 예약",
+          rebookWithDates: true,
         };
       }
       return {
@@ -66,6 +69,7 @@ export function viewOf(r: ViewInput): ReservationView {
         actions: ["rebook"],
         showCountdown: false,
         rebookLabel: "다른 날짜 검색",
+        rebookWithDates: false, // 사용자가 새 날짜를 고른다 — 자동 검색을 발화시키지 않는다
       };
     case "EXPIRED":
       return {
@@ -77,6 +81,7 @@ export function viewOf(r: ViewInput): ReservationView {
         actions: ["rebook"],
         showCountdown: false,
         rebookLabel: "같은 조건으로 다시 예약",
+        rebookWithDates: true,
       };
     case "CHECKED_IN":
       return {

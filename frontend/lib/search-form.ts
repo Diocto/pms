@@ -8,13 +8,11 @@ export interface SearchFormValues {
   roomCount: number;
 }
 
+import { nightsBetween } from "./dates";
+
 export type SearchFormErrors = Partial<Record<keyof SearchFormValues, string>>;
 
 const MAX_NIGHTS = 30;
-
-function nightsBetween(checkIn: string, checkOut: string): number {
-  return Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000);
-}
 
 export function validateSearchForm(v: SearchFormValues, today: string): SearchFormErrors {
   const errors: SearchFormErrors = {};

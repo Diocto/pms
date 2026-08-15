@@ -10,6 +10,7 @@ import { api } from "@/lib/backend";
 import { ApiError } from "@/lib/api";
 import { attemptBooking, type BookingPhase } from "@/lib/booking-flow";
 import { ERROR_CODES } from "@/lib/contracts";
+import { nightsBetween } from "@/lib/dates";
 import { messageForError } from "@/lib/error-messages";
 import { HOTELS } from "@/lib/hotels";
 import { useUserId } from "@/components/user-context";
@@ -37,10 +38,7 @@ function BookScreen() {
     // 409 시 fresh 재검색이 엉뚱한 호텔을 본다 (리뷰 라운드1 중요-1)
     const hotelIdRaw = params.get("hotelId");
     if (!roomTypeId || !checkIn || !checkOut || !hotelIdRaw) return null;
-    const nights = Math.max(
-      1,
-      Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000),
-    );
+    const nights = Math.max(1, nightsBetween(checkIn, checkOut));
     const roomCount = Number(params.get("roomCount") ?? 1);
     const pricePerNight = Number(params.get("pricePerNight") ?? 0);
     return {
@@ -70,13 +68,19 @@ function BookScreen() {
   // 이전 사용자의 오류·마감 카드("중복으로 잡히지 않습니다")를 남겨두면 그 약속이
   // 새 (사용자, 키) 쌍에서는 거짓이 된다 (라운드2 concurrency 제안).
   const firstUserRef = useRef(true);
+  // 진행 중이던 submit의 응답이 사용자 전환 뒤에 완주해 이전 사용자의 결과 카드를
+  // 되살리지 않도록, 요청 순번으로 낡은 연속을 폐기한다 (라운드3 concurrency 제안)
+  const submitSeqRef = useRef(0);
   useEffect(() => {
     if (firstUserRef.current) {
-      firstUserRef.current = false; // 마운트 직후에는 재발급하지 않는다 — 표시 키와 어긋난다
+      // 첫 실행은 건너뛴다(키는 useState 초기값 그대로). dev StrictMode에서는 effect가
+      // 두 번 돌아 한 번 재발급되지만, 키가 state라 표시·전송이 함께 바뀌어 안전하다.
+      firstUserRef.current = false;
       return;
     }
     setIdemKey(crypto.randomUUID());
     setScreen({ kind: "idle" });
+    submitSeqRef.current += 1; // 이전 사용자의 진행 중 응답 무효화
   }, [userId]);
 
   if (!order) {
@@ -98,6 +102,8 @@ function BookScreen() {
   const locked = screen.kind === "phase" || screen.kind === "sold-out";
 
   async function submit() {
+    const seq = ++submitSeqRef.current;
+    const fresh = () => seq === submitSeqRef.current; // 사용자 전환·새 제출이 없었는가
     try {
       const outcome = await attemptBooking({
         create: () =>
@@ -125,8 +131,11 @@ function BookScreen() {
           const item = fresh.items.find((i) => i.roomTypeId === order!.roomTypeId);
           return item !== undefined && item.minRemaining >= order!.roomCount;
         },
-        onPhase: (phase) => setScreen({ kind: "phase", phase }),
+        onPhase: (phase) => {
+          if (fresh()) setScreen({ kind: "phase", phase });
+        },
       });
+      if (!fresh()) return; // 그 사이 사용자가 바뀌었다 — 이 결과는 그리지 않는다
 
       if (outcome.kind === "created") {
         // 멱등 재요청(200)도 신규(201)와 똑같이 상세로 간다
@@ -135,6 +144,7 @@ function BookScreen() {
       }
       setScreen({ kind: "sold-out" });
     } catch (e) {
+      if (!fresh()) return;
       const code = e instanceof ApiError ? e.code : "";
       const m = messageForError(e);
       setScreen({ kind: "error", code, title: m.title, body: m.body });

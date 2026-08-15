@@ -15,6 +15,13 @@ export function computeRemainingSeconds(expiresAt: string, nowMs: number): numbe
   return Math.max(0, Math.round((t - nowMs) / 1000));
 }
 
+// 0 도달 시 재조회를 언제 발화할지의 판정 — 컴포넌트 밖에 두어 테스트 가능하게 한다.
+// 0으로 "마운트된" 경우(재조회 후에도 서버가 PENDING)는 1초 지연을 강제해 최악에도
+// 1req/s 상한을 만들고, 자연 카운트다운으로 0에 도달한 첫 회는 즉시 발화한다.
+export function expiryFireDelayMs(initialRemaining: number | null): number {
+  return initialRemaining !== null && initialRemaining <= 0 ? 1000 : 0;
+}
+
 export function formatMmSs(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
