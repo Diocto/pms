@@ -288,54 +288,78 @@ class LockPort(Protocol):
 
 ```python
 class LockPort(Protocol):
-    def acquire_all(self, keys: list[str], *, wait_ms: int, ttl_s: int
+    def acquire_all(self, keys: list[str], *, wait_s: float, ttl_s: int
                     ) -> AbstractContextManager[None]:
         """받은 키를 정렬해서 전부 잠근다. 하나라도 실패하면 LockAcquisitionError."""
 ```
 
 **정렬은 이 안에서 한다.** 호출부는 순서를 신경 쓸 기회조차 없다 — 넘기는 것은 집합이고 순서는 구현의 몫이다.
 
-#### 획득
+#### 락 하나는 직접 만들지 않는다 — `redis-py`의 `Lock`을 쓴다
+
+**`SET NX PX` + 토큰 + Lua 비교 삭제 + 대기 상한은 `redis-py`에 이미 들어 있다.** 직접 쓰면 검증되지 않은 코드를 하나 더 만드는 것이고, 그 코드가 틀리면 조용히 틀린다.
+
+```python
+lock = self._redis.lock(
+    key,
+    timeout=ttl_s,               # TTL. 프로세스가 죽어도 이만큼 뒤 풀린다
+    blocking_timeout=wait_s,     # 대기 상한. 넘으면 False
+    sleep=0.01,                  # 재시도 간격
+)
+```
+
+라이브러리가 대신 해주는 것들이다.
+
+| 필요한 것 | `redis.lock.Lock`이 하는 일 |
+|---|---|
+| 원자적 획득 | `SET key token NX PX ttl` |
+| 획득 1회당 고유 토큰 | `acquire()`마다 새 UUID |
+| 원자적 해제 | Lua 스크립트로 값 비교와 삭제를 한 번에 |
+| 남의 락을 지우는 사고 방지 | 토큰이 다르면 `LockNotOwnedError` |
+| 대기 상한 | `blocking_timeout` |
+
+**`LockNotOwnedError`가 중요한 신호다.** "내가 잡은 락이 이미 만료돼 남이 가져갔다"는 뜻이고, TTL이 트랜잭션보다 짧다는 증거다. **삼키지 말고 로그로 남긴다.**
+
+#### 우리가 직접 쓰는 것은 여러 개를 한 묶음으로 다루는 부분뿐이다
+
+`redis-py`의 `Lock`은 **키 하나**를 다룬다. 3박 예약은 재고 행 3개를 함께 잠가야 하고, 그 **순서와 부분 실패 정리**가 우리 몫이다.
 
 ```python
 @contextmanager
-def acquire_all(self, keys, *, wait_ms, ttl_s):
+def acquire_all(self, keys, *, wait_s, ttl_s):
     ordered = sorted(set(keys))          # ← 정렬과 중복 제거가 여기서
-    token = uuid4().hex                  # ← 획득 1회당 1개. 프로세스 단위가 아니다
-    held: list[str] = []
-    deadline = self._clock.monotonic() + wait_ms / 1000
-
+    deadline = time.monotonic() + wait_s
+    held: list[Lock] = []
     try:
         for key in ordered:
-            while not self._redis.set(key, token, nx=True, px=ttl_s * 1000):
-                if self._clock.monotonic() >= deadline:
-                    raise LockAcquisitionError(key)
-                time.sleep(0.01)         # 짧게 물러났다 재시도
-            held.append(key)
+            remaining = deadline - time.monotonic()
+            lock = self._redis.lock(key, timeout=ttl_s,
+                                    blocking_timeout=max(remaining, 0))
+            if not lock.acquire():
+                raise LockAcquisitionError(key)
+            held.append(lock)
         yield
     finally:
-        for key in reversed(held):       # ← 역순 해제
-            self._release(key, token)
+        for lock in reversed(held):      # ← 역순 해제
+            try:
+                lock.release()
+            except LockNotOwnedError:
+                logger.warning("락이 이미 만료됐다", extra={"key": lock.name})
 ```
 
-**토큰은 획득할 때마다 새로 만든다.** 프로세스 단위로 재사용하면, 같은 프로세스의 다른 요청이 TTL로 풀린 내 락을 자기 것으로 착각하고 지운다.
+**세 가지가 우리 판단이다.**
 
-**`finally`에 해제를 둔다.** 중간에 실패해도 이미 잡은 것은 반드시 풀린다. **역순인 이유**는 다른 요청이 오름차순으로 잡고 있기 때문이다 — 같은 방향으로 풀면 앞쪽 키를 놓는 순간 상대가 그것만 잡고 뒤쪽에서 다시 막힌다.
+**정렬은 여기서 한다.** 호출부는 순서를 신경 쓸 기회조차 없다 — 넘기는 것은 집합이고 순서는 구현의 몫이다.
 
-**대기는 전체에 한 번만 건다.** 키마다 상한을 주면 3박 예약이 상한의 세 배까지 기다린다.
+**대기 상한은 전체에 한 번 건다.** `blocking_timeout`을 키마다 그대로 주면 3박 예약이 상한의 세 배까지 기다린다. 남은 시간을 계산해 넘긴다.
 
-#### 해제 — 반드시 원자적으로
+**해제는 역순이다.** 다른 요청이 오름차순으로 잡고 있으므로, 같은 방향으로 풀면 앞쪽 키를 놓는 순간 상대가 그것만 잡고 뒤쪽에서 다시 막힌다. 그리고 `finally`에 두어 중간에 실패해도 이미 잡은 것은 반드시 풀린다.
 
-```python
-_RELEASE = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('del', KEYS[1])
-end
-return 0
-"""
-```
+#### Redlock은 쓰지 않는다
 
-**"내 것인지 확인하고 지운다"를 두 명령으로 나누면 그 사이에 TTL이 만료되어 남의 락을 지운다.** Lua로 한 번에 실행한다. `redis-py`의 `register_script`로 미리 등록해 매번 스크립트를 보내지 않는다.
+Redlock은 **독립된 Redis 마스터 여러 대**에 과반수로 락을 거는 알고리즘이다. 우리는 **한 대**를 쓴다. 노드가 하나면 Redlock은 `SET NX`보다 나은 것이 없고, 알고리즘의 복잡도만 떠안는다.
+
+그리고 더 근본적인 이유가 있다. **Redlock이 풀려는 문제는 "락이 정확성을 책임질 때 그 락을 얼마나 믿을 수 있는가"다.** 우리 설계에서는 락이 정확성을 책임지지 않는다 — 2차 조건부 UPDATE가 한다. **정확성이 걸려 있지 않은 장치를 정교하게 만드는 것은 값을 못 만든다.**
 
 #### TTL이 트랜잭션보다 짧으면
 
@@ -352,7 +376,7 @@ Redlock처럼 워치독으로 TTL을 연장하는 방식은 쓰지 않는다. **
 ```python
 class NoOpLockAdapter:
     @contextmanager
-    def acquire_all(self, keys, *, wait_ms, ttl_s):
+    def acquire_all(self, keys, *, wait_s, ttl_s):
         yield          # 잠그지 않는다
 ```
 
@@ -362,7 +386,7 @@ class NoOpLockAdapter:
 
 #### 로그로 남길 것
 
-락 획득 실패(503), TTL 만료 감지, 해제 시 토큰 불일치 — 셋 다 남긴다. **부하테스트 결과를 해석할 때 이 로그가 근거가 된다.** 특히 토큰 불일치는 "내가 잡은 락이 이미 만료돼 남이 가져갔다"는 뜻이라 TTL 조정의 신호다.
+락 획득 실패(503)와 **`LockNotOwnedError`** 둘은 반드시 남긴다. **부하테스트 결과를 해석할 때 이 로그가 근거가 된다.** 특히 `LockNotOwnedError`는 "내가 잡은 락이 이미 만료돼 남이 가져갔다"는 뜻이라 TTL이 트랜잭션보다 짧다는 신호다.
 
 ## 스키마 표기는 ORM에 맡기지 않는다
 
