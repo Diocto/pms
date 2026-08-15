@@ -22,7 +22,7 @@ from sqlalchemy.orm import sessionmaker
 from app.common.db import TransactionManager
 from app.inventory.domain.errors import InsufficientInventoryError
 from app.inventory.infrastructure.persistence import MySqlInventoryRepository
-from app.reservation.domain.enums import ReservationStatus
+from app.reservation.domain.enums import ReservationEvent, ReservationStatus
 from app.reservation.infrastructure.persistence import MySqlReservationRepository
 
 NOW = datetime(2026, 8, 15, 12, 0, 0)
@@ -165,23 +165,23 @@ def test_같은_예약에_50스레드가_동시_전이하면_승자는_정확히
 
     def attempt(index: int) -> None:
         nonlocal losses
-        # 절반은 확정, 절반은 취소 — 서로 다른 목표 상태로 같은 행을 노린다 (C4)
-        next_status = (
-            ReservationStatus.CONFIRMED if index % 2 == 0 else ReservationStatus.CANCELLED
-        )
+        # 절반은 확정, 절반은 취소 — 서로 다른 이벤트로 같은 행을 노린다 (C4)
+        event = ReservationEvent.CONFIRM if index % 2 == 0 else ReservationEvent.CANCEL
         try:
             barrier.wait()
             with tx.write() as session:
-                won = repository.transition(
+                applied = repository.apply_event(
                     session,
                     reservation_id=reservation_id,
-                    expected=ReservationStatus.PENDING,
-                    next_status=next_status,
+                    current=ReservationStatus.PENDING,
+                    event=event,
                     now=NOW,
                 )
             with count_lock:
-                if won:
-                    wins.append(next_status.value)
+                if applied.outcome == "won":
+                    wins.append(
+                        "CONFIRMED" if event is ReservationEvent.CONFIRM else "CANCELLED"
+                    )
                 else:
                     losses += 1
         except Exception as error:  # noqa: BLE001

@@ -1,50 +1,79 @@
 """예약 영속성 — 상태 전이 조건부 UPDATE (스펙 3.2절).
 
+**전이 표가 유일한 공급원이다.** 이 파일의 쓰기 경로는 `(현재 상태, 이벤트)`만
+받고 다음 상태·재고 복원 여부·이력 값을 전부 `resolve()`에서 얻는다.
+표 밖의 (expected, next) 쌍이 UPDATE에 도달할 코드 경로가 없다 (2회차 리뷰).
+
 두 요청이 동시에 같은 예약을 노려도 `WHERE status = :expected` 때문에
 하나만 rowcount 1을 받는다. **재고 복원과 이력 기록은 이 1을 받은 쪽만
-실행한다** — 그래서 복원은 정확히 한 번이고 이력은 실제 전이와 1:1이다.
+실행한다** — 이력 INSERT를 이 메서드 안에 묶어 게이트 누락이 불가능하다.
 """
 
 import logging
 from datetime import datetime
+from typing import Literal
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.reservation.domain.enums import ReservationEvent, ReservationStatus
 from app.reservation.domain.models import Reservation, ReservationStatusHistory
+from app.reservation.domain.transitions import resolve
 
 logger = logging.getLogger(__name__)
 
 
+class EventApplication(BaseModel):
+    """`apply_event`의 결과.
+
+    - `won` — 전이 성공. 이력이 기록됐고, `restores_inventory`면 호출부가
+      **같은 트랜잭션에서** 재고를 복원해야 한다
+    - `lost` — 경합 패배. 오류가 아니라 정상 결과다. 아무것도 바뀌지 않았다
+    - `idempotent` — 이미 목표 상태. UPDATE도 이력도 없다. 성공으로 응답한다
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    outcome: Literal["won", "lost", "idempotent"]
+    restores_inventory: bool
+
+
 class MySqlReservationRepository:
-    def transition(
+    def apply_event(
         self,
         session: Session,
         *,
         reservation_id: int,
-        expected: ReservationStatus,
-        next_status: ReservationStatus,
+        current: ReservationStatus,
+        event: ReservationEvent,
         now: datetime,
-        confirmed_at: datetime | None = None,
-        terminated_at: datetime | None = None,
-    ) -> bool:
-        """조건부 UPDATE 한 문장. True면 이겼고 False면 경합에서 진 것이다.
+    ) -> EventApplication:
+        """이벤트 하나를 표대로 적용한다 — 판정·UPDATE·이력이 한 몸이다.
 
-        False는 오류가 아니라 정상 결과다 — 확정·취소·만료가 동시에 와도
-        하나만 True를 받는 것이 이 설계의 요점이다. 판정은 rowcount로만 한다.
+        표 밖의 조합이면 `resolve()`가 `InvalidStateTransitionError`를 던진다.
+        `confirmed_at`·`terminated_at`도 표의 결과에서 파생한다 — 확정이면
+        확정 시각, 종료 상태 도달이면 종료 시각이다.
         """
+        resolution = resolve(current, event)  # 표 밖이면 여기서 예외
+
+        if resolution.is_idempotent:
+            return EventApplication(outcome="idempotent", restores_inventory=False)
+
+        next_status = resolution.next_status
+        assert next_status is not None  # 허용 전이는 항상 다음 상태가 있다
+
         values: dict = {"status": next_status.value, "updated_at": now}
-        if confirmed_at is not None:
-            values["confirmed_at"] = confirmed_at
-        if terminated_at is not None:
-            values["terminated_at"] = terminated_at
+        if next_status is ReservationStatus.CONFIRMED:
+            values["confirmed_at"] = now
+        if next_status.is_terminal:
+            values["terminated_at"] = now
 
         result = session.execute(
             update(Reservation)
             .where(
                 Reservation.id == reservation_id,
-                Reservation.status == expected.value,  # ← 이 조건이 승패를 가른다
+                Reservation.status == current.value,  # ← 이 조건이 승패를 가른다
             )
             .values(**values)
             .execution_options(synchronize_session=False)
@@ -52,30 +81,23 @@ class MySqlReservationRepository:
         if result.rowcount == 0:
             # 경합에서 진 것도 부하테스트 해석의 근거다 (coding-rules.md)
             logger.info(
-                "상태 전이 경합 패배 reservation_id=%s expected=%s next=%s",
+                "상태 전이 경합 패배 reservation_id=%s current=%s event=%s",
                 reservation_id,
-                expected.value,
-                next_status.value,
+                current.value,
+                event.value,
             )
-        return result.rowcount == 1
+            return EventApplication(outcome="lost", restores_inventory=False)
 
-    def append_history(
-        self,
-        session: Session,
-        *,
-        reservation_id: int,
-        from_status: ReservationStatus,
-        event: ReservationEvent,
-        to_status: ReservationStatus,
-        occurred_at: datetime,
-    ) -> None:
-        """전이 UPDATE가 1건일 때만 부른다. 그래서 이력은 실제 전이와 1:1이다."""
+        # 이력은 1을 받은 쪽만, 같은 트랜잭션에서. 값은 전부 표에서 왔다
         session.add(
             ReservationStatusHistory(
                 reservation_id=reservation_id,
-                from_status=from_status.value,
+                from_status=current.value,
                 event=event.value,
-                to_status=to_status.value,
-                occurred_at=occurred_at,
+                to_status=next_status.value,
+                occurred_at=now,
             )
+        )
+        return EventApplication(
+            outcome="won", restores_inventory=resolution.restores_inventory
         )
