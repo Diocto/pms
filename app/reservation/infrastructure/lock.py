@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 import redis
-from redis.exceptions import LockNotOwnedError
+from redis.exceptions import LockNotOwnedError, RedisError
 from redis.lock import Lock
 
 from app.reservation.application.errors import LockAcquisitionError
@@ -62,6 +62,10 @@ class RedisLockAdapter:
                     # "내가 잡은 락이 이미 만료돼 남이 가져갔다" — TTL이
                     # 트랜잭션보다 짧다는 신호다. 삼키지 않고 기록한다
                     logger.warning("락이 이미 만료됐다 key=%s ttl_s=%s", lock.name, ttl_s)
+                except RedisError:
+                    # 해제 실패가 나머지 락 해제를 막거나 본문의 원래 예외를
+                    # 가리면 안 된다. TTL이 최종 안전망이라 삼켜도 안전하다
+                    logger.warning("락 해제 실패 key=%s — TTL로 풀린다", lock.name)
 
 
 class NoOpLockAdapter:

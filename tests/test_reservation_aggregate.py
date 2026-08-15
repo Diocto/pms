@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.common.errors import InvalidRequestError
-from app.inventory.domain.models import Money
+from app.inventory.domain.models import Money, RoomType
 from app.reservation.domain.enums import ReservationStatus
 from app.reservation.domain.errors import InvalidStateTransitionError
 from app.reservation.domain.models import GuestCount, Reservation, StayPeriod
@@ -19,13 +19,18 @@ from app.reservation.domain.services import generate_confirmation_code
 TODAY = date(2026, 8, 15)
 NOW = datetime(2026, 8, 15, 12, 0, 0)
 
+# 정원 2·시드 계약의 스탠다드와 같은 모양. DB 없이 만든 도메인 객체다
+ROOM_TYPE = RoomType(
+    id=1, hotel_id=1, name="스탠다드", capacity=2, total_quantity=100,
+    base_price=150000, created_at=NOW,
+)
+
 
 def _create(**overrides) -> Reservation:
     arguments = {
         "user_id": "user-1",
         "idempotency_key": "idem-1",
-        "room_type_id": 1,
-        "capacity": 2,
+        "room_type": ROOM_TYPE,
         "period": StayPeriod(check_in=date(2026, 9, 1), check_out=date(2026, 9, 4)),
         "room_count": 1,
         "guest_count": GuestCount(value=2),
@@ -153,9 +158,11 @@ def test_T24_총액은_단가_곱하기_박수_곱하기_객실수다():
 
 
 def test_T25_확인번호_형식():
-    code = generate_confirmation_code(
-        check_in=date(2026, 9, 1), hotel_id=1, room_type_id=3
+    suite = RoomType(
+        id=3, hotel_id=1, name="스위트", capacity=4, total_quantity=10,
+        base_price=600000, created_at=NOW,
     )
+    code = generate_confirmation_code(check_in=date(2026, 9, 1), room_type=suite)
     prefix, middle, random_part = code.split("-")
     assert prefix == "260901"
     assert middle == "H1R3"
@@ -166,7 +173,7 @@ def test_T25_확인번호_형식():
 
 def test_T25a_같은_조건_1000건이_전부_다르다():
     codes = {
-        generate_confirmation_code(check_in=date(2026, 9, 1), hotel_id=1, room_type_id=1)
+        generate_confirmation_code(check_in=date(2026, 9, 1), room_type=ROOM_TYPE)
         for _ in range(1000)
     }
     assert len(codes) == 1000

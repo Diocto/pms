@@ -111,3 +111,44 @@ def test_NoOp은_아무것도_잠그지_않고_통과한다(redis_client):
     adapter = NoOpLockAdapter()
     with adapter.acquire_all([KEY_A, KEY_B], wait_s=0.5, ttl_s=3):
         assert redis_client.exists(KEY_A, KEY_B) == 0  # Redis에 아무 일도 없다
+
+
+def test_대기_상한은_앞선_획득이_소모한_시간만큼_줄어든다(monkeypatch):
+    """판별력 보강 (3회차 리뷰) — 키마다 상한을 그대로 주는 회귀를 잡는다.
+
+    실측 판(위)은 마지막 키 하나만 막힌 시나리오라 잘못된 구현도 통과한다.
+    가짜 시계로 앞선 획득이 시간을 소모하게 만들고, 뒤 키의 blocking_timeout이
+    소모분만큼 줄어드는지를 직접 본다.
+    """
+    import app.reservation.infrastructure.lock as lock_module
+
+    clock = {"now": 100.0}
+    monkeypatch.setattr(lock_module.time, "monotonic", lambda: clock["now"])
+    recorded: list[tuple[str, float]] = []
+
+    class RecordingLock:
+        def __init__(self, key: str, blocking_timeout: float) -> None:
+            self.name = key
+            recorded.append((key, blocking_timeout))
+
+        def acquire(self) -> bool:
+            clock["now"] += 0.1  # 획득마다 0.1초를 소모한다
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class RecordingRedis:
+        def lock(self, key, timeout, blocking_timeout, sleep):  # noqa: ANN001
+            return RecordingLock(key, blocking_timeout)
+
+    adapter = RedisLockAdapter(RecordingRedis())
+    with adapter.acquire_all([KEY_C, KEY_A, KEY_B], wait_s=0.5, ttl_s=3):
+        pass
+
+    keys = [key for key, _ in recorded]
+    timeouts = [timeout for _, timeout in recorded]
+    assert keys == sorted([KEY_A, KEY_B, KEY_C])  # 정렬도 함께 확인된다
+    assert timeouts[0] == pytest.approx(0.5)
+    assert timeouts[1] == pytest.approx(0.4)   # 키마다 wait_s면 전부 0.5라 여기서 잡힌다
+    assert timeouts[2] == pytest.approx(0.3)

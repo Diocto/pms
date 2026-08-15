@@ -1,7 +1,9 @@
 """유스케이스가 아는 바깥 세계의 전부 — 포트 (스펙 3.6절, D10·D22·D23).
 
-구현은 `infrastructure/`에 있고 컨테이너가 조립한다. 유스케이스는 어느 구현이
-왔는지 모른다.
+구현은 `infrastructure/`(또는 F02)에 있고 컨테이너가 조립한다. 유스케이스는
+어느 구현이 왔는지 모른다. **이 파일의 시그니처는 스펙 3.6절 코드 블록과
+한 줄씩 대응한다** — F02가 문서만 보고 구현하는 계약이라, 여기가 스펙과
+어긋나면 통합 시점에 TypeError로 드러난다 (3회차 리뷰).
 
 **세션을 받는 포트와 안 받는 포트가 갈리는 이유가 계약의 핵심이다.**
 세션을 받는 것(해석기·훅)은 호출부의 트랜잭션에 참여하라는 뜻이고, 받을 수
@@ -9,15 +11,16 @@
 DB를 건드리지 말라는 뜻이다.
 """
 
-from collections.abc import Iterator
 from contextlib import AbstractContextManager
-from datetime import date
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.inventory.domain.models import Money
+from app.reservation.application.commands import CreateReservationCommand, DiscountRef
+from app.reservation.domain.enums import ReservationEvent, ReservationStatus
+from app.reservation.domain.models import StayPeriod
 
 
 # ── 분산락 (3.3절, D10) ─────────────────────────────────────────────
@@ -34,17 +37,20 @@ class LockPort(Protocol):
 # ── 멱등성 (3.4절, D9·D18) ──────────────────────────────────────────
 
 class IdempotencyClaim(BaseModel):
-    """선점 시도의 결과 3상태.
+    """선점 시도의 결과 4상태.
 
-    - `acquired` — 최초 요청. 처리 후 `store()`를 불러야 한다
+    - `acquired` — 최초 요청. 처리 후 `store()` 또는 `store_failure()`를 부른다
     - `processing` — 같은 키가 처리 중. 409 `REQUEST_IN_PROGRESS`
-    - `done` — 이미 처리됨. `confirmation_code`로 조회해 200 + 같은 본문
+    - `done` — 성공으로 처리됨. `confirmation_code`로 조회해 200 + 같은 본문
+    - `failed` — 실패로 완료됨(재고 부족 등). `failure_code`의 **같은 409**를
+      다시 돌려준다 — 같은 키 재요청은 같은 결과를 받는다 (D18·D30)
     """
 
     model_config = ConfigDict(frozen=True)
 
-    outcome: Literal["acquired", "processing", "done"]
+    outcome: Literal["acquired", "processing", "done", "failed"]
     confirmation_code: str | None = None
+    failure_code: str | None = None
 
 
 class IdempotencyPort(Protocol):
@@ -53,12 +59,22 @@ class IdempotencyPort(Protocol):
     def store(
         self, *, user_id: str, key: str, confirmation_code: str, ttl_seconds: int
     ) -> None:
-        """처리 완료를 기록한다. 이후 재요청은 `done`을 받는다."""
+        """성공 완료를 기록한다. 이후 재요청은 `done`을 받는다."""
+
+    def store_failure(
+        self, *, user_id: str, key: str, failure_code: str, ttl_seconds: int
+    ) -> None:
+        """실패 완료를 기록한다 (재고 부족·사전 검사 거부). 이후 재요청은
+        `failed`와 같은 에러 코드를 받는다 — `PROCESSING`으로 남겨두면
+        재요청이 `REQUEST_IN_PROGRESS`로 둔갑한다 (D30)."""
 
     def release(self, *, user_id: str, key: str) -> None:
-        """키를 지운다. **입력 오류(400)일 때만** — 고쳐서 다시 보내는 것이
-        정상이다. 재고 부족(409)은 지우지 않는다 — 같은 키로 다시 와도
-        결과가 같다."""
+        """키를 지운다. **재시도가 의미 있는 실패에서만** — 입력 오류(400),
+        잘못된 참조(404), 혼잡(503). 지우면 고친 재시도가 최초 요청이 된다.
+
+        같은 키로 다시 와도 같은 실패가 재현되어야 하는 경우(재고 부족,
+        사전 검사 거부)는 지우지 않고 `store_failure()`를 부른다
+        (스펙 2.2절 실패 표 기준)."""
 
 
 # ── 결제 (2.3절) ────────────────────────────────────────────────────
@@ -80,11 +96,7 @@ class PaymentPort(Protocol):
         **호출은 트랜잭션 밖에서 한다.**"""
 
 
-# ── 확장 지점 4종 (3.6절) — F02가 구현한다 ───────────────────────────
-
-class DiscountType(BaseModel):
-    """(자리 표시) commands.py로 이동 예정 — 4회차."""
-
+# ── 확장 지점 4종 (3.6절) — F02가 구현한다. 시그니처가 곧 계약이다 ────
 
 class ReservationPreCheckHook(Protocol):
     """값비싼 작업에 들어가기 전에 요청을 거를 기회 (D23).
@@ -94,12 +106,13 @@ class ReservationPreCheckHook(Protocol):
     여기서 DB를 건드리지 말라는 뜻이다.
     """
 
-    def check(self, command: object) -> None: ...
+    def check(self, command: CreateReservationCommand) -> None: ...
 
 
 class AppliedDiscount(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    ref: DiscountRef                 # 해석 결과가 자기 출처를 안다
     price_per_night: Money
 
 
@@ -110,11 +123,9 @@ class DiscountResolver(Protocol):
     def resolve(
         self,
         session: Session,
-        *,
-        reference: object,
+        ref: DiscountRef,
         room_type_id: int,
-        check_in: date,
-        check_out: date,
+        period: StayPeriod,
     ) -> AppliedDiscount | None: ...
 
 
@@ -127,7 +138,7 @@ class ReservationCreationHook(Protocol):
     """
 
     def on_created(
-        self, session: Session, reservation_id: int, command: object
+        self, session: Session, reservation_id: int, command: CreateReservationCommand
     ) -> None: ...
 
 
@@ -139,5 +150,9 @@ class ReservationReleaseHook(Protocol):
     """
 
     def on_released(
-        self, session: Session, reservation_id: int, from_status: str, event: str
+        self,
+        session: Session,
+        reservation_id: int,
+        from_status: ReservationStatus,
+        event: ReservationEvent,
     ) -> None: ...

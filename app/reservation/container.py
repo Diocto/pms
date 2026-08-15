@@ -20,8 +20,20 @@ from app.reservation.infrastructure.payment import FakePaymentAdapter
 from app.reservation.infrastructure.persistence import MySqlReservationRepository
 
 
-def _build_lock(settings: Settings, redis_client: redis.Redis):
+def _build_lock(
+    settings: Settings, redis_client: redis.Redis
+) -> RedisLockAdapter | NoOpLockAdapter:
     return RedisLockAdapter(redis_client) if settings.lock_enabled else NoOpLockAdapter()
+
+
+def _lock_wait_seconds(settings: Settings) -> float:
+    """밀리초 설정을 포트 계약(초)으로 바꾸는 **유일한 변환 지점.**
+
+    유스케이스는 이 프로바이더만 주입받는다. `settings.lock_wait_millis`를
+    직접 `wait_s`에 넣으면 200초 대기가 되는데, 그 실수를 잡을 검증이
+    어디에도 없다 (3회차 리뷰) — 그래서 변환을 조립에 박는다.
+    """
+    return settings.lock_wait_millis / 1000
 
 
 class ReservationRuntimeContributor:
@@ -62,6 +74,7 @@ class ReservationContainer(containers.DeclarativeContainer):
     redis_client = providers.Dependency()
 
     lock = providers.Singleton(_build_lock, settings, redis_client)
+    lock_wait_s = providers.Callable(_lock_wait_seconds, settings)
     idempotency = providers.Singleton(RedisIdempotencyAdapter, redis_client)
     payment = providers.Singleton(
         FakePaymentAdapter, decline_rate=settings.provided.payment_decline_rate

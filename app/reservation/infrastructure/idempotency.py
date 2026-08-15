@@ -14,6 +14,7 @@ from app.reservation.application.ports import IdempotencyClaim
 
 _PROCESSING = "PROCESSING"
 _DONE_PREFIX = "DONE:"
+_FAILED_PREFIX = "FAILED:"
 
 
 def _key(user_id: str, key: str) -> str:
@@ -43,6 +44,12 @@ class RedisIdempotencyAdapter:
             return IdempotencyClaim(
                 outcome="done", confirmation_code=value[len(_DONE_PREFIX):]
             )
+        if value.startswith(_FAILED_PREFIX):
+            # 실패로 완료된 키 — 같은 키 재요청은 같은 에러 코드를 받는다 (D30).
+            # PROCESSING으로 남겨두면 재요청이 REQUEST_IN_PROGRESS로 둔갑한다
+            return IdempotencyClaim(
+                outcome="failed", failure_code=value[len(_FAILED_PREFIX):]
+            )
         return IdempotencyClaim(outcome="processing")
 
     def store(
@@ -50,6 +57,13 @@ class RedisIdempotencyAdapter:
     ) -> None:
         self._redis.set(
             _key(user_id, key), f"{_DONE_PREFIX}{confirmation_code}", ex=ttl_seconds
+        )
+
+    def store_failure(
+        self, *, user_id: str, key: str, failure_code: str, ttl_seconds: int
+    ) -> None:
+        self._redis.set(
+            _key(user_id, key), f"{_FAILED_PREFIX}{failure_code}", ex=ttl_seconds
         )
 
     def release(self, *, user_id: str, key: str) -> None:

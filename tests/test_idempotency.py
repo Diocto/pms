@@ -14,7 +14,9 @@ TTL = 600
 
 @pytest.fixture(scope="module")
 def redis_client(redis_url):
-    client = redis_library.Redis.from_url(redis_url, decode_responses=True)
+    # 프로덕션 컨테이너와 같은 decode_responses=False다 — 테스트가 str 경로만
+    # 돌면 실제로 실행되는 bytes 분기가 한 번도 검증되지 않는다 (3회차 리뷰)
+    client = redis_library.Redis.from_url(redis_url, decode_responses=False)
     yield client
     client.close()
 
@@ -79,3 +81,53 @@ def test_store는_TTL을_갱신한다(adapter, redis_client):
     )
     ttl = redis_client.ttl("idem:reservation:user-1:k-1")
     assert 30 < ttl <= TTL
+
+
+def test_동시_선점은_정확히_하나만_acquired다(adapter, redis_client):
+    """멱등성의 존재 이유인 경합을 직접 검증한다 (3회차 리뷰).
+
+    claim을 비원자 구성(GET 후 SET)으로 바꾸는 회귀가 생기면 여기서 잡힌다 —
+    순차 테스트는 그 회귀에도 전부 초록이다.
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    threads = 30
+    barrier = threading.Barrier(threads)
+    outcomes: list[str] = []
+    unexpected: list[Exception] = []
+    lock = threading.Lock()
+
+    def attempt() -> None:
+        try:
+            barrier.wait()
+            claim = adapter.claim(user_id="user-conc", key="k-conc", ttl_seconds=TTL)
+            with lock:
+                outcomes.append(claim.outcome)
+        except Exception as error:  # noqa: BLE001
+            with lock:
+                unexpected.append(error)
+
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        futures = [pool.submit(attempt) for _ in range(threads)]
+    for future in futures:
+        future.result()
+
+    assert unexpected == []
+    assert outcomes.count("acquired") == 1
+    assert outcomes.count("processing") == threads - 1
+    assert redis_client.get("idem:reservation:user-conc:k-conc") == b"PROCESSING"
+
+
+def test_실패_완료는_같은_에러_코드를_다시_받는다(adapter):
+    """D30 — 재고 부족을 PROCESSING으로 남기면 재요청이 REQUEST_IN_PROGRESS로
+    둔갑한다. 실패도 결과다 — 같은 키 재요청은 같은 409를 받아야 한다 (D18)."""
+    adapter.claim(user_id="user-1", key="k-fail", ttl_seconds=TTL)
+    adapter.store_failure(
+        user_id="user-1", key="k-fail",
+        failure_code="INSUFFICIENT_INVENTORY", ttl_seconds=TTL,
+    )
+    claim = adapter.claim(user_id="user-1", key="k-fail", ttl_seconds=TTL)
+    assert claim.outcome == "failed"
+    assert claim.failure_code == "INSUFFICIENT_INVENTORY"
+    assert claim.confirmation_code is None
