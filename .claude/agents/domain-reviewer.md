@@ -108,7 +108,7 @@ class Foo(SQLModel):
 ## 4. 도메인의 의존
 
 - **`domain` 모듈이 `fastapi`·`redis`·`dependency_injector`를 import하는가** → **심각**
-- `sqlmodel`·`sqlalchemy` 외의 외부 의존이 있는가
+- `sqlmodel`·`sqlalchemy`, 표준 라이브러리, **`app.common`의 프레임워크 무의존 부분(예외 계층·시계)** 외의 외부 의존이 있는가. `common` 사용 자체는 지적 대상이 아니다
 - `grep -rn "^from \|^import " app/*/domain/`로 실제 import를 확인한다. **파이썬은 의존 방향을 컴파일러가 지켜주지 않으므로 이 확인이 유일한 방어선이다**
 
 ## 5. 유스케이스 시퀀스

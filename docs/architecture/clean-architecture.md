@@ -82,7 +82,11 @@ load-test/                      k6 (F04 소유)
 
 대신 통합의 대가를 규칙으로 막는다.
 
-**`domain`이 의존해도 되는 것은 `sqlmodel`·`sqlalchemy`와 표준 라이브러리뿐이다.** `fastapi`, `redis`, `dependency_injector`가 `domain`에 들어오면 규칙 위반이다.
+**`domain`이 의존해도 되는 것은 `sqlmodel`·`sqlalchemy`와 표준 라이브러리, 그리고 `app.common`의 프레임워크 무의존 부분(예외 계층, 시계)뿐이다.** `fastapi`, `redis`, `dependency_injector`가 `domain`에 들어오면 규칙 위반이다.
+
+`app.common`을 허용하는 이유는 그게 프레임워크가 아니라 **우리가 만든 표준 라이브러리**이기 때문이다. 도메인 예외가 공통 예외를 상속하지 못하면 각 컨텍스트가 자기 예외 계층을 따로 만들고, 그러면 프레젠테이션의 예외 처리기가 컨텍스트마다 갈린다.
+
+**다만 `app.common` 전체가 열린 것은 아니다.** `domain`이 쓸 수 있는 것은 프레임워크에 의존하지 않는 것뿐이다. `common` 안에도 FastAPI나 Redis를 아는 모듈이 있으면 그건 `domain`에서 못 쓴다.
 
 **`Session`을 도메인 메서드가 받지 않는다.** 도메인 객체는 자기 상태만 다룬다. 저장·조회는 리포지토리가 한다. 도메인 메서드가 세션을 받기 시작하면 그 순간 DB 없이 테스트할 수 없게 된다.
 

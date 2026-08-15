@@ -63,7 +63,7 @@ Alembic의 각 리비전은 앞 리비전을 가리킨다(`down_revision`). **�
 
 의존이 안쪽으로만 향하는지 확인한다. **`import` 문을 실제로 검색해서 본다.**
 
-- **`domain` 모듈에 `fastapi`, `redis`, `dependency_injector` import가 있는가** → **심각.** `sqlmodel`·`sqlalchemy`만 허용된다
+- **`domain` 모듈에 `fastapi`, `redis`, `dependency_injector` import가 있는가** → **심각.** 허용되는 것은 `sqlmodel`·`sqlalchemy`, 표준 라이브러리, 그리고 **`app.common`의 프레임워크 무의존 부분(예외 계층·시계)**이다. `common`을 쓴다고 지적하지 마라 — 그건 우리가 만든 표준 라이브러리다. 단, `common` 안에 FastAPI나 Redis를 아는 모듈이 있고 `domain`이 그걸 쓰면 그때는 지적이다
 - `application`이 구체 어댑터를 직접 참조하는가. 포트(`Protocol`)를 거쳐야 한다
 - `presentation`이 리포지토리를 직접 호출하는가
 - 유스케이스가 HTTP 요청·응답 객체를 다루는가

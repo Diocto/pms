@@ -16,6 +16,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -208,6 +209,16 @@ def collect() -> dict:
             s["current"] = next((t for t in s["tasks"] if t["status"] == "진행"), None)
             s["blocked"] = [t for t in s["tasks"] if t["status"] == "보류"]
 
+        # 진행 Task가 없는데 방금 커밋했다면, Task 표에 없는 일을 하고 있다는 뜻이다.
+        # 리뷰 회차나 피드백 반영이 대표적이다. 이걸 "작업 없음"으로 보여주면
+        # 실제로 일하는 세션이 노는 것처럼 보인다.
+        ago = run("git", "log", "-1", "--format=%ct", ref)
+        s["last_ts"] = int(ago) if ago.isdigit() else 0
+        recent = s["last_ts"] and (time.time() - s["last_ts"]) < 5400   # 90분
+        s["offbook"] = bool(recent and not s["current"] and s["live"] == "가동")
+        if s["offbook"]:
+            s["offbook_hint"] = run("git", "log", "-1", "--format=%s", ref)
+
         # 상태 한 줄 — 사람이 목록에서 보는 값
         if s["code_files"]:
             s["phase"] = "구현"
@@ -271,6 +282,7 @@ width:100%;text-align:left;font:inherit;color:inherit}
 .nm .role{font-size:12px;color:var(--ink3);font-weight:400;margin-top:1px}
 .cur{font-size:13.5px;color:var(--ink2)}
 .cur .tid{font-family:var(--mono);font-size:11.5px;color:var(--accent);margin-right:6px}
+.cur .tid.warn{color:var(--wait);font-weight:650}
 .cur.none{color:var(--ink3);font-style:italic}
 .pill{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:20px;font-weight:600;white-space:nowrap}
 .p-구현{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
@@ -343,9 +355,18 @@ function renderList(){
   var rows = S.sessions.map(function(s){
     var c = counts(s.tasks), total = s.tasks.length;
     var pct = total ? Math.round(c.완료 / total * 100) : 0;
-    var cur = s.current
-      ? '<span class="tid">' + esc(s.current.id) + '</span>' + esc(s.current.title)
-      : (total ? '진행 중인 Task 없음' : 'Task 목록 없음');
+    var cur;
+    if (s.current) {
+      cur = '<span class="tid">' + esc(s.current.id) + '</span>' + esc(s.current.title);
+    } else if (s.offbook) {
+      cur = '<span class="tid warn">표 밖</span>' + esc(s.offbook_hint || '');
+    } else if (!total) {
+      cur = 'Task 목록 없음';
+    } else if (c.대기 === 0 && c.보류 === 0) {
+      cur = 'Task 전부 완료';
+    } else {
+      cur = '진행 중인 Task 없음';
+    }
     var phaseKey = s.phase === 'Task 확정' ? 'Task' : s.phase;
     var dot = { '매우 급함': '●', '중요': '●', '보통': '○' }[s.priority] || '○';
     var off = s.live !== '가동';
@@ -356,7 +377,7 @@ function renderList(){
       '<span class="nm">' + esc(s.name) +
         (off ? '<div class="halt">■ 정지</div>' : '<div class="role">' + esc(s.role) + '</div>') +
       '</span>' +
-      '<span class="cur' + (s.current ? '' : ' none') + '">' + cur + '</span>' +
+      '<span class="cur' + (s.current || s.offbook ? '' : ' none') + '">' + cur + '</span>' +
       '<span><span class="pill p-' + phaseKey + '">' + esc(s.phase) + '</span></span>' +
       '<span class="prog">' + (total ? c.완료 + '/' + total : '—') +
         (total ? '<span class="bar"><i style="width:' + pct + '%"></i></span>' : '') + '</span>' +
@@ -451,7 +472,11 @@ function renderDetail(code){
       '<dt>현재 작업</dt><dd>' + (s.current
           ? '<b>' + esc(s.current.id) + '</b> ' + esc(s.current.title) +
             (s.current.done ? '<div class="sub">완료 기준: ' + esc(s.current.done) + '</div>' : '')
-          : '<span class="sub">진행 중인 Task 없음</span>') + '</dd>' +
+          : s.offbook
+            ? '<b class="stale">Task 표에 없는 작업</b> ' + esc(s.offbook_hint || '') +
+              '<div class="sub">최근에 커밋했는데 진행 중으로 표시된 Task가 없다. ' +
+              '리뷰 회차나 피드백 반영처럼 표에 없는 일을 하고 있을 수 있다.</div>'
+            : '<span class="sub">진행 중인 Task 없음</span>') + '</dd>' +
       '<dt>진척</dt><dd class="mono">완료 ' + c.완료 + ' · 진행 ' + c.진행 + ' · 대기 ' + c.대기 +
         (c.보류 ? ' · <span class="stale">보류 ' + c.보류 + '</span>' : '') + '</dd>' +
       '<dt>코드 변경</dt><dd>' + (s.code_files.length
