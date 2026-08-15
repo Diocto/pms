@@ -24,6 +24,7 @@
 # ---------------------------------------------------------------------------
 # 무엇을 하는가
 # ---------------------------------------------------------------------------
+# [재고 쪽]
 # 1. 검증용 날짜(부하 시나리오가 쓰지 않는 날짜)의 재고 행을 하나 고른다
 # 2. remaining 을 +1 해서 보존식을 일부러 깨뜨린다
 # 3. 보존식 쿼리가 그 행을 잡아내는지 본다  -> 못 잡으면 검증기가 고장난 것
@@ -31,8 +32,21 @@
 # 5. remaining 을 음수로 만들어 초과 판매 쿼리가 잡는지 본다
 # 6. 원래 값으로 되돌리고, 되돌아갔는지 확인한다
 #
+# [이력 쪽 — 6·7번]
+# 6. 이력 한 줄의 event 를 없는 표기로 바꾼다 -> 표기 검사가 잡아야 한다
+# 7. 한 예약에 복원 이벤트를 두 줄로 만든다   -> 이중 복원 쿼리가 잡아야 한다
+#
+# **이력 검증이 재고 검증보다 조용히 망가지기 쉽다.** 재고 쿼리는 컬럼명이
+# 틀리면 에러로 시끄럽게 터지지만, 이력 쿼리는 값 필터라서 표기만 어긋나도
+# 0행을 돌려주고 초록불이 된다. 그래서 여기서도 일부러 깨뜨려 본다.
+#
 # 실행: ./verify/selftest.sh
 # 실행 시점: F01 병합 직후 한 번. 그리고 검증 SQL을 고칠 때마다.
+#
+# ⚠ 이력 항목은 이력 행이 있어야 돌아간다. 병합 직후에는 비어 있으므로
+#   **전이가 있는 시나리오(S4·S4-B·S6)를 한 번 돌린 뒤 다시 실행한다.**
+#   행이 없으면 건너뛰되, 건너뛴 사실을 크게 찍는다 — 조용히 넘어가면
+#   "검증기를 검증했다"는 문장이 절반만 참인 채로 리포트에 들어간다.
 #
 set -euo pipefail
 
@@ -150,9 +164,107 @@ RESTORED=$(q "SELECT remaining FROM room_daily_inventory
 expect "잔여가 원래 값으로 복구됨" "$RESTORED" "$ORIGINAL"
 expect "보존식 위반 없음 (복구 후)" "$(count_conservation_violations)" "0"
 
+# ---------------------------------------------------------------------------
+# 이력 검증기 자체 검증
+# ---------------------------------------------------------------------------
+# 여기부터는 reservation_status_history 를 건드린다. 값을 바꿨다가 되돌린다.
+
+count_bad_event() {
+    q "SELECT COUNT(*) FROM reservation_status_history
+        WHERE event NOT IN ('CONFIRM','PAYMENT_FAILED','CANCEL','EXPIRE',
+                            'CHECK_IN','CHECK_OUT');"
+}
+
+# common.sql (1) 과 같은 형태여야 한다. 여기를 고치면 저기도 고친다.
+count_double_restore() {
+    q "SELECT COUNT(*) FROM (
+         SELECT reservation_id FROM reservation_status_history
+          WHERE event IN ('CANCEL','PAYMENT_FAILED','EXPIRE')
+          GROUP BY reservation_id HAVING COUNT(*) > 1
+       ) v;"
+}
+
+set_event() {   # $1 = 이력 행 id, $2 = 새 event 값
+    q "UPDATE reservation_status_history SET event = '$2' WHERE id = $1;"
+}
+
+HIST_ROWS=$(q "SELECT COUNT(*) FROM reservation_status_history;")
+
+if [ "$HIST_ROWS" = "0" ]; then
+    echo ""
+    echo "[selftest] ================================================================"
+    echo "[selftest] 건너뜀: 이력 행이 없어 **이력 검증기는 검증하지 못했다.**"
+    echo "[selftest] S4·S4-B·S6 중 하나를 돌린 뒤 이 스크립트를 다시 실행해라."
+    echo "[selftest] 이걸 안 하면 '검증기를 검증했다'가 절반만 참이다."
+    echo "[selftest] ================================================================"
+    HISTORY_TESTED=0
+else
+    HISTORY_TESTED=1
+
+    echo "[selftest] 5. 이력 표기 검사 — 깨뜨리기 전에는 조용해야 한다"
+    expect "이상 표기 없음" "$(count_bad_event)" "0"
+
+    # 아무 행이나 하나 골라 표기를 망가뜨린다.
+    PROBE_ID=$(q "SELECT id FROM reservation_status_history ORDER BY id LIMIT 1;")
+    PROBE_EVENT=$(q "SELECT event FROM reservation_status_history WHERE id = $PROBE_ID;")
+    echo "[selftest] 6. 이력 한 줄의 event 를 없는 표기로 바꾼다 (id=$PROBE_ID, $PROBE_EVENT -> selftest_bogus)"
+
+    # 여기서 죽어도 되돌아가게 한다. 재고 복구 trap 에 이어 붙인다.
+    # DUP_ID·DUP_EVENT 는 아직 없을 수 있으므로 둘 다 있을 때만 되돌린다.
+    trap 'set_remaining "$ORIGINAL" 2>/dev/null || true;
+          set_event "$PROBE_ID" "$PROBE_EVENT" 2>/dev/null || true;
+          if [ -n "${DUP_ID:-}" ] && [ -n "${DUP_EVENT:-}" ]; then
+              set_event "$DUP_ID" "$DUP_EVENT" 2>/dev/null || true
+          fi' EXIT
+
+    set_event "$PROBE_ID" "selftest_bogus"
+    # 이게 0이면, Enum 표기가 통째로 바뀌어도 아무도 모른다는 뜻이다.
+    expect "표기 검사가 이상 값을 잡아낸다" "$(count_bad_event)" "1"
+
+    set_event "$PROBE_ID" "$PROBE_EVENT"
+    expect "표기 복구됨" "$(count_bad_event)" "0"
+
+    # 한 예약에 복원 이벤트를 두 줄로 만든다.
+    # 복원 이벤트가 이미 하나 있는 예약에서, 복원이 아닌 다른 줄을 복원으로 바꾼다.
+    # INSERT 를 쓰지 않는 이유: NOT NULL 컬럼 구성을 추측하게 되고,
+    # 스키마가 조금만 달라도 자체 검증이 스키마 문제로 실패한다.
+    DUP_ID=$(q "
+    SELECT h2.id
+      FROM reservation_status_history h2
+      JOIN (SELECT reservation_id FROM reservation_status_history
+             WHERE event IN ('CANCEL','PAYMENT_FAILED','EXPIRE')
+             GROUP BY reservation_id) r ON r.reservation_id = h2.reservation_id
+     WHERE h2.event NOT IN ('CANCEL','PAYMENT_FAILED','EXPIRE')
+     ORDER BY h2.id LIMIT 1;")
+
+    if [ -z "$DUP_ID" ]; then
+        echo "[selftest] 건너뜀: 이중 복원을 만들 만한 이력 조합이 없다."
+        echo "[selftest]          (복원 이벤트와 비복원 이벤트를 함께 가진 예약이 필요하다)"
+        echo "[selftest]          S6 를 돌린 뒤 다시 실행하면 대개 생긴다."
+    else
+        DUP_EVENT=$(q "SELECT event FROM reservation_status_history WHERE id = $DUP_ID;")
+        echo "[selftest] 7. 이중 복원을 만든다 (id=$DUP_ID, $DUP_EVENT -> CANCEL)"
+
+        BEFORE_DUP=$(count_double_restore)
+        set_event "$DUP_ID" "CANCEL"
+        AFTER_DUP=$(count_double_restore)
+
+        # 깨뜨린 만큼 정확히 하나 늘어야 한다.
+        expect "이중 복원 쿼리가 잡아낸다" "$AFTER_DUP" "$((BEFORE_DUP + 1))"
+
+        set_event "$DUP_ID" "$DUP_EVENT"
+        expect "이중 복원 복구됨" "$(count_double_restore)" "$BEFORE_DUP"
+    fi
+fi
+
 if [ "$FAILED" = "0" ]; then
     echo "[selftest] 전부 통과. 검증 쿼리가 실제로 위반을 잡아낸다."
-    echo "[selftest] 이 결과를 리포트에 기록할 것 — 검증기가 검증됐다는 근거다."
+    if [ "$HISTORY_TESTED" = "1" ]; then
+        echo "[selftest] 재고 검증기와 이력 검증기를 **둘 다** 검증했다."
+    else
+        echo "[selftest] ⚠ 재고 검증기만 검증했다. 이력 검증기는 아직이다."
+    fi
+    echo "[selftest] 이 결과를 리포트 §5에 기록할 것 — 검증기가 검증됐다는 근거다."
 else
     echo "[selftest] 실패 항목이 있다. **검증 쿼리를 고치기 전에는 부하 결과를 믿지 마라.**" >&2
     exit 1
