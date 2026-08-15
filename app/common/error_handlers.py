@@ -8,6 +8,7 @@ import logging
 import uuid
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.common.errors import (
@@ -63,6 +64,22 @@ def register_error_handlers(app: FastAPI) -> None:
         )
         body = ErrorResponse(code=error.code, message=error.message, trace_id=trace_id)
         return JSONResponse(status_code=status, content=body.model_dump(by_alias=True))
+
+    @app.exception_handler(RequestValidationError)
+    def handle_request_validation(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        """FastAPI의 기본 422는 계약 밖 형식이다 — 계약 표의 400 INVALID_REQUEST로
+        통일한다. 헤더 누락(X-User-Id, Idempotency-Key)도 여기로 온다."""
+        trace_id = uuid.uuid4().hex
+        first = error.errors()[0] if error.errors() else {}
+        location = ".".join(str(part) for part in first.get("loc", ()))
+        body = ErrorResponse(
+            code="INVALID_REQUEST",
+            message=f"요청 형식이 올바르지 않습니다: {location}",
+            trace_id=trace_id,
+        )
+        return JSONResponse(status_code=400, content=body.model_dump(by_alias=True))
 
     @app.exception_handler(Exception)
     def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
