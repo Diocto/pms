@@ -1,0 +1,769 @@
+<title>F05 예약 화면 시안</title>
+<style>
+/* ===========================================================
+   층이 둘이다.
+   1) 쉘   — 검토용 문서. 뷰어 테마(라이트/다크)를 따른다. 토큰 --s-*
+   2) 프레임 — 제품 화면 목업. 제품이 확정한 라이트 단일 테마 고정. 토큰 --p-*
+   프레임 내부 클래스는 전부 p- 접두사. 쉘과 섞이지 않는다.
+   =========================================================== */
+:root{
+  --s-paper:#F4F3EF; --s-surface:#FFFFFF; --s-sunken:#EAE8E2;
+  --s-ink:#1A242B; --s-ink-soft:#54646E; --s-ink-faint:#8A97A0;
+  --s-line:#DFDCD4; --s-line-soft:#EBE8E1;
+  --s-accent:#8E6329; --s-accent-soft:#F1E5D3;
+  --s-shadow:0 1px 2px rgba(26,36,43,.05), 0 12px 34px -18px rgba(26,36,43,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --s-paper:#11161A; --s-surface:#192026; --s-sunken:#0C1114;
+    --s-ink:#E6EAEC; --s-ink-soft:#9DACB5; --s-ink-faint:#6D7D87;
+    --s-line:#2A343B; --s-line-soft:#222B31;
+    --s-accent:#CFA163; --s-accent-soft:#2A2018;
+    --s-shadow:0 1px 2px rgba(0,0,0,.4), 0 18px 40px -20px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --s-paper:#11161A; --s-surface:#192026; --s-sunken:#0C1114;
+  --s-ink:#E6EAEC; --s-ink-soft:#9DACB5; --s-ink-faint:#6D7D87;
+  --s-line:#2A343B; --s-line-soft:#222B31;
+  --s-accent:#CFA163; --s-accent-soft:#2A2018;
+  --s-shadow:0 1px 2px rgba(0,0,0,.4), 0 18px 40px -20px rgba(0,0,0,.7);
+}
+/* 제품 팔레트 — 고정값 (라이트 단일 테마) */
+:root{
+  --p-paper:#FBFAF8; --p-surface:#FFFFFF; --p-sunken:#F2F0EB;
+  --p-ink:#16222C; --p-ink-soft:#5A6B76; --p-ink-faint:#93A0A8;
+  --p-line:#E4E1D9; --p-line-strong:#CFCBC0;
+  --p-brass:#8E6329; --p-brass-tint:#F5EADA;
+  --p-ok:#2A6C55; --p-ok-tint:#E4F0EA;
+  --p-warn:#9C5E10; --p-warn-tint:#FAEEDC;
+  --p-danger:#A33A30; --p-danger-tint:#FAE7E4;
+  --p-info:#2E5A7A; --p-info-tint:#E5EEF5;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--s-paper);color:var(--s-ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;}
+.mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+.tnum{font-variant-numeric:tabular-nums}
+
+.wrap{display:grid;grid-template-columns:236px minmax(0,1fr);gap:56px;max-width:1280px;margin:0 auto;padding:0 32px 120px}
+.rail{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:40px 0;border-right:1px solid var(--s-line-soft)}
+.rail-brand{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s-accent);font-weight:700;margin-bottom:4px}
+.rail-title{font-size:15px;font-weight:700;line-height:1.4;margin-bottom:24px;padding-right:24px}
+.rail nav{display:flex;flex-direction:column;gap:1px}
+.rail a{display:grid;grid-template-columns:34px 1fr;gap:4px;align-items:baseline;text-decoration:none;color:var(--s-ink-soft);font-size:13.5px;padding:5px 8px 5px 0;border-radius:5px}
+.rail a span{font-size:11.5px;color:var(--s-ink-faint)}
+.rail a:hover{color:var(--s-ink);background:var(--s-line-soft)}
+.rail a:focus-visible{outline:2px solid var(--s-accent);outline-offset:2px}
+.rail-sep{margin:18px 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--s-ink-faint);font-weight:700}
+main{min-width:0;padding-top:40px}
+
+.doc-head{border-bottom:1px solid var(--s-line);padding-bottom:36px;margin-bottom:14px}
+.eyebrow{font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--s-accent);font-weight:700;margin:0 0 14px}
+h1{font-size:clamp(30px,4vw,42px);line-height:1.18;margin:0 0 18px;font-weight:700;letter-spacing:-.02em;text-wrap:balance;max-width:22ch}
+.lede{font-size:17px;line-height:1.7;color:var(--s-ink-soft);max-width:64ch;margin:0 0 26px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 10px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 11px;border:1px solid var(--s-line);border-radius:999px;color:var(--s-ink-soft);background:var(--s-surface)}
+.chip b{font-weight:700;color:var(--s-ink)}
+
+.block{margin:44px 0 0}
+.block h2{font-size:22px;margin:0 0 12px;letter-spacing:-.01em}
+.block p{margin:0 0 12px;color:var(--s-ink-soft);max-width:70ch}
+.callout{background:var(--s-surface);border:1px solid var(--s-line);border-radius:12px;padding:20px 22px;box-shadow:var(--s-shadow)}
+.callout h3{margin:0 0 8px;font-size:15px}
+.callout p{margin:0 0 8px;font-size:14.5px}
+.callout p:last-child{margin-bottom:0}
+
+.screen{margin:72px 0 0;scroll-margin-top:24px}
+.screen-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;padding-bottom:14px;margin-bottom:18px;border-bottom:1px solid var(--s-line)}
+.screen-id{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--s-accent);background:var(--s-accent-soft);border-radius:5px;padding:3px 8px}
+.screen-head h2{font-size:24px;margin:0;letter-spacing:-.015em}
+.screen-uc{font-size:12.5px;color:var(--s-ink-faint);margin-left:auto}
+.screen-intent{font-size:15.5px;color:var(--s-ink-soft);max-width:72ch;margin:-4px 0 22px}
+.state-label{display:flex;align-items:baseline;gap:10px;margin:34px 0 12px}
+.state-label .no{font-size:11.5px;font-weight:700;letter-spacing:.08em;color:var(--s-ink-faint);text-transform:uppercase}
+.state-label h3{font-size:16.5px;margin:0;letter-spacing:-.01em}
+.state-label .code{margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--s-ink-faint);background:var(--s-sunken);padding:2px 8px;border-radius:5px;white-space:nowrap}
+
+.frame{border:1px solid var(--s-line);border-radius:14px;overflow:hidden;box-shadow:var(--s-shadow);background:var(--p-paper)}
+.frame-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--p-sunken);border-bottom:1px solid var(--p-line)}
+.dots{display:flex;gap:6px}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--p-line-strong);display:block}
+.frame-url{flex:1;background:var(--p-surface);border:1px solid var(--p-line);border-radius:6px;padding:3px 10px;font-size:11.5px;color:var(--p-ink-faint);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frame-body{color:var(--p-ink);font-size:14px;line-height:1.6}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:16px}
+.note{background:var(--s-surface);border:1px solid var(--s-line);border-radius:10px;padding:16px 18px}
+.note h4{margin:0 0 8px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--s-ink-faint)}
+.note ul{margin:0;padding-left:17px;font-size:14px;color:var(--s-ink-soft)}
+.note li{margin-bottom:6px}
+.note li:last-child{margin-bottom:0}
+.note li b{color:var(--s-ink);font-weight:600}
+.note code, .screen-intent code, td code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--s-sunken);padding:1px 5px;border-radius:4px;color:var(--s-ink)}
+
+.tbl-scroll{overflow-x:auto;border:1px solid var(--s-line);border-radius:10px;background:var(--s-surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--s-line-soft);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--s-ink-faint);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td b{font-weight:600}
+.diagram-scroll{overflow-x:auto;padding:10px 0}
+
+/* ---------- 제품 컴포넌트 (p-) ---------- */
+.p-app{background:var(--p-paper)}
+.p-nav{display:flex;align-items:center;gap:24px;padding:13px 24px;background:var(--p-surface);border-bottom:1px solid var(--p-line);flex-wrap:wrap}
+.p-mark{display:flex;align-items:baseline;gap:8px}
+.p-mark .ko{font-family:"AppleMyungjo","Nanum Myeongjo",Georgia,serif;font-size:19px;letter-spacing:.06em;color:var(--p-ink)}
+.p-mark .en{font-size:9.5px;letter-spacing:.26em;color:var(--p-ink-faint);text-transform:uppercase}
+.p-nav-links{display:flex;gap:18px;font-size:13.5px;color:var(--p-ink-soft)}
+.p-nav-links .on{color:var(--p-ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--p-brass)}
+.p-user{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--p-ink-faint)}
+.p-user select{font:inherit;font-size:12px;color:var(--p-ink-soft);border:1px dashed var(--p-line-strong);border-radius:999px;padding:3px 10px;background:var(--p-surface)}
+.p-main{padding:24px}
+.p-h{font-size:20px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px;color:var(--p-ink)}
+.p-sub{font-size:13.5px;color:var(--p-ink-soft);margin:0 0 16px}
+.p-card{background:var(--p-surface);border:1px solid var(--p-line);border-radius:10px}
+.p-pad{padding:18px 20px}
+.p-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--p-ink-faint);font-weight:700;margin:0 0 6px}
+.p-field{background:var(--p-surface);border:1px solid var(--p-line-strong);border-radius:7px;padding:9px 12px;font-size:14px;color:var(--p-ink)}
+.p-field.ghost{color:var(--p-ink-faint)}
+.p-field.bad{border-color:var(--p-danger);background:var(--p-danger-tint)}
+.p-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;background:var(--p-ink);color:#fff;border:0;border-radius:7px;padding:11px 20px;font-size:14px;font-weight:600;font-family:inherit;cursor:default}
+.p-btn.brass{background:var(--p-brass)}
+.p-btn.ghost{background:transparent;color:var(--p-ink-soft);border:1px solid var(--p-line-strong)}
+.p-btn.sm{padding:7px 14px;font-size:13px}
+.p-btn[disabled]{background:var(--p-sunken);color:var(--p-ink-faint);border:1px solid var(--p-line)}
+.p-badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:2.5px 9px;border-radius:999px;white-space:nowrap}
+.p-badge.ok{background:var(--p-ok-tint);color:var(--p-ok)}
+.p-badge.warn{background:var(--p-warn-tint);color:var(--p-warn)}
+.p-badge.danger{background:var(--p-danger-tint);color:var(--p-danger)}
+.p-badge.info{background:var(--p-info-tint);color:var(--p-info)}
+.p-badge.mute{background:var(--p-sunken);color:var(--p-ink-faint)}
+.p-badge.brass{background:var(--p-brass-tint);color:var(--p-brass)}
+.p-badge i{width:6px;height:6px;border-radius:50%;background:currentColor;display:block}
+.p-note{font-size:12.5px;color:var(--p-ink-faint);display:flex;gap:7px;align-items:flex-start}
+.p-note b{color:var(--p-ink-soft);font-weight:600}
+.p-money{font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--p-ink)}
+.p-money small{font-size:12px;font-weight:500;color:var(--p-ink-faint);margin-left:3px}
+.p-divide{height:1px;background:var(--p-line);margin:13px 0}
+.p-row{display:flex;justify-content:space-between;gap:16px;font-size:13.5px;color:var(--p-ink-soft);padding:3px 0}
+.p-row b{color:var(--p-ink);font-weight:600}
+.p-count{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;font-size:40px;font-weight:600;color:var(--p-ink);line-height:1}
+.p-count.hot{color:var(--p-danger)}
+.p-meter{height:5px;background:var(--p-sunken);border-radius:99px;overflow:hidden}
+.p-meter span{display:block;height:100%;background:var(--p-brass);border-radius:99px}
+.p-meter.low span{background:var(--p-danger)}
+.p-empty{padding:36px 24px;text-align:center}
+.p-empty .big{font-size:16px;font-weight:700;color:var(--p-ink);margin-bottom:4px}
+.p-empty .why{font-size:13.5px;color:var(--p-ink-soft);max-width:44ch;margin:0 auto}
+.p-skel{border-radius:6px;background:linear-gradient(90deg,var(--p-sunken) 25%,#E9E6DF 50%,var(--p-sunken) 75%);background-size:200% 100%;animation:sh 1.4s infinite}
+@keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.g2{display:grid;grid-template-columns:1fr 300px;gap:18px}
+.stack{display:flex;flex-direction:column;gap:12px}
+.inline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.between{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.grow{flex:1;min-width:0}
+
+/* 409 흐름 스트립 */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+.flow-step{background:var(--s-surface);border:1px solid var(--s-line);border-radius:10px;padding:14px 16px;position:relative}
+.flow-step .n{font-size:11px;font-weight:700;color:var(--s-accent);letter-spacing:.08em;margin-bottom:6px}
+.flow-step h5{margin:0 0 6px;font-size:14px;color:var(--s-ink)}
+.flow-step p{margin:0;font-size:12.5px;color:var(--s-ink-soft);line-height:1.55}
+
+@media (max-width:1080px){
+  .wrap{grid-template-columns:1fr;gap:0;padding:0 20px 80px}
+  .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--s-line-soft);padding:28px 0 20px}
+  .rail nav{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  main{padding-top:28px}
+  .g2{grid-template-columns:1fr}
+}
+</style>
+
+<div class="wrap">
+<aside class="rail">
+  <div class="rail-brand">F05 · 프론트엔드</div>
+  <div class="rail-title">예약 화면 시안</div>
+  <nav>
+    <a href="#intro"><span>—</span>읽는 법</a>
+    <a href="#flow"><span>—</span>화면 이동 지도</a>
+    <div class="rail-sep">화면 3개</div>
+    <a href="#s1"><span>S1</span>객실 검색</a>
+    <a href="#s2"><span>S2</span>예약 주문서</a>
+    <a href="#s3"><span>S3</span>예약 상세</a>
+    <div class="rail-sep">기준</div>
+    <a href="#error-map"><span>—</span>응답 → 문구 매핑</a>
+    <a href="#tokens"><span>—</span>디자인 토큰</a>
+    <a href="#stack"><span>—</span>기술 스택 제안</a>
+    <a href="#notes"><span>—</span>교육 노트 계획</a>
+    <a href="#decide"><span>—</span>결정 검토란</a>
+  </nav>
+</aside>
+
+<main>
+<header class="doc-head" id="intro">
+  <p class="eyebrow">PMS 숙박 예약 · F05 디자인 시안 · 승인 대기</p>
+  <h1>실패가 정상으로 보이는 예약 화면 세 개</h1>
+  <p class="lede">검색 결과는 캐시 때문에 최대 10초 낡을 수 있고, 그래서 "예약 가능"이라고 떠 있는데 누르면 실패하는 일이 <b>설계상 정상으로</b> 일어난다. 이 시안은 화면 세 개(검색 → 예약 → 예약 상세)의 정상 흐름과 함께, 그 실패들을 화면이 어떻게 다루는지를 상태 단위로 전부 그린 것이다. API는 F01·F03 계약 문서에 있는 것만 쓴다.</p>
+  <div class="meta">
+    <span class="chip">작성일 <b>2026-08-15</b></span>
+    <span class="chip">상태 <b>승인 대기</b></span>
+    <span class="chip">화면 <b>3개 · 상태 14종</b></span>
+    <span class="chip">스택 <b>Next.js (확정) + 제안 4건</b></span>
+  </div>
+</header>
+
+<section class="block">
+  <div class="callout">
+    <h3>이 시안을 읽는 법</h3>
+    <p>회색 브라우저 틀 <b>안쪽</b>이 제품 화면이고, 틀 바깥(이 배경)은 검토용 설명이다. 제품 화면은 라이트 단일 테마로 고정했고, 이 문서 자체는 보는 사람의 화면 설정(밝게/어둡게)을 따른다.</p>
+    <p>화면마다 <b>정상 상태 하나가 아니라 상태 여러 개</b>를 그렸다. 로딩·비어 있음·실패가 이 프로젝트에서는 본편이기 때문이다. 각 상태의 오른쪽 위 회색 코드는 그 상태를 만드는 서버 응답이다.</p>
+    <p>데이터는 전부 시드 계약(F01 스펙 1.9절) 값이다 — 서울 그랜드 호텔 / 부산 오션뷰 호텔, 객실타입 5종, 판매 기간 2026-08-01 ~ 10-29. 시안 속 <b>스위트(10실)</b>가 경합 시연용 객실이다.</p>
+  </div>
+</section>
+
+<section class="block" id="flow">
+  <h2>화면 이동 지도</h2>
+  <p>화면은 셋뿐이고 목록 화면은 없다(F01에 목록 API가 없다 — D7). 예약 직후에는 응답을 들고 상세로 이동하고, 나중에 다시 찾을 때는 상단의 확인번호 입력으로 진입한다.</p>
+  <div class="diagram-scroll"><pre class="mermaid">
+flowchart LR
+    S1["S1 객실 검색<br/>GET /api/availability"]
+    S2["S2 예약 주문서<br/>POST /api/reservations"]
+    S3["S3 예약 상세<br/>GET·confirm·cancel"]
+    S1 -- "객실 선택<br/>(조건을 쿼리로 전달)" --> S2
+    S2 -- "201 PENDING<br/>확인번호 들고 이동" --> S3
+    S2 -- "409 재고 부족<br/>2회 재시도 후 실패" --> S1
+    S3 -- "다른 날짜 다시 예약" --> S1
+    NAV["상단 '예약 확인'<br/>확인번호 입력"] --> S3
+  </pre></div>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>이동</th><th>무엇이 넘어가는가</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td>S1 → S2</td><td>hotelId·roomTypeId·checkIn·checkOut·guestCount·roomCount (URL 쿼리)</td><td>URL만으로 주문서가 복원된다. 새로고침해도 입력이 남는 이유</td></tr>
+      <tr><td>S2 → S3</td><td>201 응답의 <code>confirmationCode</code> (URL 경로)</td><td>내부 id는 API가 노출하지 않는다 (F01 D7)</td></tr>
+      <tr><td>S2 → S1</td><td>409가 재시도 2회 후에도 남으면 검색으로 돌려보낸다</td><td>돌아갈 때 <code>fresh=true</code>로 재검색</td></tr>
+      <tr><td>진입 → S3</td><td>확인번호 직접 입력</td><td>남의 확인번호면 서버가 404를 준다. 화면은 "없는 번호"로만 안내</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================= S1 ================= -->
+<section class="screen" id="s1">
+  <div class="screen-head"><span class="screen-id">S1</span><h2>객실 검색</h2><span class="screen-uc">GET /api/availability (F03)</span></div>
+  <p class="screen-intent">조건을 넣고 그 기간 내내 비어 있는 객실타입을 본다. 응답의 <code>minRemaining</code>은 "기간 중 가장 잔여가 적은 날"의 값이라, 화면도 그 의미 그대로 <b>"가장 적은 날 기준 N실"</b>이라고 말한다. 그리고 응답의 <code>source</code>·<code>staleToleranceSeconds</code>를 그대로 받아 <b>이 숫자가 최대 10초 전 값일 수 있음</b>을 결과 위에 항상 표시한다 — 낡음을 감추면 S2의 409를 설명할 수 없다.</p>
+
+  <div class="state-label"><span class="no">상태 1</span><h3>정상 — 결과 있음</h3><span class="code">200 · items 3건 · source: CACHE</span></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="dots"><i></i><i></i><i></i></div><div class="frame-url">/search?hotelId=1&amp;checkIn=2026-09-01&amp;checkOut=2026-09-04&amp;guestCount=2</div></div>
+    <div class="frame-body"><div class="p-app">
+      <div class="p-nav">
+        <div class="p-mark"><span class="ko">여정</span><span class="en">PMS demo</span></div>
+        <div class="p-nav-links"><span class="on">객실 검색</span><span>예약 확인</span></div>
+        <div class="p-user">사용자(과제용 식별값)
+          <select aria-label="X-User-Id 선택"><option>user-1001</option><option>user-1002</option><option>직접 입력…</option></select>
+        </div>
+      </div>
+      <div class="p-main">
+        <div class="p-card p-pad" style="margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr .8fr .8fr auto;gap:12px;align-items:end">
+            <div><p class="p-label">호텔</p><div class="p-field">서울 그랜드 호텔</div></div>
+            <div><p class="p-label">체크인</p><div class="p-field mono tnum">2026-09-01</div></div>
+            <div><p class="p-label">체크아웃</p><div class="p-field mono tnum">2026-09-04</div></div>
+            <div><p class="p-label">인원</p><div class="p-field tnum">2</div></div>
+            <div><p class="p-label">객실 수</p><div class="p-field tnum">1</div></div>
+            <button class="p-btn brass" style="height:41px">검색</button>
+          </div>
+        </div>
+
+        <div class="between" style="margin-bottom:10px">
+          <span style="font-size:13.5px;color:var(--p-ink-soft)">3박 · 3개 객실타입</span>
+          <span class="p-badge mute mono tnum">14:03:22 기준 · 최대 10초 전 정보</span>
+        </div>
+
+        <div class="stack">
+          <div class="p-card p-pad between">
+            <div class="grow">
+              <div class="inline" style="gap:8px"><b style="font-size:15.5px">스탠다드</b><span class="p-badge ok"><i></i>여유</span></div>
+              <div style="font-size:12.5px;color:var(--p-ink-soft)">1실 정원 2명 · 가장 적은 날 기준 <b class="tnum">96실</b></div>
+            </div>
+            <div style="text-align:right;min-width:170px">
+              <div class="p-money tnum">450,000<small>원</small></div>
+              <div style="font-size:12px;color:var(--p-ink-faint)" class="tnum">3박 합계 · 1박 150,000원</div>
+              <button class="p-btn brass sm" style="margin-top:8px">이 객실로 예약</button>
+            </div>
+          </div>
+          <div class="p-card p-pad between">
+            <div class="grow">
+              <div class="inline" style="gap:8px"><b style="font-size:15.5px">디럭스</b><span class="p-badge ok"><i></i>여유</span></div>
+              <div style="font-size:12.5px;color:var(--p-ink-soft)">1실 정원 3명 · 가장 적은 날 기준 <b class="tnum">41실</b></div>
+            </div>
+            <div style="text-align:right;min-width:170px">
+              <div class="p-money tnum">750,000<small>원</small></div>
+              <div style="font-size:12px;color:var(--p-ink-faint)" class="tnum">3박 합계 · 1박 250,000원</div>
+              <button class="p-btn brass sm" style="margin-top:8px">이 객실로 예약</button>
+            </div>
+          </div>
+          <div class="p-card p-pad between" style="border-color:var(--p-warn)">
+            <div class="grow">
+              <div class="inline" style="gap:8px"><b style="font-size:15.5px">스위트</b><span class="p-badge warn"><i></i>2실 남음</span></div>
+              <div style="font-size:12.5px;color:var(--p-ink-soft)">1실 정원 4명 · 가장 적은 날 기준 <b class="tnum">2실</b> — 조회 후 바뀌었을 수 있습니다</div>
+            </div>
+            <div style="text-align:right;min-width:170px">
+              <div class="p-money tnum">1,800,000<small>원</small></div>
+              <div style="font-size:12px;color:var(--p-ink-faint)" class="tnum">3박 합계 · 1박 600,000원</div>
+              <button class="p-btn brass sm" style="margin-top:8px">이 객실로 예약</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-note" style="margin-top:14px"><span>ⓘ</span><span>잔여 수는 <b>조회한 순간의 값</b>입니다. 예약 버튼을 누르는 순간 서버가 다시 확인하며, 그사이 다른 분이 먼저 예약하면 실패할 수 있습니다.</span></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="state-label"><span class="no">상태 2</span><h3>로딩</h3><span class="code">요청 진행 중</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="padding:20px 24px">
+    <div class="stack">
+      <div class="p-card p-pad between"><div class="grow stack" style="gap:8px"><div class="p-skel" style="width:130px;height:16px"></div><div class="p-skel" style="width:220px;height:12px"></div></div><div class="p-skel" style="width:150px;height:38px"></div></div>
+      <div class="p-card p-pad between"><div class="grow stack" style="gap:8px"><div class="p-skel" style="width:110px;height:16px"></div><div class="p-skel" style="width:190px;height:12px"></div></div><div class="p-skel" style="width:150px;height:38px"></div></div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>스켈레톤은 결과 카드와 같은 골격. 검색 폼은 그대로 두고 결과 영역만 바뀐다 — 조건을 바로 고칠 수 있어야 하므로</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 3</span><h3>빈 결과 — 매진</h3><span class="code">200 · items: [] · emptyReason: SOLD_OUT</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main">
+    <div class="p-card"><div class="p-empty">
+      <div class="big">이 기간은 매진되었습니다</div>
+      <p class="why">9월 1일 ~ 4일 사이에 남은 객실이 없습니다. 날짜를 바꾸면 예약할 수 있습니다.</p>
+      <div class="inline" style="justify-content:center;margin-top:14px"><button class="p-btn sm">날짜 바꾸기</button><button class="p-btn ghost sm">다른 호텔 보기</button></div>
+    </div></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 4</span><h3>빈 결과 — 아직 판매 전</h3><span class="code">200 · emptyReason: NOT_YET_OPEN · salesOpenUntil</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main">
+    <div class="p-card"><div class="p-empty">
+      <div class="big">아직 판매를 열지 않은 날짜입니다</div>
+      <p class="why">현재 <b class="tnum">2026년 10월 29일 숙박분까지</b> 판매 중입니다. 매진이 아니라 판매 전이므로, 그 이후 날짜는 열리면 예약할 수 있습니다.</p>
+      <div class="inline" style="justify-content:center;margin-top:14px"><button class="p-btn sm">판매 중인 기간에서 찾기</button></div>
+    </div></div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span><b>매진과 문구를 반드시 구분한다.</b> 서버가 <span class="mono">emptyReason</span>으로 구분해 주는 정보를 화면이 뭉개면 안 된다</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 5</span><h3>빈 결과 — 인원에 맞는 방 없음</h3><span class="code">200 · emptyReason: NO_FITTING_ROOM_TYPE</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main">
+    <div class="p-card"><div class="p-empty">
+      <div class="big">5명이 함께 묵을 수 있는 객실이 없습니다</div>
+      <p class="why">이 호텔의 가장 큰 객실은 1실 4명까지입니다. <b>객실 수를 2로 늘리거나</b> 인원을 나눠 검색해 보세요.</p>
+      <div class="inline" style="justify-content:center;margin-top:14px"><button class="p-btn sm">객실 2개로 다시 검색</button></div>
+    </div></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 6</span><h3>서버 오류·혼잡</h3><span class="code">500 · 503 · 네트워크 실패</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main">
+    <div class="p-card"><div class="p-empty">
+      <div class="big">검색하지 못했습니다</div>
+      <p class="why">서버가 혼잡하거나 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요. <span class="mono" style="font-size:12px">문의 번호 tr-8c31f2</span></p>
+      <div class="inline" style="justify-content:center;margin-top:14px"><button class="p-btn sm">다시 검색</button></div>
+    </div></div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>내부 정보는 보이지 않는다. 서버가 준 <span class="mono">traceId</span>만 "문의 번호"로 노출한다</span></div>
+  </div></div></div></div>
+
+  <div class="notes">
+    <div class="note"><h4>설계 의도</h4><ul>
+      <li><b>날짜·인원의 규칙 위반은 폼에서 미리 막는다</b>(체크아웃 &gt; 체크인, 최대 30박, 인원 1~20). 단 이것은 UX이지 보안이 아니다 — 서버의 400 응답도 상태 6의 형태로 처리한다.</li>
+      <li>검색 조건은 전부 <b>URL 쿼리에 둔다.</b> 새로고침·뒤로가기·링크 공유가 그대로 동작하고, 별도 상태 저장이 필요 없어진다 (D4).</li>
+      <li>잔여 5실 이하일 때만 "N실 남음" 배지를 붙인다. 96실 남은 방에 숫자를 강조하는 건 소음이다.</li>
+      <li>빈 결과 3종은 <b>같은 빈 화면이 아니다.</b> 매진(다른 날짜로), 판매 전(기다리면 된다), 인원 초과(조건을 바꾸면 된다) — 각각 다음 행동이 다르므로 문구와 버튼이 다르다.</li>
+    </ul></div>
+    <div class="note"><h4>쓰는 계약 (F03 검색-API-계약)</h4><ul>
+      <li><code>GET /api/availability?hotelId&amp;checkIn&amp;checkOut&amp;guestCount&amp;roomCount</code> — X-User-Id 불필요</li>
+      <li>응답: <code>items[].minRemaining·pricePerNight·totalPrice</code>, <code>searchedAt</code>, <code>source</code>, <code>staleToleranceSeconds</code>, <code>emptyReason</code>, <code>salesOpenUntil</code></li>
+      <li>재검색 시에만 <code>fresh=true</code> (409 이후·수동 새로고침). 평상시 검색은 캐시를 그대로 쓴다</li>
+      <li>호텔 목록 API는 없다 — 시드 2곳을 상수로 갖는다 (D7)</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section class="screen" id="s2">
+  <div class="screen-head"><span class="screen-id">S2</span><h2>예약 주문서</h2><span class="screen-uc">POST /api/reservations (F01 UC-2)</span></div>
+  <p class="screen-intent">선택한 객실을 확인하고 예약을 만든다. 이 화면이 지는 책임은 둘이다. 첫째, <b>멱등성 키를 여기서 만든다</b> — 화면에 들어올 때 한 번 만들고, 성공하거나 입력을 바꿀 때까지 유지한다. 버튼을 두 번 눌러도, 타임아웃 후 재시도해도 같은 키가 나간다. 둘째, <b>409를 오류가 아니라 정상 흐름으로 처리한다</b> — 아래 상태 3의 4단계가 이 시안의 핵심이다.</p>
+
+  <div class="state-label"><span class="no">상태 1</span><h3>정상 — 입력 확인</h3><span class="code">제출 전</span></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="dots"><i></i><i></i><i></i></div><div class="frame-url">/book?roomTypeId=3&amp;checkIn=2026-09-01&amp;checkOut=2026-09-04&amp;guestCount=2&amp;roomCount=1</div></div>
+    <div class="frame-body"><div class="p-app">
+      <div class="p-nav">
+        <div class="p-mark"><span class="ko">여정</span><span class="en">PMS demo</span></div>
+        <div class="p-nav-links"><span>객실 검색</span><span>예약 확인</span></div>
+        <div class="p-user">사용자(과제용 식별값) <select aria-label="X-User-Id"><option>user-1001</option></select></div>
+      </div>
+      <div class="p-main">
+        <h2 class="p-h">예약 내용을 확인해 주세요</h2>
+        <p class="p-sub">아직 방이 잡히지 않았습니다. 아래 버튼을 눌러야 객실이 확보됩니다.</p>
+        <div class="g2">
+          <div class="p-card p-pad">
+            <p class="p-label">투숙 정보</p>
+            <div style="font-size:16px;font-weight:700">서울 그랜드 호텔 · 스위트</div>
+            <div style="font-size:13.5px;color:var(--p-ink-soft)" class="tnum">2026-09-01(화) → 2026-09-04(금) · 3박 · 객실 1 · 성인 2</div>
+            <div class="p-divide"></div>
+            <div class="p-row"><span>1실 정원</span><b>4명 (요청 인원 2명 — 가능)</b></div>
+            <div class="p-row"><span>결제 유예</span><b>예약 후 10분</b></div>
+            <div class="p-note" style="margin-top:10px"><span>ⓘ</span><span>예약을 만들면 방이 <b>10분간</b> 잡히고, 그 안에 결제하지 않으면 자동으로 풀려 다시 판매됩니다.</span></div>
+          </div>
+          <div class="p-card p-pad">
+            <p class="p-label">요금</p>
+            <div class="p-row"><span class="tnum">600,000원 × 3박 × 1실</span><b class="tnum">1,800,000원</b></div>
+            <div class="p-divide"></div>
+            <div class="between"><b style="font-size:14px">결제 예정</b><div class="p-money tnum">1,800,000<small>원</small></div></div>
+            <button class="p-btn brass" style="width:100%;margin-top:14px">예약하기</button>
+            <div class="p-note" style="margin-top:11px"><span>ⓘ</span><span><b>여러 번 눌러도 예약은 한 건만 생깁니다.</b> 이 화면에 들어올 때 발급된 요청 번호로 같은 요청을 알아봅니다.</span></div>
+            <div style="margin-top:7px;font-size:11px;color:var(--p-ink-faint)" class="mono">요청 번호 7f3a9c2e-…-1a90</div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="state-label"><span class="no">상태 2</span><h3>제출 중 — 버튼 잠금</h3><span class="code">요청 진행 중 · 재클릭 시 409 REQUEST_IN_PROGRESS</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:360px">
+    <div class="p-card p-pad">
+      <p class="p-label">요금</p>
+      <div class="between"><b style="font-size:14px">결제 예정</b><div class="p-money tnum">1,800,000<small>원</small></div></div>
+      <button class="p-btn" disabled style="width:100%;margin-top:14px">예약 처리 중…</button>
+      <div class="p-note" style="margin-top:11px"><span>·</span><span>처리에는 보통 1초가 걸리지 않습니다. 화면을 닫아도 예약은 취소되지 않습니다.</span></div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>제출 즉시 버튼을 잠근다. 그래도 중복이 도착하면(다른 탭 등) 서버가 <span class="mono">REQUEST_IN_PROGRESS</span>를 주고, 화면은 오류를 띄우지 않고 <b>1초 뒤 같은 키로 다시</b> 보낸다 — 결과가 준비되면 200으로 원래 예약이 돌아온다</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 3</span><h3>재고 부족 — 이 화면의 핵심</h3><span class="code">409 INSUFFICIENT_INVENTORY</span></div>
+  <p class="screen-intent" style="margin-top:0">검색 결과가 낡아 있었던 것뿐, 사용자도 시스템도 잘못한 게 없다. 그래서 <b>오류 화면이 아니라 진행 화면</b>으로 그린다. 브리핑의 권장 흐름을 그대로 따른다: 사실을 말하고 → 최신 재고를 자동 조회하고(<code>fresh=true</code>) → 남아 있으면 사용자가 다시 누르지 않아도 한 번 더 시도하고 → 두 번 실패하면 대안으로 보낸다. <b>자동 재시도는 최대 2회.</b></p>
+
+  <div class="flow">
+    <div class="flow-step"><div class="n">1단계 · 409 수신</div><h5>"방금 마감됐습니다"</h5><p>오류 아이콘 없이 사실만. <b>"결제는 진행되지 않았습니다"</b>를 반드시 함께 쓴다.</p></div>
+    <div class="flow-step"><div class="n">2단계 · 자동</div><h5>최신 재고 다시 확인</h5><p><code>fresh=true</code>로 캐시를 우회해 재검색. "최신 재고를 확인하고 있습니다…" 진행 표시.</p></div>
+    <div class="flow-step"><div class="n">3단계 · 자동</div><h5>남아 있으면 재시도</h5><p>잔여가 있으면 <b>같은 멱등성 키로</b> 한 번 더 예약 요청. 사용자는 기다리기만 한다.</p></div>
+    <div class="flow-step"><div class="n">4단계 · 2회 실패</div><h5>대안으로 보낸다</h5><p>"이 조건은 마감되었습니다." 재시도 버튼을 주지 않고 다른 날짜·객실 검색으로 돌려보낸다.</p></div>
+  </div>
+
+  <div class="frame" style="margin-top:14px"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:520px">
+    <div class="p-card p-pad" style="border-color:var(--p-warn)">
+      <div class="inline" style="gap:8px;margin-bottom:6px"><span class="p-badge warn"><i></i>방금 마감됨</span></div>
+      <div style="font-size:15.5px;font-weight:700">방금 다른 분이 먼저 예약했습니다</div>
+      <div style="font-size:13px;color:var(--p-ink-soft);margin-top:3px">결제는 진행되지 않았습니다. 최신 재고를 확인하고 있습니다…</div>
+      <div class="p-meter" style="margin-top:12px"><span style="width:55%"></span></div>
+      <div style="font-size:11.5px;color:var(--p-ink-faint);margin-top:6px" class="tnum">자동 재시도 1 / 2</div>
+    </div>
+    <div style="height:12px"></div>
+    <div class="p-card p-pad" style="border-color:var(--p-danger)">
+      <div class="inline" style="gap:8px;margin-bottom:6px"><span class="p-badge danger"><i></i>마감</span></div>
+      <div style="font-size:15.5px;font-weight:700">이 조건은 마감되었습니다</div>
+      <div style="font-size:13px;color:var(--p-ink-soft);margin-top:3px">두 차례 다시 시도했지만 남은 객실이 없습니다. 결제는 진행되지 않았습니다.</div>
+      <div class="inline" style="margin-top:12px"><button class="p-btn sm">다른 날짜로 검색</button><button class="p-btn ghost sm">다른 객실 보기</button></div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>위: 1회차 재시도 중. 아래: 2회 모두 실패한 최종 상태. <b>수동 재시도 버튼이 없다</b> — 없는 재고에 계속 부딪히게 하는 건 사용자에게도 서버에도 손해다</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 4</span><h3>입력 거부</h3><span class="code">400 INVALID_REQUEST</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:520px">
+    <div class="p-card p-pad">
+      <p class="p-label">투숙 인원</p>
+      <div class="p-field bad tnum" style="max-width:120px">5</div>
+      <div style="font-size:12.5px;color:var(--p-danger);margin-top:6px">스위트 1실에는 최대 4명까지 묵을 수 있습니다. 객실 수를 늘리거나 인원을 줄여 주세요.</div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>정원 규칙(인원 ≤ 정원 × 객실 수)은 폼에서 미리 막는다. 그래도 서버가 400을 주면 같은 문구를 폼 필드에 붙인다. <b>클라이언트 검증은 편의이고 판정은 서버가 한다</b></span></div>
+  </div></div></div></div>
+
+  <div class="notes">
+    <div class="note"><h4>멱등성 키의 수명 (브리핑 계약 + D6)</h4><ul>
+      <li><b>만드는 때:</b> 주문서 화면에 들어올 때 1회 (UUID)</li>
+      <li><b>같은 키로 나가는 경우:</b> 버튼 연타, 네트워크 타임아웃 후 재시도, <code>REQUEST_IN_PROGRESS</code> 후 재요청, 409 후 자동 재시도</li>
+      <li><b>새 키로 바뀌는 때:</b> 예약 성공, 또는 사용자가 날짜·객실·인원을 바꿨을 때 — 그건 다른 예약 시도다</li>
+      <li><b>400을 받으면:</b> 서버가 키를 지웠으므로 입력 수정 후 새 키로 제출</li>
+      <li>보관은 화면 상태(메모리)에만 한다. 새로고침하면 새 키다 — 근거와 한계는 D6</li>
+    </ul></div>
+    <div class="note"><h4>쓰는 계약 (F01 스펙 2.2)</h4><ul>
+      <li><code>POST /api/reservations</code> + <code>X-User-Id</code> + <code>Idempotency-Key</code></li>
+      <li>본문: <code>roomTypeId·checkIn·checkOut·roomCount·guestCount</code> (<code>discounts</code>는 일반 예약에 노출 안 함 — F02 몫)</li>
+      <li>201: <code>confirmationCode·status(PENDING)·expiresAt·totalPrice</code> 등 → S3로 이동</li>
+      <li>멱등 재요청은 <b>200 + 기존 예약</b>으로 온다. 201과 똑같이 S3로 이동하면 된다</li>
+      <li>503(<code>LOCK_ACQUISITION_FAILED</code>)은 혼잡 — "지금 예약이 몰리고 있습니다" + 잠시 후 재시도 안내 (응답→문구 매핑 표 참조)</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section class="screen" id="s3">
+  <div class="screen-head"><span class="screen-id">S3</span><h2>예약 상세</h2><span class="screen-uc">GET·confirm·cancel /api/reservations/{code} (F01 UC-3·4)</span></div>
+  <p class="screen-intent">예약 하나의 현재 상태를 보여주고, <b>그 상태에서 가능한 행동만</b> 내놓는 화면이다. 서버 응답에는 "가능한 행동 목록"이 없으므로, 화면이 상태 → 행동 매핑 표(아래 고정)를 하나 갖는다 — 판정은 언제나 서버가 하고, 화면 매핑이 틀리면 서버가 409로 알려준다. 상태 6종이 이 화면 하나의 6가지 모습이다.</p>
+
+  <div class="state-label"><span class="no">상태 1</span><h3>결제 대기 — 카운트다운이 주인공</h3><span class="code">200 · status: PENDING · expiresAt</span></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="dots"><i></i><i></i><i></i></div><div class="frame-url">/reservations/260901-H1R3-K7M2XQ4R</div></div>
+    <div class="frame-body"><div class="p-app">
+      <div class="p-nav">
+        <div class="p-mark"><span class="ko">여정</span><span class="en">PMS demo</span></div>
+        <div class="p-nav-links"><span>객실 검색</span><span class="on">예약 확인</span></div>
+        <div class="p-user">사용자(과제용 식별값) <select aria-label="X-User-Id"><option>user-1001</option></select></div>
+      </div>
+      <div class="p-main">
+        <div class="p-card p-pad" style="margin-bottom:14px">
+          <div class="between">
+            <div>
+              <div class="inline" style="gap:8px;margin-bottom:4px"><span class="p-badge warn"><i></i>결제 대기</span><span class="mono tnum" style="font-size:12.5px;color:var(--p-ink-faint)">260901-H1R3-K7M2XQ4R</span></div>
+              <div style="font-size:16.5px;font-weight:700">방을 잡아 두었습니다</div>
+              <div style="font-size:13px;color:var(--p-ink-soft)">시간 안에 결제하지 않으면 자동으로 취소되고 방은 다시 판매됩니다.</div>
+            </div>
+            <div style="text-align:right">
+              <p class="p-label" style="margin-bottom:2px">결제까지 남은 시간</p>
+              <div class="p-count" id="cd">09:47</div>
+            </div>
+          </div>
+          <div class="p-meter" style="margin-top:13px"><span id="cdbar" style="width:97%"></span></div>
+        </div>
+        <div class="g2">
+          <div class="p-card p-pad">
+            <p class="p-label">예약 내용</p>
+            <div class="p-row"><span>호텔·객실</span><b>서울 그랜드 호텔 · 스위트</b></div>
+            <div class="p-row"><span>일정</span><b class="tnum">2026-09-01 → 09-04 · 3박</b></div>
+            <div class="p-row"><span>객실·인원</span><b class="tnum">1실 · 2명</b></div>
+            <div class="p-row"><span>결제 예정</span><b class="tnum">1,800,000원 (1박 600,000원)</b></div>
+          </div>
+          <div class="p-card p-pad">
+            <p class="p-label">지금 할 수 있는 것</p>
+            <button class="p-btn brass" style="width:100%">1,800,000원 결제하기</button>
+            <button class="p-btn ghost" style="width:100%;margin-top:8px">예약 취소</button>
+            <div class="p-note" style="margin-top:11px"><span>ⓘ</span><span>이 과제의 결제는 <b>내부 모의 결제</b>입니다. 승인·거절 결과 처리를 시연하기 위한 것으로, 실제 결제가 일어나지 않습니다.</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+  <div class="notes"><div class="note"><h4>카운트다운 규칙</h4><ul>
+    <li>남은 시간 = <code>expiresAt − 서버가 준 조회 시점 기준의 now</code>. <b>사용자 PC 시계를 기준으로 삼지 않는다</b> — 응답을 받은 순간부터의 경과로 계산한다</li>
+    <li>1분 밑으로 내려가면 숫자가 붉게 바뀐다 (위 목업의 타이머는 실제로 동작한다)</li>
+    <li>0이 되어도 화면이 <b>스스로 만료 처리하지 않는다.</b> 만료 판정은 서버 몫이다 — 0이 되면 다시 조회해서 서버가 말하는 상태를 그대로 그린다. 스케줄러가 아직 안 돌았으면 결제 시도가 409로 거부되는데, 그것도 상태 5의 화면으로 자연스럽게 흘러간다</li>
+  </ul></div></div>
+
+  <div class="state-label"><span class="no">상태 2</span><h3>예약 확정</h3><span class="code">200 · status: CONFIRMED · confirmedAt</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:560px;margin:0 auto;padding-top:30px;padding-bottom:30px">
+    <div class="p-card p-pad" style="text-align:center;padding:30px 26px">
+      <div style="width:44px;height:44px;border-radius:50%;background:var(--p-ok-tint);color:var(--p-ok);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:20px">✓</div>
+      <div class="p-badge ok" style="margin-bottom:10px"><i></i>예약 확정</div>
+      <div style="font-size:19px;font-weight:700">예약이 확정되었습니다</div>
+      <div style="font-size:13px;color:var(--p-ink-soft);margin-top:3px">확인번호를 체크인 때 알려주세요.</div>
+      <div class="mono tnum" style="font-size:21px;font-weight:600;letter-spacing:.1em;margin:16px 0 4px">260901-H1R3-K7M2XQ4R</div>
+      <div class="p-divide"></div>
+      <div style="text-align:left">
+        <div class="p-row"><span>일정</span><b class="tnum">2026-09-01 → 09-04 · 3박 · 스위트 1실</b></div>
+        <div class="p-row"><span>결제 완료</span><b class="tnum">1,800,000원 · 09-01 14:27</b></div>
+      </div>
+      <div class="p-divide"></div>
+      <button class="p-btn ghost sm">예약 취소</button>
+    </div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 3</span><h3>결제 거절 — 200이지만 성공이 아니다</h3><span class="code">200 · status: CANCELLED · failureReason: PAYMENT_DECLINED</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:560px">
+    <div class="p-card p-pad" style="border-color:var(--p-danger)">
+      <div class="inline" style="gap:8px;margin-bottom:6px"><span class="p-badge danger"><i></i>결제 거절</span></div>
+      <div style="font-size:16px;font-weight:700">결제가 거절되어 예약이 취소되었습니다</div>
+      <div style="font-size:13px;color:var(--p-ink-soft);margin-top:4px">잡아 두었던 방은 다시 판매됩니다. 결제 수단을 확인한 뒤 처음부터 다시 예약해 주세요.</div>
+      <div class="inline" style="margin-top:13px"><button class="p-btn sm">같은 조건으로 다시 예약</button></div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span><b>구현 함정:</b> 이 응답은 HTTP 200이다. 상태 코드만 보고 성공 화면을 그리면 틀린다 — 분기 기준은 본문의 <span class="mono">status</span>다. "다시 예약"은 <b>새 예약</b>이므로 새 멱등성 키로 주문서부터 다시 시작한다</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 4</span><h3>사용자 취소</h3><span class="code">200 · status: CANCELLED (cancel 응답)</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:560px">
+    <div class="p-card p-pad">
+      <div class="inline" style="gap:8px;margin-bottom:6px"><span class="p-badge mute">취소됨</span><span class="mono tnum" style="font-size:12.5px;color:var(--p-ink-faint)">260901-H1R3-K7M2XQ4R</span></div>
+      <div style="font-size:16px;font-weight:700">예약이 취소되었습니다</div>
+      <div style="font-size:13px;color:var(--p-ink-soft);margin-top:4px" class="tnum">2026-08-15 15:02 취소 · 방은 다시 판매됩니다</div>
+      <div class="inline" style="margin-top:13px"><button class="p-btn ghost sm">다른 날짜 검색</button></div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>취소 버튼은 브라우저 confirm이 아니라 <b>버튼 2단</b>으로 확인받는다: "예약 취소" → "정말 취소합니다" (3초 안에 한 번 더). 취소를 다시 눌러도 서버가 멱등 성공(200)을 주므로 화면은 같은 모습이다</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 5</span><h3>시간 초과 만료</h3><span class="code">200 · status: EXPIRED / 결제 시도는 409 INVALID_STATE_TRANSITION</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:560px">
+    <div class="p-card p-pad" style="border-color:var(--p-warn)">
+      <div class="inline" style="gap:8px;margin-bottom:6px"><span class="p-badge warn"><i></i>시간 초과</span></div>
+      <div style="font-size:16px;font-weight:700">결제 시간이 지나 예약이 취소되었습니다</div>
+      <div style="font-size:13px;color:var(--p-ink-soft);margin-top:4px">10분 안에 결제가 완료되지 않아 방이 다시 판매되었습니다. 같은 조건으로 다시 예약할 수 있습니다.</div>
+      <div class="inline" style="margin-top:13px"><button class="p-btn sm">같은 조건으로 다시 예약</button></div>
+    </div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>결제 버튼을 누른 순간 만료와 부딪히면(스케줄러 선행) 서버가 409를 준다. 화면은 "오류"가 아니라 <b>다시 조회해서 이 만료 화면으로</b> 옮겨 간다 — 사용자에게는 경합이 아니라 "시간이 지났다"가 사실이다</span></div>
+  </div></div></div></div>
+
+  <div class="state-label"><span class="no">상태 6</span><h3>없는 예약 (남의 예약 포함)</h3><span class="code">404 RESOURCE_NOT_FOUND</span></div>
+  <div class="frame"><div class="frame-body"><div class="p-app"><div class="p-main" style="max-width:560px">
+    <div class="p-card"><div class="p-empty">
+      <div class="big">예약을 찾을 수 없습니다</div>
+      <p class="why">확인번호를 다시 확인해 주세요. 예약할 때 쓴 사용자 식별값이 다르면 같은 번호라도 조회되지 않습니다.</p>
+      <div class="inline" style="justify-content:center;margin-top:14px"><button class="p-btn sm">번호 다시 입력</button></div>
+    </div></div>
+    <div class="p-note" style="margin-top:12px"><span>·</span><span>서버는 남의 예약을 403이 아니라 <b>404로</b> 준다(존재 자체를 숨기기 위해 — F01 계약). 화면도 그 구분을 만들지 않는다</span></div>
+  </div></div></div></div>
+
+  <div class="notes">
+    <div class="note"><h4>상태 → 행동 매핑 (화면에 고정)</h4>
+      <div class="tbl-scroll" style="margin-top:6px"><table style="min-width:420px">
+        <thead><tr><th>상태</th><th>화면 표기</th><th>버튼</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">PENDING</td><td>결제 대기 + 남은 시간</td><td>결제하기 · 예약 취소</td></tr>
+          <tr><td class="mono">CONFIRMED</td><td>예약 확정</td><td>예약 취소</td></tr>
+          <tr><td class="mono">CANCELLED</td><td>취소됨 / 결제 거절(사유로 구분)</td><td>다시 예약</td></tr>
+          <tr><td class="mono">EXPIRED</td><td>시간 초과로 취소됨</td><td>다시 예약</td></tr>
+          <tr><td class="mono">CHECKED_IN</td><td>투숙 중</td><td>없음</td></tr>
+          <tr><td class="mono">CHECKED_OUT</td><td>숙박 완료</td><td>없음</td></tr>
+        </tbody>
+      </table></div>
+      <ul style="margin-top:10px">
+        <li>같은 <code>CANCELLED</code>라도 <code>failureReason</code>이 있으면 "결제 거절"로 나눠 말한다 — 사용자에게는 전혀 다른 사건이다</li>
+        <li>체크인·체크아웃 버튼은 이 화면에 없다 — 직원 액션이며 화면 범위 밖 (D8)</li>
+      </ul>
+    </div>
+    <div class="note"><h4>쓰는 계약 (F01 스펙 2.1·2.3·2.4)</h4><ul>
+      <li><code>GET /api/reservations/{code}</code> — 진입·재조회</li>
+      <li><code>POST …/confirm</code> — 결과는 200 하나, 본문 <code>status</code>로 분기 (CONFIRMED / CANCELLED+failureReason)</li>
+      <li><code>POST …/cancel</code> — 멱등. CHECKED_IN 이후엔 409</li>
+      <li>모든 요청에 <code>X-User-Id</code> — 예약할 때와 같은 값이어야 조회된다</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ================= 응답 매핑 ================= -->
+<section class="screen" id="error-map">
+  <div class="screen-head"><span class="screen-id">—</span><h2>응답 → 문구 매핑</h2><span class="screen-uc">구현 기준 · 한 곳에서 관리</span></div>
+  <p class="screen-intent">서버 에러 코드는 F01의 계약 표가 전부이고, 화면 문구는 이 표 한 곳에서만 관리한다(컴포넌트마다 흩뿌리지 않는다). 표에 없는 코드가 오면 일반 오류 화면 + <code>traceId</code>를 "문의 번호"로 보여준다.</p>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>서버 응답</th><th>어디서</th><th>화면이 하는 일</th><th>재시도</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">400 INVALID_REQUEST</td><td>전 화면</td><td>해당 입력 필드에 이유를 붙인다. 폼 검증이 먼저 막지만 서버 판정이 우선</td><td>사용자가 고쳐서</td></tr>
+      <tr><td class="mono">404 RESOURCE_NOT_FOUND</td><td>S3 진입</td><td>"예약을 찾을 수 없습니다" — 남의 예약과 구분하지 않는다</td><td>없음</td></tr>
+      <tr><td class="mono">409 INSUFFICIENT_INVENTORY</td><td>S2</td><td>"방금 마감됐습니다" → fresh 재검색 → 자동 재시도 (S2 상태 3)</td><td><b>자동 최대 2회</b></td></tr>
+      <tr><td class="mono">409 REQUEST_IN_PROGRESS</td><td>S2</td><td>오류를 띄우지 않는다. 버튼 잠근 채 1초 뒤 같은 키로 재요청</td><td>자동 최대 3회</td></tr>
+      <tr><td class="mono">409 INVALID_STATE_TRANSITION</td><td>S3</td><td>화면이 낡았다는 뜻. <b>다시 조회해서 서버가 말하는 현재 상태를 그린다</b></td><td>재조회 1회</td></tr>
+      <tr><td class="mono">503 LOCK_ACQUISITION_FAILED</td><td>S2</td><td>"지금 예약이 몰리고 있습니다. 잠시 후 다시 시도해 주세요" — 입력 보존</td><td>수동 (같은 키)</td></tr>
+      <tr><td class="mono">500 INTERNAL_ERROR</td><td>전 화면</td><td>"처리하지 못했습니다" + traceId만 노출. 내부 정보는 보이지 않는다</td><td>수동</td></tr>
+      <tr><td class="mono">200 + status: CANCELLED</td><td>S3 confirm</td><td><b>성공 아님.</b> 본문 status로 분기 — 결제 거절 화면 (S3 상태 3)</td><td>새 예약으로</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================= 토큰 ================= -->
+<section class="screen" id="tokens">
+  <div class="screen-head"><span class="screen-id">—</span><h2>디자인 토큰</h2><span class="screen-uc">구현 기준</span></div>
+  <div class="notes" style="grid-template-columns:1fr">
+    <div class="note">
+      <h4>색 — 상태색은 예약 상태에 고정한다</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:6px">
+        <div><div style="height:36px;border-radius:7px;background:#16222C"></div><div style="font-size:12px;margin-top:5px"><b>먹빛</b> <span class="mono">#16222C</span><br><span style="color:var(--s-ink-faint)">본문·기본 버튼</span></div></div>
+        <div><div style="height:36px;border-radius:7px;background:#8E6329"></div><div style="font-size:12px;margin-top:5px"><b>황동</b> <span class="mono">#8E6329</span><br><span style="color:var(--s-ink-faint)">주요 행동 전용</span></div></div>
+        <div><div style="height:36px;border-radius:7px;background:#2A6C55"></div><div style="font-size:12px;margin-top:5px"><b>초록</b> <span class="mono">#2A6C55</span><br><span style="color:var(--s-ink-faint)">CONFIRMED·여유</span></div></div>
+        <div><div style="height:36px;border-radius:7px;background:#9C5E10"></div><div style="font-size:12px;margin-top:5px"><b>주황</b> <span class="mono">#9C5E10</span><br><span style="color:var(--s-ink-faint)">PENDING·낡음·마감 임박</span></div></div>
+        <div><div style="height:36px;border-radius:7px;background:#A33A30"></div><div style="font-size:12px;margin-top:5px"><b>빨강</b> <span class="mono">#A33A30</span><br><span style="color:var(--s-ink-faint)">매진·거절</span></div></div>
+        <div><div style="height:36px;border-radius:7px;background:#FBFAF8;border:1px solid var(--s-line)"></div><div style="font-size:12px;margin-top:5px"><b>바탕</b> <span class="mono">#FBFAF8</span><br><span style="color:var(--s-ink-faint)">면 · 카드 #FFFFFF</span></div></div>
+      </div>
+      <p style="font-size:13.5px;color:var(--s-ink-soft);margin:13px 0 0">황동은 호텔 로비의 금속에서 왔고 <b>주요 행동 버튼에만</b> 쓴다. 초록·주황·빨강은 장식이 아니라 상태색이며 위 용도 밖에서 쓰지 않는다. 제품 화면은 라이트 단일 테마로 확정한다(과제 시연용 화면에 다크 테마를 만드는 비용이 값을 못 한다).</p>
+    </div>
+    <div class="note">
+      <h4>글꼴 — 웹폰트를 내려받지 않는다</h4>
+      <ul>
+        <li><b>본문·UI:</b> 시스템 산세리프 (Apple SD Gothic Neo → Pretendard → Noto Sans KR)</li>
+        <li><b>확인번호·금액·시각·카운트다운:</b> 시스템 고정폭 + <code>tabular-nums</code>. 09:47 → 09:46으로 줄 때 숫자가 흔들리면 안 된다</li>
+        <li><b>워드마크에만</b> 명조. 웹폰트를 쓰지 않는 이유: 첫 화면 로딩에서 폰트 다운로드를 빼고, 부하 시연 환경에서 변수 하나를 줄인다</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 스택 ================= -->
+<section class="screen" id="stack">
+  <div class="screen-head"><span class="screen-id">—</span><h2>기술 스택 제안</h2><span class="screen-uc">Next.js는 확정 · 나머지는 D1~D4</span></div>
+  <p class="screen-intent">선택 기준은 브리핑의 한 줄이다 — <b>"화면 세 개에 그게 정말 필요한가."</b> 그래서 이 표의 절반은 "안 쓴다"는 결정이다. 각 항목의 근거·트레이드오프는 결정 검토란의 해당 D 항목에 있다.</p>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>항목</th><th>제안</th><th>비교한 대안</th><th>D</th></tr></thead>
+    <tbody>
+      <tr><td>프레임워크</td><td><b>Next.js</b> (App Router)</td><td>— (브리핑에서 확정)</td><td>—</td></tr>
+      <tr><td>언어</td><td><b>TypeScript</b></td><td>JavaScript</td><td>D1</td></tr>
+      <tr><td>스타일링</td><td><b>전역 CSS 한 벌 + CSS 변수</b> (라이브러리 0)</td><td>Tailwind, CSS Modules</td><td>D2</td></tr>
+      <tr><td>데이터 페칭</td><td><b><code>fetch</code> 직접 + <code>lib/api.ts</code> 한 곳</b>, 응답은 손수 쓴 검증 함수로 확인</td><td>TanStack Query, zod</td><td>D3</td></tr>
+      <tr><td>상태 관리</td><td><b>안 쓴다</b> — <code>useState</code> + URL 쿼리</td><td>Zustand, Redux</td><td>D4</td></tr>
+      <tr><td>렌더링</td><td>뼈대(레이아웃·정적 안내)는 서버 컴포넌트, <b>세 화면의 본체는 클라이언트 컴포넌트</b></td><td>전부 클라이언트</td><td>D5</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout" style="margin-top:16px">
+    <h3>X-User-Id에 대해 — 알고 뺐다</h3>
+    <p>상단의 사용자 선택값이 그대로 <code>X-User-Id</code> 헤더로 나간다. <b>이 헤더는 클라이언트가 마음대로 정할 수 있으므로 인증이 아니다.</b> 아무나 아무 값이나 넣을 수 있고, 남이 예약할 때 쓴 값을 알면 그 예약을 조회·취소할 수 있다. 이것은 과제가 의도적으로 범위에서 뺀 것이며(ADR-0006 — 인증은 이 과제의 관심사가 아니다), F05가 고칠 문제가 아니다. 서버 쪽 완화 장치는 하나 있다: 소유자가 다르면 403이 아니라 404를 주어 예약의 존재 자체를 숨긴다. 같은 내용을 구현 코드의 API 모듈 주석에도 남긴다.</p>
+    <p>같은 이유로 <b>그럴듯한 로그인 화면을 만들지 않았다.</b> 상단의 "사용자(과제용 식별값)" 선택은 없는 기능을 있는 것처럼 보이지 않게 하려는 표기다.</p>
+  </div>
+</section>
+
+<!-- ================= 교육 노트 ================= -->
+<section class="screen" id="notes">
+  <div class="screen-head"><span class="screen-id">—</span><h2>교육 노트 계획</h2><span class="screen-uc">docs/learning/ · 본문은 구현 단계에서</span></div>
+  <p class="screen-intent">대상 독자는 <b>백엔드 경험이 있는 컴퓨터공학 전공자</b>다 (각 노트 첫 줄에 명시). HTTP·상태 머신·동시성·트랜잭션은 아는 것으로 전제하고, 브라우저에서 코드가 언제 어디서 도는지·렌더링·CSS·번들은 모르는 것으로 전제해 아는 것에 빗대어 쓴다. 본문은 <b>구현 중 실제로 내린 판단이 생긴 시점에</b> 쓴다 — 일반 튜토리얼의 요약은 쓰지 않는다. 제목 여섯은 지금 확정한다 (D9).</p>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>#</th><th>노트 (파일명)</th><th>다루는 판단</th><th>빗댈 것</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>코드가 어디서 실행되는가 — 서버·클라이언트 컴포넌트</td><td>왜 세 화면의 본체를 클라이언트 컴포넌트로 했는가 (D5)</td><td>"같은 코드베이스인데 실행 위치가 다르다" — 저장 프로시저와 앱 코드의 구분</td></tr>
+      <tr><td>2</td><td>하이드레이션 — HTML과 동작 사이의 틈</td><td>카운트다운 초기값을 어디서 계산하는가. 서버가 그린 시각과 브라우저가 붙인 동작이 어긋나는 순간</td><td>배포 중 구버전·신버전이 섞이는 순간과 같은 종류의 문제</td></tr>
+      <tr><td>3</td><td>프론트엔드 상태 — 요청-응답으로 끝나지 않는 프로그램</td><td>상태 관리 라이브러리를 왜 안 써도 됐는가 (D4). 어떤 상태를 URL에, 어떤 상태를 메모리에 뒀는가</td><td>백엔드 핸들러는 요청마다 새로 시작하지만 화면은 장수 프로세스다</td></tr>
+      <tr><td>4</td><td>낡음을 다루는 두 층 — 서버 캐시와 화면의 스냅샷</td><td>409 자동 재시도 흐름. 화면이 들고 있는 검색 결과도 캐시라는 것</td><td>F03의 Redis TTL 10초와 정확히 같은 문제를 다른 층에서 푼다</td></tr>
+      <tr><td>5</td><td>번들 — 사용자가 다운로드하는 배포물</td><td>라이브러리를 하나 넣을 때마다 커지는 것이 무엇인가. 이 프로젝트에서 의존성 0으로 간 결정들의 효과</td><td>콜드 스타트. 서버는 배포가 느려지고 프론트는 사용자가 기다린다</td></tr>
+      <tr><td>6</td><td>CSS 레이아웃 — flex와 grid</td><td>이 시안의 실제 레이아웃(검색 폼 그리드, 카드 배치)을 예제로. <b>빗댈 것이 없는 유일한 노트라 처음부터 설명한다</b></td><td>—</td></tr>
+    </tbody>
+  </table></div>
+  <p style="font-size:14px;color:var(--s-ink-soft);margin-top:12px"><code>docs/learning/INDEX.md</code>는 PM 소유라 직접 수정하지 않는다. 완성된 노트 목록은 이 표가 기준이며 PM이 INDEX에 병합한다.</p>
+</section>
+
+<!-- ================= 결정 ================= -->
+<section class="screen" id="decide">
+  <div class="screen-head"><span class="screen-id">—</span><h2>결정 검토란</h2><span class="screen-uc">항목 단위 동의 필요</span></div>
+  <p class="screen-intent">이 시안을 만들며 내린 결정 전부다. 번호로 동의 여부를 알려주시면 된다. <b>전 항목 동의가 승인이다.</b></p>
+
+  <div class="tbl-scroll"><table>
+    <thead><tr><th style="width:46px">번호</th><th>결정 · 이유 · 트레이드오프 · 대안</th><th>확인 질문</th></tr></thead>
+    <tbody>
+      <tr><td><b>D1</b></td><td><b>언어는 TypeScript.</b> 서버 응답을 경계에서 검증해 화면 안쪽에서는 타입이 보증되게 한다 — 백엔드의 Pydantic과 같은 역할. <i>트레이드오프:</i> 타입 선언 비용과 빌드 단계 추가. <i>대안:</i> JavaScript — 계약 위반이 런타임 undefined로 늦게 터져 기각.</td><td>TypeScript로 가도 괜찮습니까?</td></tr>
+      <tr><td><b>D2</b></td><td><b>스타일링은 전역 CSS 한 벌 + CSS 변수, 라이브러리 0.</b> 화면 셋·컴포넌트 소수에 도구가 해결할 규모 문제가 없고, 교육 노트 6(CSS 레이아웃)이 유틸리티 클래스 뒤에 숨지 않은 실제 CSS를 예제로 써야 한다. <i>트레이드오프:</i> 클래스 이름 관리가 수동이고, 화면이 늘어나면 충돌 위험이 커진다. <i>대안:</i> Tailwind(의존성·학습 대상 추가, 노트 소재가 사라짐), CSS Modules(파일 수만 늘고 셋 규모에선 이득 없음). 두 번 반복되는 스타일이 생기면 그때 공통 클래스로 뽑는다.</td><td>스타일링 라이브러리 없이 가도 괜찮습니까?</td></tr>
+      <tr><td><b>D3</b></td><td><b>데이터 페칭은 fetch 직접 + <code>lib/api.ts</code> 한 곳. 응답 검증은 손수 쓴 함수. TanStack Query·zod 안 씀.</b> 호출이 4종뿐이라 캐시·중복 제거 계층이 할 일이 없고, 재시도 정책(409 2회·REQUEST_IN_PROGRESS 3회)은 이 화면 고유 규칙이라 어차피 직접 쓴다. 검증도 응답 4종 형태 확인이 전부라 라이브러리 값을 못 한다. <i>트레이드오프:</i> 검증 함수를 손으로 유지해야 하고 계약 변경 시 수동으로 따라가야 한다. <i>대안:</i> TanStack Query(번들 +12KB, 학습 대상 추가), zod(선언은 깔끔하나 의존성 추가). 응답 종류가 늘면 그때 재검토.</td><td>페칭·검증 라이브러리 없이 가도 괜찮습니까?</td></tr>
+      <tr><td><b>D4</b></td><td><b>상태 관리 라이브러리 안 씀.</b> 화면 간 공유가 필요한 상태는 검색 조건·확인번호 둘뿐이고 둘 다 URL에 실린다(새로고침·공유 무료). 나머지는 화면 안 useState로 끝난다. <i>트레이드오프:</i> 화면을 넘나드는 공유 상태가 늘어나면 그때 도입 비용을 다시 치른다. <i>대안:</i> Zustand — 지금 넣으면 "왜 있는지 모르는 의존성"이 된다.</td><td>상태 관리 없이 URL + useState로 가도 괜찮습니까?</td></tr>
+      <tr><td><b>D5</b></td><td><b>세 화면의 본체는 클라이언트 컴포넌트, 서버 컴포넌트는 뼈대만.</b> 세 화면 모두 상호작용(검색 실행, 제출·재시도, 카운트다운)이 본질이라 브라우저에서 돌아야 한다. 서버 컴포넌트로 미리 그릴 수 있는 것은 레이아웃과 정적 안내뿐이다. <i>트레이드오프:</i> Next.js의 서버 렌더링 이점을 얕게만 쓴다 — 첫 페인트에 데이터가 실리지 않는다. <i>대안:</i> 검색 결과를 서버 컴포넌트로 렌더 — 10초 낡는 데이터를 서버에서 미리 그리면 하이드레이션 직후 재검증이 필요해 오히려 복잡해져 기각. 이 판단 과정이 교육 노트 1의 본문이다.</td><td>클라이언트 컴포넌트 중심 구성으로 가도 괜찮습니까?</td></tr>
+      <tr><td><b>D6</b></td><td><b>멱등성 키는 화면 상태(메모리)에만 둔다. 새로고침하면 새 키다.</b> 키의 수명("같은 예약 시도")을 폼의 수명과 일치시키는 가장 단순한 구현이다. <i>트레이드오프:</i> 제출 직후 응답을 못 받은 채 새로고침하면, 재제출이 새 키로 나가 중복 예약이 될 수 있다. 그 확률과, sessionStorage에 입력값과 키를 함께 보관·비교하는 복잡도를 저울질해 단순한 쪽을 골랐다 — 이중 예약은 사용자가 상세 화면에서 취소로 회복할 수 있다. <i>대안:</i> sessionStorage 보관(입력 동일성 비교 로직 필요), 서버 발급(재시도 시 키가 바뀌어 멱등성 자체가 무너짐 — 계약 위반).</td><td>새로고침 시 키가 바뀌는 한계를 받아들입니까?</td></tr>
+      <tr><td><b>D7</b></td><td><b>목록 화면 없음, 호텔 2곳은 상수.</b> F01에 예약 목록 API가 없고 호텔 목록 API도 없다. 백엔드에 추가를 요구하지 않는다(브리핑 원칙). 재방문 진입은 상단 확인번호 입력으로 해결한다. <i>트레이드오프:</i> 확인번호를 잃으면 예약을 다시 찾을 수 없다 — 실제 서비스라면 안 되는 UX지만 이 과제의 증명 대상과 무관하다. <i>대안:</i> localStorage에 내 예약 번호 목록 보관 — 편의는 늘지만 "서버에 없는 목록"이라는 거짓 화면이 된다.</td><td>목록 없이 확인번호 진입으로 가도 괜찮습니까?</td></tr>
+      <tr><td><b>D8</b></td><td><b>체크인·체크아웃 버튼을 화면에 두지 않는다.</b> 브리핑의 화면 셋은 고객 여정(검색→예약→확인)이고, 체크인·체크아웃은 프런트 직원 액션이다(F01 2.1절). 시연이 필요하면 API 직접 호출로 충분하다. <i>트레이드오프:</i> 상태 머신의 마지막 두 전이(CHECKED_IN·OUT)를 화면에서 일으킬 수 없다 — 상세 화면은 그 상태를 표시만 한다. <i>대안:</i> 상세 화면에 개발자용 버튼 노출 — 고객 화면에 직원 행동이 섞여 기각.</td><td>체크인·체크아웃은 표시만 하고 버튼은 빼도 괜찮습니까?</td></tr>
+      <tr><td><b>D9</b></td><td><b>교육 노트는 위 6편으로 확정하고, 본문은 구현 단계에서 판단이 실제로 생긴 시점에 쓴다.</b> 시안 단계에서 본문까지 쓰면 아직 안 내린 구현 판단을 지어내게 된다 — "실제로 판단한 것만 쓴다"는 요구와 어긋난다. <i>트레이드오프:</i> 완료 승인 시점에 노트 6편 검토가 몰린다. <i>대안:</i> 지금 일반론으로 써두고 나중에 고치기 — 튜토리얼 요약 금지 원칙에 걸려 기각.</td><td>노트 6편 구성과 "구현 중 작성" 방식에 동의합니까?</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout" style="margin-top:20px">
+    <h3>이 시안이 전제하는 것 (승인 전 확인)</h3>
+    <p>F01·F03 스펙은 현재 <b>재승인·승인 대기</b> 상태다. 이 시안은 그 계약(에러 코드 표, <code>emptyReason</code>·<code>salesOpenUntil</code>·<code>source</code> 필드, 시드 값)이 그대로 확정된다고 전제했다. 특히 F03의 D9(<code>emptyReason</code>)가 부결되면 S1의 빈 결과 3분할이 무너지므로, 그 경우 PM을 통해 알려주시면 시안을 고친다. 열린 질문은 없다.</p>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+(function(){
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var cd = document.getElementById('cd'), bar = document.getElementById('cdbar');
+  if(!cd) return;
+  var left = 587; // 09:47 — expiresAt(10분)에서 남은 시간
+  function paint(){
+    var m = Math.floor(left/60), s = left%60;
+    cd.textContent = (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+    if(bar) bar.style.width = Math.max(0,(left/600*100)).toFixed(1)+'%';
+    if(left <= 60){ cd.classList.add('hot'); if(bar) bar.parentElement.classList.add('low'); }
+  }
+  paint();
+  if(!reduce){ setInterval(function(){ if(left>0){ left--; paint(); } }, 1000); }
+})();
+</script>
