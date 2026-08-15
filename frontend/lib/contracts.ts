@@ -18,6 +18,11 @@
 //        오프셋 포함. 문서 예시가 그랬다. 화면은 Date 파싱만 하고 형식에 의존하지 않는다.
 // [가정] 검색 응답의 source 필드 존재(화면 미사용·타입에서 제외) — 대조만 하면 된다.
 // [확인 예정] 공용 설정 노출 계약 이름 ConfigReport→RuntimeReport (화면 무관, PM 공지)
+// [확인 예정] 검색 경로 — 계약 문서는 GET /api/availability?hotelId= 였으나 F03 세션이
+//        GET /api/hotels/{hotelId}/availability 로 만들고 있다고 알림 (2026-08-16, 구두).
+//        Swagger 대조(T6) 때 확정 — 바뀌면 api.ts의 searchAvailability URL 조립 한 곳 수정.
+// [실물 확인됨] 시드 호텔 1=서울 그랜드, 2=부산 오션뷰 (origin/main 051 리비전 대조,
+//        lib/hotels.ts 상수와 일치. 호텔 목록 API는 만들지 않기로 F03과 합의 — 시안 D7)
 
 // 에러 코드 상수 — 화면·흐름 코드는 문자열 대신 반드시 이걸 쓴다.
 export const ERROR_CODES = {
