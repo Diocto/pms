@@ -2,21 +2,213 @@
 
 코드를 쓰기 전에 반드시 읽는다. 리뷰어는 이 문서를 기준으로 지적한다.
 
-## 트랜잭션 경계
+스택은 Python + FastAPI + SQLModel(SQLAlchemy) + Dependency Injector다. 전환 근거는 [ADR-0050](../decisions/ADR-0050-기술-스택-전환.md)에 있다.
 
-**트랜잭션은 유스케이스에서만 연다.** 컨트롤러, 도메인, 리포지토리 어댑터에 `@Transactional`을 붙이지 않는다.
+## 동기로 간다
 
-**트랜잭션을 최대한 짧게 유지한다.** 트랜잭션 안에서 하면 안 되는 것들이 있다.
+**FastAPI 핸들러는 `async def`가 아니라 `def`로 쓴다.** DB·Redis 드라이버도 동기 구현을 쓴다.
 
-- 외부 API 호출. 상대가 느리면 커넥션과 락을 잡은 채 대기한다.
-- Redis 접근을 포함한 원격 호출. 캐시 갱신은 트랜잭션 밖에서 한다.
-- 사용자 입력 대기, 파일 IO.
+이유는 셋이다.
 
-**읽기 전용은 명시한다.** `@Transactional(readOnly = true)`를 쓰면 플러시를 건너뛰고, 읽기 전용 커넥션으로 라우팅할 여지가 생긴다.
+**증명하려는 것이 처리량이 아니다.** 이 과제는 "잔여 10에 200 요청이 몰려도 성공이 정확히 10"을 보이는 것이지 초당 몇 건을 처리하는지가 아니다. async의 이득은 IO 대기 중 다른 요청을 처리하는 것인데, 그건 우리가 파는 것이 아니다.
 
-**같은 클래스 안에서 `@Transactional` 메서드를 직접 호출하면 적용되지 않는다.** 프록시를 거치지 않기 때문이다. 별도 빈으로 분리한다.
+**부하는 프로세스 밖에서 온다.** k6가 수백 개의 가상 사용자를 만든다. 서버가 동기여도 워커를 늘리면 동시 요청은 그대로 들어온다. 경합은 **DB 행에서** 일어나지 애플리케이션 스레드에서 일어나지 않는다.
 
-`spring.jpa.open-in-view`는 `false`로 둔다. 뷰 렌더링 중에 커넥션을 잡고 있는 걸 막는다. 이 설정은 이미 `application.yml`에 들어 있다.
+**async SQLAlchemy는 새 버그 종류를 들여온다.** 세션이 코루틴 사이에서 공유되면 조용히 깨지고, 그 증상은 우리가 잡으려는 동시성 버그와 구분이 어렵다. **동시성 버그를 증명하는 프로젝트에 동시성 버그의 새 원인을 들이지 않는다.**
+
+동기를 택하면 얻는 것도 있다. `threading.Barrier`가 동시성 테스트에서 스레드를 한 지점에 모았다가 함께 출발시킨다. 이건 검증된 패턴이고 재현이 안정적이다.
+
+## 세션과 트랜잭션의 수명
+
+### 둘은 같은 것이 아니다
+
+SQLAlchemy에서 **세션은 작업 단위이고 트랜잭션은 DB의 원자 단위다.** 한 세션이 커밋을 여러 번 하며 여러 트랜잭션을 걸칠 수 있다.
+
+| | 세션 | 트랜잭션 |
+|---|---|---|
+| 무엇인가 | 신원 맵 + 커넥션 대여 + 보류 중인 변경 | DB가 원자적으로 처리하는 단위 |
+| 열림 | `sessionmaker()` 호출 | 첫 쿼리에서 자동, 또는 `begin()` |
+| 닫힘 | `close()` — 커넥션 반납 | `commit()` 또는 `rollback()` |
+| 안 닫으면 | **커넥션 풀이 마른다** | 락을 쥔 채 남는다 |
+
+**이 프로젝트는 둘의 수명을 일치시킨다. 세션 하나 = 트랜잭션 하나다.**
+
+한 유스케이스에서 커밋을 두 번 하면 그 사이에 남이 끼어든다. 재고를 깎고 커밋한 뒤 예약을 넣다가 실패하면 재고만 줄어든 상태가 남는다. **수명을 일치시키면 이 실수가 구조적으로 불가능해진다.**
+
+### 진입점은 둘뿐이다
+
+**세션을 여는 것은 유스케이스뿐이다.** 라우터·도메인·리포지토리 구현은 주입받은 세션을 쓰기만 한다. 그리고 유스케이스도 `sessionmaker`를 직접 부르지 않는다 — `app/common/db.py`의 컨텍스트 매니저 **두 개만** 쓴다.
+
+```python
+class TransactionManager:
+    """세션과 트랜잭션의 수명을 함께 관리한다. 유스케이스가 주입받는다."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    @contextmanager
+    def write(self) -> Iterator[Session]:
+        """쓰기 경로. 정상 종료하면 커밋, 예외가 나면 롤백."""
+        with self._session_factory() as session:
+            with session.begin():
+                yield session
+            # begin() 블록을 나오며 커밋 · 예외면 롤백
+        # 세션이 닫히며 커넥션 반납
+
+    @contextmanager
+    def read(self) -> Iterator[Session]:
+        """조회 경로. 커밋하지 않는다."""
+        with self._session_factory() as session:
+            yield session
+            session.rollback()   # 자동으로 열린 읽기 트랜잭션을 명시적으로 닫는다
+```
+
+```python
+class CreateReservationUseCase:
+    def execute(self, command: CreateReservationCommand) -> CreateReservationResult:
+        with self._tx.write() as session:
+            ...        # 여기가 트랜잭션이다. 블록을 나오면 커밋된다
+```
+
+**`with`를 쓰는 이유는 경계가 코드에 보이기 때문이다.** 들여쓰기가 곧 트랜잭션의 범위이고, 무엇이 안에 있고 무엇이 밖에 있는지를 문서 없이 읽을 수 있다.
+
+**조회 경로에서 `rollback()`을 부르는 것**은 되돌릴 것이 있어서가 아니다. SQLAlchemy는 첫 `SELECT`에서 트랜잭션을 자동으로 열고, 그것을 닫지 않으면 커넥션이 유휴 트랜잭션 상태로 반납된다. MySQL에서 이 상태가 쌓이면 오래된 스냅샷이 유지되고 정리가 밀린다. **명시적으로 닫는다.**
+
+### 데코레이터를 쓰지 않는다
+
+`@transactional`로 감싸는 방식은 쓰지 않는다. 두 가지를 잃기 때문이다.
+
+**첫째, 락이 트랜잭션 밖에 있다는 사실이 안 보인다.** 이 프로젝트에서 순서가 틀리면 바로 버그가 되는데, 데코레이터는 그 순서를 메서드 바깥으로 감춘다.
+
+```python
+def create(self, command) -> ReservationResult:
+    self._idempotency.claim(...)                    # 트랜잭션 밖
+    for hook in self._pre_check_hooks:
+        hook.check(command)                         # 트랜잭션 밖
+    with self._lock.acquire_all(keys, ttl):         # ← 락이 밖이라는 게 보인다
+        with self._tx.write() as session:           # ← 여기부터 트랜잭션
+            price = self._pricing.resolve(session, command)
+            deduct_inventory(session, ...)
+            reservation = insert_reservation(session, ...)
+            for hook in self._creation_hooks:
+                hook.on_created(session, reservation.id, command)
+        # 커밋됨
+    # 락 해제
+    self._idempotency.store(...)                    # 트랜잭션 밖
+```
+
+**이 열두 줄이 락 순서·확장 지점 호출 순서·사전 검사 위치를 전부 눈으로 확인시켜 준다.** 데코레이터를 쓰면 이게 사라지고, 순서는 다시 문서에만 남는다.
+
+**둘째, 한 메서드 안에 트랜잭션 밖 작업이 섞이는 것이 정상이다.** 위에서 멱등 키 선점과 저장, 사전 검사, 락이 전부 밖이다. 데코레이터는 메서드 전체를 감싸므로 이걸 표현하려면 메서드를 억지로 쪼개야 한다. **그건 우리가 이 스택으로 옮기며 없앤 바로 그 강제 분할이다.**
+
+### 무엇이 안이고 무엇이 밖인가
+
+| 밖 (트랜잭션 전) | 안 | 밖 (커밋 후) |
+|---|---|---|
+| 멱등 키 선점 (Redis) | 재고 조건부 UPDATE | 락 해제 |
+| 입력 검증 | 예약 INSERT | 멱등 키에 결과 저장 (Redis) |
+| 사전 검사 훅 | 상태 전이 UPDATE | 캐시 무효화 |
+| 락 획득 | 이력 INSERT | |
+| | 확장 지점 훅 호출 | |
+
+**Redis 접근은 전부 밖이다.** 이유는 앞의 「세션 안에서 하면 안 되는 것」과 같다 — DB 커넥션과 행 락을 쥔 채 네트워크 왕복을 기다리면 그만큼 다른 요청이 막힌다.
+
+### 여러 건을 처리할 때는 건마다 트랜잭션을 연다
+
+만료 스케줄러처럼 N건을 처리하는 경로는 **한 트랜잭션에 다 넣지 않는다.**
+
+```python
+def expire_due(self) -> int:
+    with self._tx.read() as session:
+        ids = find_due_reservation_ids(session, self._clock.now())   # 조회만
+
+    expired = 0
+    for rid in ids:                       # 건마다 독립 트랜잭션
+        with self._tx.write() as session:
+            if transition_and_restore(session, rid):
+                expired += 1
+    return expired
+```
+
+이유가 셋이다. **한 건이 실패해도 나머지가 처리된다.** 한 트랜잭션이면 마지막 건의 실패가 앞의 999건을 되돌린다. **락을 오래 쥐지 않는다.** 그리고 **경합에서 진 건이 정상 흐름이다** — 사용자가 같은 예약을 확정하는 중이면 이 건의 전이 UPDATE가 0건을 받고, 그건 실패가 아니라 "졌다"이다.
+
+**조회와 처리를 나누는 것에 주의한다.** 조회 결과는 처리 시점에 이미 낡았을 수 있다. 그래서 처리 쪽이 `WHERE status = 'PENDING'` 조건을 다시 걸어 스스로 판정한다. **조회는 후보를 좁히는 것이지 판정이 아니다.**
+
+### 금지
+
+- **라우터가 세션을 받지 않는다.** FastAPI의 `Depends(get_db)`로 세션을 주입해 라우터에 넘기는 흔한 패턴을 쓰지 않는다. 그러면 트랜잭션 경계의 주인이 라우터가 되고, 유스케이스가 자기 원자성을 스스로 책임지지 못한다
+- **세션을 `self`에 저장하지 않는다.** 유스케이스는 상태가 없다. 저장하는 순간 동시 요청이 같은 세션을 공유한다
+- **세션을 반환하거나 `with` 블록 밖으로 넘기지 않는다.** 닫힌 세션의 객체를 만지면 그때 터진다
+- **`begin_nested()`(세이브포인트)를 쓰지 않는다.** 이 프로젝트는 "함께 커밋하거나 함께 롤백한다"가 계약이다. 세이브포인트는 그 계약에 구멍을 낸다
+- **유스케이스 안에서 `commit()`을 직접 부르지 않는다.** 커밋 시점은 `with` 블록의 끝 하나뿐이다
+- **도메인 메서드가 세션을 받지 않는다.** 받는 순간 DB 없이 테스트할 수 없다
+
+### 세션 안에서 하면 안 되는 것
+
+- **Redis 접근을 포함한 모든 원격 호출.** 이 규칙은 언어가 바뀌어도 그대로다. 이유가 언어와 무관하기 때문이다 — DB 커넥션과 행 락을 쥔 채 네트워크 왕복을 기다리면, 그 시간만큼 다른 요청이 막힌다. 부하가 걸릴수록 이 대기가 커진다
+- 외부 API 호출, 사용자 입력 대기, 파일 IO
+- 캐시 갱신 (읽기든 쓰기든 세션 밖에서)
+
+**한 유스케이스에 `write()` 하나.** 예약 생성이 재고·예약·프로모션 세 구역을 한 묶음으로 다루는 것도 이 하나 안에서 끝낸다. 두 번 열면 그 사이에 남이 끼어든다.
+
+### ⚠️ 세션을 넘겨받는 쪽은 절대 스스로 열지 않는다
+
+**이것이 이 스택에서 가장 조용한 함정이다.**
+
+다른 feature의 확장 지점(훅·해석기)을 부를 때, **호출부는 자기 세션을 인자로 넘기고 구현부는 그것만 쓴다.**
+
+```python
+class ReservationCreationHook(Protocol):
+    def on_created(self, session: Session, reservation_id: int, command: CreateReservationCommand) -> None:
+        """호출부의 세션을 받는다. 이 안에서 새 세션을 열지 않는다."""
+```
+
+**왜 명시적으로 넘겨야 하는가.** 어떤 프레임워크는 트랜잭션을 스레드에 매어두어서, 호출된 쪽이 아무것도 안 해도 같은 트랜잭션에 자동으로 들어갔다. SQLAlchemy는 그렇지 않다. **세션이 인자로 오지 않으면 구현부가 자기 세션을 열 수 있고, 그러면 트랜잭션이 둘로 갈라진다.**
+
+갈라지면 이렇게 된다.
+
+```
+호출부 트랜잭션:  재고 차감 → 예약 INSERT → ... → 롤백
+구현부 트랜잭션:  사용권 발급 → 이미 커밋됨      ← 되돌아가지 않는다
+```
+
+**"함께 커밋하거나 함께 롤백한다"는 보장이 조용히 깨진다.** 조용히, 가 핵심이다 — **단일 스레드 테스트는 전부 초록으로 통과한다.** 실패는 롤백이 실제로 일어나는 경로에서만, 그것도 데이터가 어긋난 뒤에 드러난다.
+
+규칙은 셋이다.
+
+- **확장 지점의 시그니처는 세션을 첫 인자로 받는다.** 컨텍스트 변수나 전역으로 몰래 공유하지 않는다. 시그니처에 있으면 빠뜨릴 수 없다
+- **구현부는 `session_factory`를 주입받지 않는다.** 받을 수 없으면 열 수 없다
+- **정적으로도 본다.** 확장 지점 구현 모듈이 `sessionmaker`·`create_engine`·`session_factory`를 import하는지 확인한다. import가 없으면 세션을 만들 수단이 없다
+
+### 이 함정을 잡는 테스트는 두 개다. 하나만으로는 안 잡힌다
+
+**"훅이 예외를 던지면 호출부의 INSERT도 되돌아간다"만으로는 부족하다.** 세션이 갈라진 구현도 이 테스트를 통과한다 — 구현부가 예외를 던지면 **자기 세션도 커밋 전이라 함께 롤백되기 때문이다.** 정상 구현과 결과가 같아서 판별력이 0이다.
+
+**버그는 구현부가 성공한 뒤에만 드러난다.**
+
+| 시나리오 | 세션이 갈라진 구현에서 | 잡히나 |
+|---|---|---|
+| 확장 지점이 **예외를 던진다** | 자기 세션도 커밋 전이라 함께 롤백된다. 정상 구현과 같은 결과 | ❌ |
+| 확장 지점이 **성공하고, 그 뒤 호출부가 실패한다** | 구현부는 **이미 커밋했다.** 호출부만 롤백되어 **그 행이 살아남는다** | ✅ |
+
+**둘 다 쓴다.** 앞의 것은 계약의 절반(구현부 실패 시 전체 롤백)을 지키고, 뒤의 것이 세션 분리를 잡는다.
+
+```
+(1) 확장 지점이 예외를 던진다        → 호출부가 쓴 행도 사라져야 한다
+(2) 확장 지점이 행을 쓰고 성공한 뒤,
+    호출부가 그다음 단계에서 실패한다 → 확장 지점이 쓴 행도 사라져야 한다
+```
+
+**(2)가 없으면 "이 함정을 잡는 테스트가 있다"고 말할 수 없다.** 그리고 그 상태가 이 문서가 경고하는 실패 모드 그 자체다 — **단일 스레드 테스트가 전부 초록인데 데이터는 어긋난다.** 그 초록불을 테스트가 만들어주면 안 된다.
+
+**락은 세션 밖에서 잡고 밖에서 푼다.** 순서는 `락 획득 → 세션 시작 → 커밋 → 락 해제`다. 반대로 하면 커밋 전에 락이 풀려 다른 요청이 이전 데이터를 읽는다.
+
+```python
+with self._lock.acquire_all(keys, ttl=3):          # 세션 밖
+    with self._session_factory() as session, session.begin():
+        ...                                         # 커밋은 여기서
+                                                    # 락 해제는 with를 나가면서
+```
 
 ## 동시성 제어
 
@@ -24,44 +216,51 @@
 
 | 방법 | 언제 | 대가 |
 |---|---|---|
-| 조건부 업데이트 (`UPDATE ... WHERE 조건`) | 상태 전이, 재고 차감처럼 단일 행 갱신 | 갱신 대상이 여러 행이면 못 씀 |
+| 조건부 UPDATE (`UPDATE ... WHERE 조건`) | 상태 전이, 재고 차감처럼 단일 행 갱신 | 갱신 대상이 여러 행이면 못 씀 |
 | 비관락 (`SELECT ... FOR UPDATE`) | 경합이 잦고 재시도 비용이 큰 경우 | 대기·데드락. 락 순서를 지켜야 함 |
-| 낙관락 (`@Version`) | 경합이 드물고 충돌 시 재시도가 싼 경우 | 충돌 시 예외 처리와 재시도 필요 |
+| 낙관락 (버전 컬럼) | 경합이 드물고 충돌 시 재시도가 싼 경우 | 충돌 처리와 재시도 필요 |
 | 분산락 (Redis) | DB 앞단에서 경합을 줄이거나, DB 밖 자원을 보호 | 락 만료·장애 시 안전성을 따로 설명해야 함 |
 
-**가장 먼저 조건부 업데이트를 검토한다.** 재고 차감은 이 한 줄로 원자적으로 처리된다.
+**가장 먼저 조건부 UPDATE를 검토한다.** 재고 차감은 이 한 줄로 원자적으로 처리된다.
 
-```sql
-UPDATE room_daily_inventory
-   SET remaining = remaining - :count
- WHERE room_type_id = :roomTypeId
-   AND stay_date = :date
-   AND remaining >= :count
+```python
+result = session.execute(
+    update(RoomDailyInventory)
+    .where(
+        RoomDailyInventory.room_type_id == room_type_id,
+        RoomDailyInventory.stay_date == date,
+        RoomDailyInventory.remaining >= count,       # ← 이 조건이 방어선이다
+    )
+    .values(remaining=RoomDailyInventory.remaining - count)
+    .execution_options(synchronize_session=False)
+)
+if result.rowcount == 0:
+    raise InsufficientInventoryError(...)
 ```
 
-반환된 갱신 행 수가 0이면 재고가 부족했던 것이다. 락도, 재시도도 필요 없다. **읽고 판단하고 쓰는 세 단계를 한 단계로 줄이는 게 동시성 제어의 기본이다.**
+**`rowcount`가 0이면 재고가 부족했던 것이다.** 락도, 재시도도 필요 없다. **읽고 판단하고 쓰는 세 단계를 한 단계로 줄이는 게 동시성 제어의 기본이다.**
 
-상태 전이도 같다.
+상태 전이도 같다. 두 요청이 동시에 확정을 시도해도 하나만 `rowcount == 1`을 받는다.
 
-```sql
-UPDATE reservation
-   SET status = 'CONFIRMED'
- WHERE id = :id AND status = 'PENDING'
-```
+**`synchronize_session=False`를 반드시 붙인다.** 안 붙이면 SQLAlchemy가 세션의 신원 맵을 맞추려 추가 쿼리를 날리거나 예외를 낸다. 우리는 UPDATE 결과를 `rowcount`로만 읽고 객체 상태에 기대지 않으므로 동기화가 필요 없다.
 
-두 요청이 동시에 확정을 시도해도 하나만 1을 반환한다.
+**⚠️ 벌크 UPDATE 뒤에 같은 객체를 읽지 마라.** 조건부 UPDATE는 세션의 신원 맵을 거치지 않으므로, 같은 세션에 이미 로드된 객체는 **옛 값을 그대로 갖고 있다.** 갱신 후 값이 필요하면 `session.expire(obj)` 또는 새로 조회한다. 이건 JPA 1차 캐시 불일치와 같은 문제이고 이름만 다르다.
 
 ### 락 순서를 고정한다
 
 여러 행에 락을 걸 때는 **항상 같은 순서로** 건다. 순서가 뒤섞이면 데드락이 난다.
 
-투숙 기간이 3일이면 재고 행 3개를 잠근다. 이때 날짜 오름차순으로 정렬해서 잠근다. A가 1일→2일 순으로, B가 2일→1일 순으로 잠그면 서로 물린다.
+투숙 기간이 3일이면 재고 행 3개를 잠근다. A가 1일→2일 순으로, B가 2일→1일 순으로 잠그면 서로 물린다.
 
-```java
-List<LocalDate> dates = stayPeriod.occupiedDates().stream().sorted().toList();
+**정렬은 호출부가 아니라 포트 안에서 한다.** 호출부에 맡기면 언젠가 한 곳에서 빠뜨리고, **그 한 곳은 부하가 걸리기 전까지 드러나지 않는다.**
+
+```python
+class LockPort(Protocol):
+    def acquire_all(self, keys: list[str], ttl_seconds: int) -> AbstractContextManager[None]:
+        """받은 키를 정렬해서 잠근다. 호출부는 순서를 신경 쓰지 않는다."""
 ```
 
-정렬은 반드시 코드에 명시적으로 남긴다. "어차피 정렬돼 있다"는 가정은 깨진다.
+**락 순서와 DB 행 접근 순서가 같은 목록에서 나와야 한다.** 락만 정렬하고 재고 차감 UPDATE 실행 순서를 정렬하지 않으면 DB 행 락에서 같은 데드락이 난다. 특히 분산락을 껐을 때 방어선이 DB 행 락뿐이라 그대로 드러난다.
 
 ### 다층 방어
 
@@ -69,35 +268,165 @@ List<LocalDate> dates = stayPeriod.occupiedDates().stream().sorted().toList();
 
 ```
 1차: Redis 분산락        대부분의 경합을 DB 앞에서 차단
-2차: DB 조건부 업데이트   락이 만료·실패해도 원자성 보장
+2차: DB 조건부 UPDATE     락이 만료·실패해도 원자성 보장
 3차: DB 제약             위 둘이 뚫려도 잘못된 데이터는 저장 불가
 ```
 
+**각 층이 하는 일이 다르다는 것을 정확히 쓴다.** 초과 판매를 실제로 막는 것은 2차 조건부 UPDATE이고, 3차 CHECK는 그 뒤의 한 겹이다. 1차 분산락은 정확성에 기여하지 않는다 — **비용을 줄일 뿐이다.**
+
 **1차가 뚫려도 2차가 막는다는 것을 테스트로 증명한다.** 분산락을 아예 끄고 동시성 테스트를 돌려서 여전히 불변식이 지켜지는지 확인한다. 이게 되지 않으면 Redis 장애 시 데이터가 깨진다.
 
-### 분산락 규칙
+**각 층은 개별로 끌 수 있어야 한다.** 끌 수 없는 층은 살아 있는지 확인할 방법이 없다. 스위치는 설정·환경변수로 두고, **현재 값을 외부에서 읽을 수 있는 경로를 만든다.** 부하테스트가 실행 전에 그 값을 확인한다.
 
-- 락 키는 자원 단위로 잡는다. `lock:inventory:{roomTypeId}:{date}` 형태.
-- **반드시 TTL을 건다.** 프로세스가 죽어도 락이 풀려야 한다.
-- **자기가 건 락만 푼다.** 값에 고유 토큰을 넣고, 해제 시 Lua 스크립트로 값 비교와 삭제를 원자적으로 한다. 그렇지 않으면 TTL로 풀린 뒤 남의 락을 지운다.
-- 락 획득 대기 시간에 상한을 둔다. 무한 대기하지 않는다.
-- **락을 트랜잭션 안에서 잡고 밖에서 풀지 않는다.** 순서는 `락 획득 → 트랜잭션 시작 → 커밋 → 락 해제`다. 반대로 하면 커밋 전에 락이 풀려 다른 요청이 이전 데이터를 읽는다.
+**그 값의 출처는 실제로 쓰는 그 객체여야 한다.** 설정을 두 곳에 따로 선언하면 "꺼졌다고 보고하는데 실제로는 도는" 상태가 만들어진다. **검증 장치가 검증 대상과 다른 곳을 보면 검증이 아니다.** Dependency Injector 컨테이너에서 같은 프로바이더를 양쪽에 주입해 구조적으로 어긋날 수 없게 한다.
+
+### Redis 분산락
+
+**락은 정확성을 책임지지 않는다.** 경합을 DB 앞에서 흡수해 비용을 줄이는 장치다. 이 전제가 아래 설계 전부를 정한다 — 락이 만료되거나 Redis가 죽어도 데이터는 안 깨지고 느려지기만 한다.
+
+#### 포트
+
+```python
+class LockPort(Protocol):
+    def acquire_all(self, keys: list[str], *, wait_ms: int, ttl_s: int
+                    ) -> AbstractContextManager[None]:
+        """받은 키를 정렬해서 전부 잠근다. 하나라도 실패하면 LockAcquisitionError."""
+```
+
+**정렬은 이 안에서 한다.** 호출부는 순서를 신경 쓸 기회조차 없다 — 넘기는 것은 집합이고 순서는 구현의 몫이다.
+
+#### 획득
+
+```python
+@contextmanager
+def acquire_all(self, keys, *, wait_ms, ttl_s):
+    ordered = sorted(set(keys))          # ← 정렬과 중복 제거가 여기서
+    token = uuid4().hex                  # ← 획득 1회당 1개. 프로세스 단위가 아니다
+    held: list[str] = []
+    deadline = self._clock.monotonic() + wait_ms / 1000
+
+    try:
+        for key in ordered:
+            while not self._redis.set(key, token, nx=True, px=ttl_s * 1000):
+                if self._clock.monotonic() >= deadline:
+                    raise LockAcquisitionError(key)
+                time.sleep(0.01)         # 짧게 물러났다 재시도
+            held.append(key)
+        yield
+    finally:
+        for key in reversed(held):       # ← 역순 해제
+            self._release(key, token)
+```
+
+**토큰은 획득할 때마다 새로 만든다.** 프로세스 단위로 재사용하면, 같은 프로세스의 다른 요청이 TTL로 풀린 내 락을 자기 것으로 착각하고 지운다.
+
+**`finally`에 해제를 둔다.** 중간에 실패해도 이미 잡은 것은 반드시 풀린다. **역순인 이유**는 다른 요청이 오름차순으로 잡고 있기 때문이다 — 같은 방향으로 풀면 앞쪽 키를 놓는 순간 상대가 그것만 잡고 뒤쪽에서 다시 막힌다.
+
+**대기는 전체에 한 번만 건다.** 키마다 상한을 주면 3박 예약이 상한의 세 배까지 기다린다.
+
+#### 해제 — 반드시 원자적으로
+
+```python
+_RELEASE = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
+```
+
+**"내 것인지 확인하고 지운다"를 두 명령으로 나누면 그 사이에 TTL이 만료되어 남의 락을 지운다.** Lua로 한 번에 실행한다. `redis-py`의 `register_script`로 미리 등록해 매번 스크립트를 보내지 않는다.
+
+#### TTL이 트랜잭션보다 짧으면
+
+**만료돼도 정확성은 안 깨진다. 그래서 연장하지 않는다.**
+
+TTL이 끝나 다른 요청이 같은 재고 행에 들어와도, **2차 조건부 UPDATE가 원자적이라 초과 판매가 생기지 않는다.** 최악의 경우 두 요청이 같은 행을 두드리며 느려질 뿐이다.
+
+Redlock처럼 워치독으로 TTL을 연장하는 방식은 쓰지 않는다. **정확성이 락에 걸려 있지 않은데 락을 정교하게 만드는 것은 값을 못 만든다.** 대신 TTL을 넉넉히 잡고(트랜잭션 예상 시간의 몇 배), 만료가 실제로 일어나는지 로그로 관찰한다.
+
+#### 끌 수 있어야 한다
+
+`PMS_LOCK_ENABLED=false`면 컨테이너가 **아무것도 하지 않는 구현**을 주입한다.
+
+```python
+class NoOpLockAdapter:
+    @contextmanager
+    def acquire_all(self, keys, *, wait_ms, ttl_s):
+        yield          # 잠그지 않는다
+```
+
+**이게 다층 방어의 증명 수단이다.** 락을 끄고 같은 부하를 돌려 불변식이 그대로면, 정확성이 2·3차에 있다는 것이 실험으로 증명된다. 끌 수 없는 층은 살아 있는지 확인할 방법이 없다.
+
+**둘을 바꿔 끼우는 것은 컨테이너 설정 한 곳**이고 유스케이스는 어느 쪽이 왔는지 모른다.
+
+#### 로그로 남길 것
+
+락 획득 실패(503), TTL 만료 감지, 해제 시 토큰 불일치 — 셋 다 남긴다. **부하테스트 결과를 해석할 때 이 로그가 근거가 된다.** 특히 토큰 불일치는 "내가 잡은 락이 이미 만료돼 남이 가져갔다"는 뜻이라 TTL 조정의 신호다.
+
+## 스키마 표기는 ORM에 맡기지 않는다
+
+**테이블 이름과 Enum 저장 표기를 명시적으로 지정한다.** 기본값에 기대면 스펙에 적은 이름과 실제 DB가 어긋날 수 있고, 그 어긋남이 조용하다.
+
+**테이블 이름을 직접 쓴다.**
+
+```python
+class Reservation(SQLModel, table=True):
+    __tablename__ = "reservation"      # 단수. 클래스명 변환에 기대지 않는다
+```
+
+스펙의 ERD와 부하테스트의 검증 SQL이 이 이름을 쓴다. ORM이 복수형으로 만들거나 대소문자를 바꾸면 그 문서들이 전부 틀린 것이 된다.
+
+**Enum은 이름으로 저장한다. 값이 아니다.**
+
+```python
+class ReservationStatus(str, Enum):
+    PENDING = "PENDING"                # 이름과 값을 같게 둔다
+    CONFIRMED = "CONFIRMED"
+```
+
+**왜 이게 중요한가.** 부하테스트의 불변식 검증이 이런 형태다.
+
+```sql
+WHERE event IN ('CANCEL', 'PAYMENT_FAILED', 'EXPIRE')
+```
+
+DB에 `cancel`로 저장돼 있으면 **이 필터는 0행을 돌려주고 모든 검증이 통과로 보인다.** 깨진 것이 아니라 아무것도 안 본 것인데 초록불이 켜진다. 검증 쿼리가 조용히 무의미해지는 가장 흔한 경로다.
+
+이름과 값을 같은 대문자 문자열로 두면 어느 쪽으로 저장되든 결과가 같아진다. **모호함을 없애는 것이 규칙을 지키는 것보다 안전하다.**
+
+**컬럼 타입도 명시한다.** 문자열 길이, `DECIMAL` 자릿수, 날짜/시각 타입을 마이그레이션에 직접 쓴다. 스키마의 진실은 마이그레이션이고 모델 클래스가 아니다.
+
+## 설정 키 이름은 조작자가 치는 그대로 쓴다
+
+설정 값을 외부에 노출할 때(부하테스트가 읽는 경로), **키 문자열은 사람이 셸에 실제로 입력하는 이름과 같아야 한다.**
+
+```
+사람이 치는 것:  PMS_LOCK_ENABLED=false uvicorn app.main:app
+노출되는 키:     "PMS_LOCK_ENABLED": false      ← 같아야 한다
+```
+
+다른 이름을 쓰면 번역 계층이 하나 생긴다. 리포트의 설정 표를 보고 실험을 재현하려는 사람이 그 문자열을 그대로 붙여넣을 수 없게 된다. **편의가 아니라 재현성 문제다.**
+
+**이 규칙은 API JSON 표기 규칙보다 우선한다.** 응답 본문은 `camelCase`가 원칙이지만, 설정 값을 싣는 응답의 **키 자리만은 환경변수 이름 그대로** 둔다.
+
+```json
+{ "loadTest": { "PMS_LOCK_ENABLED": false } }
+```
+
+바깥 `loadTest`는 규칙대로 `camelCase`이고, 안쪽 키는 대문자·밑줄이다. **일관성이 깨져 보이지만 의도한 것이다** — 이 값은 사람이 직접 읽고 셸에 옮겨 적는 유일한 응답이고, 표기를 바꾸면 그 옮겨 적기가 깨진다. 예외라는 것을 스펙에 명시한다.
 
 ## 멱등성
-
-### 언제 필요한가
 
 **같은 요청이 두 번 들어와도 결과가 한 번과 같아야 하는 연산**에 적용한다. 예약 생성, 결제, 취소가 여기 해당한다. 조회는 본래 멱등하다.
 
 클라이언트 재시도, 네트워크 타임아웃 후 재전송, 사용자 더블클릭에서 늘 일어난다. "안 일어나겠지"라고 가정하지 않는다.
 
-### 구현 규칙
-
-- 클라이언트가 `Idempotency-Key` 헤더로 키를 보낸다. 서버가 만들지 않는다.
-- 키는 요청 단위로 유일해야 한다. 사용자 ID와 조합해 저장한다.
-- **최초 요청과 재요청을 구분해 응답한다.** 재요청이면 저장해둔 이전 결과를 그대로 돌려준다. 새로 처리하지 않는다.
-- 처리 중인 요청이 또 오면 409로 거절하거나 잠시 대기시킨다. 두 번 처리하는 것보다 낫다.
-- 키 저장에는 TTL을 건다. 무한히 쌓지 않는다.
+- 클라이언트가 `Idempotency-Key` 헤더로 키를 보낸다. 서버가 만들지 않는다
+- **키는 사용자와 조합해 저장한다.** 서로 다른 사용자가 같은 키 문자열을 써도 간섭하지 않아야 한다
+- **최초 요청과 재요청을 구분해 응답한다.** 재요청이면 저장해둔 이전 결과를 그대로 돌려준다. 새로 처리하지 않는다
+- 처리 중인 요청이 또 오면 409로 거절한다. 두 번 처리하는 것보다 낫다
+- 키 저장에는 TTL을 건다
 
 ```
 1. Redis에 SET key value NX EX ttl 시도
@@ -109,23 +438,116 @@ List<LocalDate> dates = stayPeriod.occupiedDates().stream().sorted().toList();
 
 **멱등성 키만으로 중복을 막았다고 말하지 않는다.** Redis가 죽으면 뚫린다. DB에도 유니크 제약을 걸어 최종 방어선을 만든다. 어느 쪽이 무엇을 막는지 스펙에 명시한다.
 
+## 레이어 간 데이터는 Pydantic으로 주고받는다
+
+**계층을 넘는 모든 데이터 그릇은 `BaseModel`이다.** dataclass·dict·튜플로 넘기지 않는다.
+
+| 그릇 | 위치 | 표기 |
+|---|---|---|
+| `~Request` / `~Response` | `presentation/schemas.py` | JSON `camelCase` |
+| `~Command` / `~Result` | `application/commands.py` | 파이썬 `snake_case` |
+| 도메인 모델 | `domain/models.py` | SQLModel (그 자체가 Pydantic이다) |
+
+**이유 셋이다.**
+
+**SQLModel이 Pydantic이라 변환이 자연스럽다.** 도메인 모델에서 `Result`를 만들 때 `model_validate(reservation)`로 끝난다. dataclass를 섞으면 그 경계마다 손으로 옮기는 코드가 생기고, 필드가 늘 때 한 곳을 빠뜨린다.
+
+**FastAPI가 스키마를 자동으로 만든다.** 라우터에 `response_model`을 달면 Swagger 문서가 코드에서 나온다. **문서와 구현이 어긋날 자리가 없어진다** — 이 프로젝트에서 계약이 어긋나 생긴 사고가 이미 여러 번이었다.
+
+**검증이 경계에서 한 번에 끝난다.** 타입이 안 맞으면 그 자리에서 422이고, 유스케이스까지 잘못된 값이 내려가지 않는다.
+
+```python
+class ApiModel(BaseModel):
+    """presentation의 모든 스키마가 상속한다. 표기 변환은 여기 한 곳뿐이다."""
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
+class CreateReservationRequest(ApiModel):
+    room_type_id: int
+    check_in: date
+    check_out: date
+    room_count: int
+    guest_count: int
+    discounts: list[DiscountRef] = []
+```
+
+**`ApiModel`을 상속하지 않은 스키마는 그 엔드포인트만 `snake_case`로 나간다.** 조용히 어긋나므로 상속을 빠뜨리지 않는다.
+
+```python
+class CreateReservationCommand(BaseModel):
+    model_config = ConfigDict(frozen=True)      # 값이다. 만들어진 뒤 안 바뀐다
+    user_id: str
+    idempotency_key: str
+    ...
+```
+
+**`Command`·`Result`는 `frozen`으로 둔다.** 유스케이스가 입력을 고쳐 쓰면 어디서 바뀌었는지 추적할 수 없다.
+
+**주의 둘.**
+
+**Pydantic validator에 불변식을 두지 않는다.** 앞의 규칙 그대로다. validator는 "이 값이 형식에 맞는가"까지이고, "이 예약이 성립하는가"는 도메인 메서드다. **Pydantic을 쓰는 것과 불변식을 Pydantic에 두는 것은 다른 이야기다.**
+
+**도메인 모델을 그대로 응답으로 내보내지 않는다.** SQLModel 테이블 클래스를 `response_model`에 달면 내부 `id`·`idempotency_key`가 Swagger 문서와 응답에 그대로 새어 나간다. **`Response`는 별도 클래스다.**
+
+## 외부 연동은 언제든 갈아 끼울 수 있게 둔다
+
+결제처럼 바깥 세계에 의존하는 것은 **포트 뒤에 감춘다.** 지금은 가짜 구현을 쓰고, 실제 연동이 필요해지면 **컨테이너 설정 한 줄로 바꿔 끼운다.**
+
+```python
+# application/ports.py — 유스케이스가 아는 전부
+class PaymentPort(Protocol):
+    def charge(self, reservation_id: int, amount: int, idempotency_key: str) -> PaymentResult: ...
+
+class PaymentResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    approved: bool
+    transaction_id: str | None = None
+    decline_reason: str | None = None
+```
+
+**거절은 예외가 아니다.** 결제 거절은 정상적으로 일어나는 결과이고, 예약은 그때 `CANCELLED`로 간다. 예외로 던지면 유스케이스가 `try/except`로 정상 흐름을 다루게 되고, 진짜 장애(네트워크 끊김)와 구분이 사라진다. **예외는 "판단할 수 없었다"일 때만 던진다.**
+
+**가짜 구현은 결정적이어야 한다.**
+
+```python
+class FakePaymentAdapter:
+    def __init__(self, decline_rate: float) -> None: ...
+
+    def charge(self, reservation_id, amount, idempotency_key) -> PaymentResult:
+        # 0.0 → 항상 승인 · 1.0 → 항상 거절 (둘 다 결정적)
+        # 그 사이 → 확률적. 자동 테스트에서 쓰지 않는다
+```
+
+**기본값은 `0.0`이다.** 기본이 확률적이면 테스트가 가끔 깨지는데, 그때 원인이 경합인지 결제인지 구분되지 않는다. **비결정성은 명시적으로 켜야 한다.** `1.0`도 결정적이라 결제 실패 분기만 도는 회차를 만들 수 있다.
+
+**호출은 트랜잭션 밖에서 한다.** 외부 호출이 트랜잭션 안에 있으면 상대가 느릴 때 DB 커넥션과 락을 쥔 채 기다린다.
+
+**닫지 못한 틈은 숨기지 않는다.** 결제가 승인된 직후 프로세스가 죽으면, 결제는 됐는데 예약은 `PENDING`으로 남아 만료된다. 이 프로젝트는 모의 결제라 실해가 없으므로 **닫지 않고 한계로 문서화한다.** 실제 PG라면 결제 원장과 정산 대조 배치가 필요하다.
+
+**실제 연동을 붙일 때 바뀌는 것은 어댑터 하나와 컨테이너 한 줄이다.** 유스케이스·도메인·테스트는 손대지 않는다. 그게 포트를 둔 이유다.
+
 ## 예외
 
-도메인 예외는 도메인 언어로 만든다. `RuntimeException`을 그대로 던지지 않는다.
+도메인 예외는 도메인 언어로 만든다. `Exception`을 그대로 던지지 않는다.
 
 ```
-DomainException (추상)
-├── InvalidStateTransitionException
-├── InsufficientInventoryException
-├── ReservationNotFoundException
-└── DuplicateRequestException
+DomainError (기반)
+├── InvalidStateTransitionError
+├── InsufficientInventoryError
+├── ReservationNotFoundError
+└── DuplicateRequestError
 ```
 
-**예외를 삼키지 않는다.** `catch (Exception e) { log.error(...) }`로 끝내면 안 된다. 처리할 수 없으면 던진다.
+**예외를 삼키지 않는다.** `except Exception: logger.error(...)`로 끝내면 안 된다. 처리할 수 없으면 다시 던진다.
 
-HTTP 변환은 `@RestControllerAdvice` 한 곳에서 한다. 도메인 예외마다 상태 코드를 매핑한다. 도메인 코드에 HTTP 상태가 등장하면 안 된다.
+**HTTP 변환은 예외 핸들러 한 곳에서 한다.** 도메인 예외마다 상태 코드를 매핑한다. 도메인 코드에 HTTP 상태가 등장하면 안 된다.
 
-에러 응답 형식은 통일한다.
+**상태 코드는 "무엇이 일어났는가"가 아니라 "받는 쪽이 무엇을 해야 하는가"로 고른다.** 400은 "잘못된 요청"이고 409는 "지금은 안 되는 요청"이다. 재시도할지 포기할지를 코드만 보고 판단할 수 있어야 한다.
+
+에러 응답 형식은 통일한다. 스택 트레이스를 응답에 노출하지 않는다.
 
 ```json
 {
@@ -135,7 +557,17 @@ HTTP 변환은 `@RestControllerAdvice` 한 곳에서 한다. 도메인 예외마
 }
 ```
 
-스택 트레이스를 응답에 노출하지 않는다.
+## 조립 (Dependency Injector)
+
+**포트는 `Protocol`로 정의하고 `infrastructure`가 구현한다.** 유스케이스는 포트만 안다.
+
+**컨테이너가 조립을 전담한다.** 유스케이스 안에서 구현체를 직접 만들지 않는다.
+
+**확장 지점은 리스트 프로바이더로 둔다.** 구현이 0개면 빈 리스트라 아무 일도 일어나지 않고, 다른 feature가 하나 추가하면 자동으로 들어온다. 이렇게 하면 그 feature가 없어도 코어가 그대로 돈다.
+
+**설정은 한 곳에서 읽어 프로바이더로 나눠준다.** 같은 설정을 두 곳에서 따로 읽지 않는다.
+
+**테스트에서는 `override`로 갈아끼운다.** 가짜 구현을 넣을 때 프로덕션 조립 코드를 건드리지 않는다.
 
 ## 네이밍
 
@@ -146,27 +578,34 @@ HTTP 변환은 `@RestControllerAdvice` 한 곳에서 한다. 도메인 예외마
 | 유스케이스 출력 | `~Result` | `CreateReservationResult` |
 | 웹 요청·응답 | `~Request`, `~Response` | `CreateReservationRequest` |
 | 포트 | `~Port` | `DistributedLockPort` |
-| 어댑터 | `~Adapter` | `RedisLockAdapter` |
+| 포트 구현 | `~Adapter` | `RedisLockAdapter` |
+| 예외 | `~Error` | `InsufficientInventoryError` |
+
+모듈·함수·변수는 `snake_case`, 클래스는 `PascalCase`를 쓴다.
 
 **약어를 쓰지 않는다.** `resv`, `inv`, `cnt` 대신 `reservation`, `inventory`, `count`를 쓴다.
 
-**불리언은 `is`, `has`, `can`으로 시작한다.** `canCancel()`, `hasRemaining()`.
+**불리언은 `is_`, `has_`, `can_`으로 시작한다.** `can_cancel()`, `has_remaining()`.
+
+**타입 힌트를 붙인다.** 공개 함수와 메서드는 인자와 반환 타입을 명시한다.
 
 ## 로깅
 
-- 동시성 관련 분기는 로그를 남긴다. 락 획득 실패, 조건부 업데이트 0건, 멱등 키 충돌은 모두 기록한다. 부하테스트 결과를 해석할 때 이 로그가 근거가 된다.
-- 개인정보와 인증 정보는 로그에 남기지 않는다.
-- 반복문 안에서 로그를 남기지 않는다. 부하 상황에서 로그가 병목이 된다.
+- 동시성 관련 분기는 로그를 남긴다. 락 획득 실패, 조건부 UPDATE 0건, 멱등 키 충돌은 모두 기록한다. 부하테스트 결과를 해석할 때 이 로그가 근거가 된다
+- 개인정보와 인증 정보는 로그에 남기지 않는다
+- 반복문 안에서 로그를 남기지 않는다. 부하 상황에서 로그가 병목이 된다
 
 ## 금지 목록
 
-- `setStatus` 같은 상태 세터
-- 도메인 패키지의 Spring·웹·Redis 의존
-- 컨트롤러에서 리포지토리 직접 호출
+- `set_status` 같은 상태 세터
+- 도메인 모듈의 FastAPI·Redis·Dependency Injector 의존
+- 라우터에서 리포지토리 직접 호출
 - 유스케이스에서 비즈니스 분기
-- `@ManyToOne`, `@OneToMany`로 애그리거트 간 연관관계 매핑
-- 도메인 내부에서 `LocalDate.now()`, `LocalDateTime.now()` 직접 호출
-- 테스트에서 `Thread.sleep`으로 타이밍 맞추기
+- 애그리거트 간 `relationship()` 매핑 (ID로만 참조한다)
+- 도메인 내부에서 `datetime.now()` 직접 호출 (시계를 주입받는다)
+- `synchronize_session` 없이 벌크 UPDATE
+- 세션 안에서 Redis·HTTP 호출
+- 테스트에서 `time.sleep`으로 타이밍 맞추기
 - 동시성 테스트 없는 동시성 코드
-- 마이그레이션 파일 수정 (이미 적용된 파일은 고치지 않고 새 버전을 만든다)
-- 커밋되지 않은 `System.out.println`
+- 이미 적용된 마이그레이션 파일 수정 (고칠 게 있으면 새 리비전을 만든다)
+- 커밋되지 않은 `print`

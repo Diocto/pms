@@ -2,122 +2,149 @@
 
 ## 왜 이렇게 나누는가
 
-레이어를 나누는 목적은 하나다. **도메인 규칙이 기술 결정에 끌려다니지 않게 하는 것.** 객실 재고를 어떻게 차감하는지는 MySQL을 쓰든 Redis를 쓰든 HTTP로 부르든 똑같아야 한다. 그 규칙이 JPA 세션 관리나 HTTP 요청 객체와 얽히면, DB를 바꿀 때가 아니라 **테스트를 쓸 때 바로 아프다.**
+레이어를 나누는 목적은 하나다. **도메인 규칙이 기술 결정에 끌려다니지 않게 하는 것.** 객실 재고를 어떻게 차감하는지는 MySQL을 쓰든 Redis를 쓰든 HTTP로 부르든 똑같아야 한다. 그 규칙이 세션 관리나 HTTP 요청 객체와 얽히면, DB를 바꿀 때가 아니라 **테스트를 쓸 때 바로 아프다.**
 
-그래서 판단 기준은 항상 이것이다. 이 코드를 DB와 웹 없이 테스트할 수 있는가.
+그래서 판단 기준은 항상 이것이다. **이 코드를 DB와 웹 없이 테스트할 수 있는가.**
 
 ## 레이어와 의존 방향
 
 ```
-   adapter (in/web, out/persistence, out/lock, out/cache)
-      │  의존
-      ▼
-   application (유스케이스, 포트)
-      │  의존
-      ▼
-   domain (애그리거트, VO, 도메인 서비스, 리포지토리 인터페이스)
+   presentation (라우터, 요청·응답 스키마, 운영 엔드포인트)   ← 들어오는 경계
+      │  의존                                    ▲
+      ▼                                          │ 구현
+   application (유스케이스, 포트) ────────────────┤
+      │  의존                                    │
+      ▼                                          │
+   domain (애그리거트, VO, 도메인 서비스)         │
+                                                 │
+   infrastructure (영속성, 분산락, 캐시)  ────────┘   ← 나가는 경계
 ```
 
-의존은 **안쪽으로만** 향한다. `domain`은 `application`을 모르고, `application`은 `adapter`를 모른다.
+**바깥 두 층은 안쪽을 향한다.** `presentation`은 `application`을 부르고, `infrastructure`는 `application`이 정의한 포트를 구현한다. `domain`은 아무도 모르고, `application`은 바깥 두 층을 모른다.
 
-바깥 기술을 안쪽에서 써야 할 때는 **포트**를 쓴다. 안쪽이 인터페이스를 정의하고 바깥이 구현한다. 예를 들어 유스케이스가 분산락이 필요하면 `application/port/out/LockPort`를 정의하고, Redis 구현은 `adapter/out/lock`에 둔다. 이렇게 하면 유스케이스 테스트에서 락을 가짜 구현으로 바꿔 끼울 수 있다.
+**두 바깥 층의 성격이 다르다.**
 
-## 패키지 구조
+| 층 | 방향 | 하는 일 |
+|---|---|---|
+| `presentation` | 들어오는 요청 | HTTP를 받아 `Command`로 옮기고, `Result`를 응답으로 옮긴다 |
+| `infrastructure` | 나가는 호출 | DB·Redis 같은 바깥 세계를 포트 뒤에 감춘다 |
+
+**이름과 자리를 일치시킨다.** 영속성 구현이 `presentation` 아래 있으면 읽는 사람이 "화면 계층에 왜 DB가 있나"에서 멈춘다. 들어오는 경계와 나가는 경계는 다루는 문제가 달라서 한 이름으로 묶을 이유가 없다.
+
+바깥 기술을 안쪽에서 써야 할 때는 **포트**를 쓴다. 안쪽이 `Protocol`을 정의하고 바깥이 구현한다. 유스케이스가 분산락이 필요하면 `application/ports.py`에 `LockPort`를 정의하고, Redis 구현은 `infrastructure/lock.py`에 둔다. 그러면 유스케이스 테스트에서 락을 가짜 구현으로 바꿔 끼울 수 있다.
+
+**파이썬은 의존 방향을 컴파일러가 지켜주지 않는다.** import 한 줄이면 안쪽에서 바깥을 부를 수 있고 아무도 막지 않는다. 그래서 **리뷰에서 import를 직접 본다.** 규칙 위반을 잡는 수단이 사람과 테스트뿐이라는 것을 전제로 코드를 쓴다.
+
+## 모듈 구조
 
 ```
-com.pms
-├── PmsApplication.java
+app/
+├── main.py                     FastAPI 앱 생성, 라우터 등록, 컨테이너 연결
+├── containers.py               Dependency Injector 루트 컨테이너
 ├── common/
-│   ├── config/         전역 설정 (Redis, JPA, Web, Clock)
-│   ├── exception/      공통 예외 계층과 에러 코드
-│   └── response/       API 공통 응답 포맷
-└── <context>/          바운디드 컨텍스트 (reservation, inventory 등)
+│   ├── config.py               설정 정의 (pydantic-settings)
+│   ├── clock.py                시계 프로토콜과 기본 구현
+│   ├── errors.py               공통 예외 계층과 에러 코드
+│   ├── error_handlers.py       예외 → HTTP 변환 (한 곳)
+│   └── response.py             API 공통 응답 포맷
+└── <context>/                  바운디드 컨텍스트 (reservation, inventory, promotion)
     ├── domain/
-    │   ├── model/      애그리거트 루트, 엔티티, VO, 상태·이벤트 enum
-    │   ├── service/    한 애그리거트에 담기지 않는 도메인 규칙
-    │   └── repository/ 리포지토리 인터페이스 (구현은 adapter)
+    │   ├── models.py           애그리거트 루트, 엔티티, VO (SQLModel 테이블)
+    │   ├── enums.py            상태·이벤트
+    │   ├── transitions.py      전이 표 (데이터)
+    │   ├── services.py         한 애그리거트에 담기지 않는 도메인 규칙
+    │   └── repositories.py     리포지토리 Protocol (구현은 infrastructure)
     ├── application/
-    │   ├── port/in/    유스케이스 인터페이스
-    │   ├── port/out/   외부 의존 포트 (락, 캐시, 멱등성 저장소)
-    │   ├── usecase/    유스케이스 구현 (@Service, @Transactional)
-    │   └── dto/        유스케이스 입출력 (Command, Result)
-    └── adapter/
-        ├── in/web/     컨트롤러, 요청·응답 DTO
-        └── out/
-            ├── persistence/  Spring Data JPA 리포지토리, 도메인 리포지토리 구현
-            ├── lock/         Redis 분산락 구현
-            └── cache/        Redis 캐시 구현
+    │   ├── ports.py            외부 의존 Protocol (락, 캐시, 멱등성 저장소, 확장 지점)
+    │   ├── commands.py         유스케이스 입출력 (Command, Result)
+    │   └── usecases/           유스케이스 구현
+    ├── presentation/           들어오는 경계
+    │   ├── router.py           라우터
+    │   ├── schemas.py          요청·응답 스키마 (ApiModel 상속)
+    │   └── actuator.py         설정 노출 등 운영 엔드포인트
+    ├── infrastructure/         나가는 경계
+    │   ├── persistence.py      리포지토리 구현, 쿼리
+    │   ├── lock.py             Redis 분산락 구현
+    │   └── cache.py            Redis 캐시 구현
+    └── container.py            이 컨텍스트의 프로바이더 묶음
+migrations/                     Alembic
+tests/
+load-test/                      k6 (F04 소유)
 ```
 
-## 도메인과 JPA를 통합한 것에 대한 규칙
+**한 파일에 한 계층만 담는다.** `models.py`에 라우터를 넣거나 `usecases/`에 SQL을 쓰지 않는다.
 
-이 프로젝트는 도메인 모델에 `@Entity`를 직접 붙인다. 순수 도메인 객체와 JPA 엔티티를 따로 두고 매핑하는 방식보다 코드가 절반이고, 더티 체킹을 그대로 쓸 수 있어서다. 3일 반이라는 기간이 이 선택의 가장 큰 이유다. 자세한 근거는 `docs/decisions/`에 있다.
+**작은 것을 파일로 쪼개지 않는다.** 파이썬은 모듈이 곧 네임스페이스라 클래스 하나에 파일 하나를 만들면 import만 길어진다. VO 다섯 개는 `models.py` 하나에 둔다. 파일이 300줄을 넘어가면 그때 쪼갠다.
+
+## 도메인과 ORM을 통합한 것에 대한 규칙
+
+이 프로젝트는 도메인 모델을 SQLModel 테이블 클래스로 직접 만든다. 순수 도메인 객체와 영속 모델을 따로 두고 매핑하는 방식보다 코드가 절반이고, 남은 기간이 이 선택의 가장 큰 이유다.
 
 대신 통합의 대가를 규칙으로 막는다.
 
-**`domain` 패키지가 의존해도 되는 것은 `jakarta.persistence`와 JDK뿐이다.** `org.springframework.*`, `jakarta.servlet.*`, Redis 관련 타입이 `domain`에 들어오면 규칙 위반이다.
+**`domain`이 의존해도 되는 것은 `sqlmodel`·`sqlalchemy`와 표준 라이브러리뿐이다.** `fastapi`, `redis`, `dependency_injector`가 `domain`에 들어오면 규칙 위반이다.
 
-**Spring Data JPA의 `JpaRepository`는 `domain`에 두지 않는다.** `domain/repository`에는 순수 인터페이스를 두고, `adapter/out/persistence`에 `JpaRepository`를 상속한 인터페이스와 이를 감싸는 구현체를 둔다.
+**`Session`을 도메인 메서드가 받지 않는다.** 도메인 객체는 자기 상태만 다룬다. 저장·조회는 리포지토리가 한다. 도메인 메서드가 세션을 받기 시작하면 그 순간 DB 없이 테스트할 수 없게 된다.
 
-```java
-// domain/repository/ReservationRepository.java  ← 순수 인터페이스
-public interface ReservationRepository {
-    Optional<Reservation> findById(Long id);
-    Reservation save(Reservation reservation);
-}
+**애그리거트 간에는 `relationship()`을 걸지 않는다.** 예약은 재고 행 객체를 참조하지 않고 `room_type_id`와 날짜만 갖는다. 관계를 걸면 무심코 다른 애그리거트를 함께 로드·수정하게 되고, 트랜잭션 경계가 조용히 넓어진다. 조인이 필요하면 조회 전용 쿼리에서 명시적으로 쓴다.
 
-// adapter/out/persistence/ReservationJpaRepository.java  ← Spring Data
-interface ReservationJpaRepository extends JpaRepository<Reservation, Long> { }
+**Pydantic validator에 불변식을 두지 않는다.** validator는 요청 파싱 계층의 관심사로 읽히고, **코드에서 객체를 직접 만들 때 우회된다.** 불변식은 도메인 메서드에 둔다. 타입 수준에서 Pydantic이 잡아주는 것은 중복으로 둬도 괜찮다 — VO와 DB CHECK를 둘 다 두는 것과 같은 논리다.
 
-// adapter/out/persistence/ReservationRepositoryAdapter.java  ← 구현
-@Repository
-@RequiredArgsConstructor
-public class ReservationRepositoryAdapter implements ReservationRepository {
-    private final ReservationJpaRepository jpaRepository;
-    // ...
-}
+## 조립은 컨테이너가 전담한다
+
+**유스케이스는 구현체를 직접 만들지 않는다.** 생성자로 포트를 받고, 무엇이 들어오는지는 컨테이너가 정한다.
+
+```python
+class CreateReservationUseCase:
+    def __init__(self, session_factory, lock: LockPort,
+                 creation_hooks: list[ReservationCreationHook]): ...
 ```
 
-번거로워 보이지만 이 한 겹이 유스케이스 테스트를 DB 없이 돌게 만든다.
+**확장 지점은 리스트 프로바이더로 둔다.** 구현이 0개면 빈 리스트라 아무 일도 일어나지 않고, 다른 feature가 하나 추가하면 자동으로 들어온다. **그 feature가 없어도 코어가 그대로 돈다.**
 
-**도메인 객체에 `@Transactional`을 붙이지 않는다.** 트랜잭션 경계는 유스케이스에만 있다.
+다만 이 보장의 위치가 달라졌다는 것을 알아둔다. 타입 시스템이 강제하던 것이 이제 **조립 설정에 있다.** 프로바이더를 등록하지 않는 실수는 컴파일러가 안 잡아준다. 그래서 **테스트로 고정한다** — "확장 feature의 프로바이더를 등록하지 않고 코어 유스케이스가 그대로 동작한다."
 
-## 레이어별 책임
+**설정은 한 곳에서 읽어 프로바이더로 나눠준다.** 같은 값을 두 곳에서 따로 읽으면 어긋난다. 특히 **운영 엔드포인트가 노출하는 설정 값은 그 설정을 실제로 쓰는 코드와 같은 프로바이더에서 와야 한다.** 그렇지 않으면 "꺼졌다고 보고하는데 실제로는 도는" 상태가 만들어진다.
 
-### domain
+**테스트는 `override`로 갈아끼운다.** 가짜 구현을 넣을 때 프로덕션 조립 코드를 건드리지 않는다.
 
-비즈니스 규칙이 산다. 예약이 취소 가능한 상태인지, 재고를 차감할 수 있는지, 기간이 유효한지를 판단한다.
+**컨텍스트마다 자기 컨테이너를 갖고 루트가 그것들을 묶는다.** 그래야 feature 하나를 들어내도 나머지가 돈다.
 
-**들어가면 안 되는 것:** HTTP 개념(요청, 응답, 상태코드), 트랜잭션 어노테이션, Spring 빈 등록, 외부 시스템 호출.
+## 유스케이스가 하는 일과 하지 않는 일
 
-**판단 기준:** 이 클래스를 `new`로 만들어서 순수 JUnit 테스트를 쓸 수 있는가. 없다면 잘못된 위치다.
+**한다.** 세션 열고 닫기, 락 잡고 풀기, 포트 호출 순서 정하기, 도메인 객체에 명령 내리기, 결과를 `Result`로 옮기기.
 
-### application
+**하지 않는다.** 비즈니스 판단. `if 상태 == 'PENDING'` 같은 분기가 유스케이스에 나타나면 그 규칙은 도메인에 있어야 한다.
 
-유스케이스 하나가 클래스 하나다. 도메인 객체를 불러오고, 규칙을 실행시키고, 저장한다. **트랜잭션 경계가 여기 있다.**
+**유스케이스가 트랜잭션 경계의 주인이다.** 라우터나 영속성 구현이 세션을 열지 않는다. 자세한 규칙은 `coding-rules.md`의 트랜잭션 경계 절에 있다.
 
-유스케이스는 조율만 한다. 비즈니스 판단을 유스케이스에서 하고 있으면 그 로직은 도메인으로 내려가야 한다. `if (reservation.getStatus() == CONFIRMED)` 같은 코드가 유스케이스에 있으면 신호다. `reservation.cancel()`이 스스로 판단하게 만든다.
+## 라우터는 얇다
 
-**들어가면 안 되는 것:** HTTP 요청·응답 객체, JPA 리포지토리 직접 참조(포트를 통한다), SQL.
+**라우터가 하는 일은 셋뿐이다.** 요청 스키마를 `Command`로 옮기고, 유스케이스를 부르고, `Result`를 응답 스키마로 옮긴다.
 
-### adapter
+**라우터에서 리포지토리나 세션을 직접 쓰지 않는다.** 조회 하나 때문에 예외를 두기 시작하면 경계가 무너진다.
 
-바깥 세상과의 접점이다. HTTP 요청을 유스케이스 입력으로 바꾸고, 유스케이스 결과를 HTTP 응답으로 바꾼다. DB 접근을 실제로 수행한다.
+**예외를 라우터에서 잡지 않는다.** 도메인 예외는 그대로 올라가고 전역 핸들러가 HTTP로 바꾼다. 도메인 코드와 유스케이스에 HTTP 상태 코드가 등장하면 안 된다.
 
-컨트롤러는 얇아야 한다. 검증과 변환만 하고 유스케이스를 부른다. **컨트롤러에 비즈니스 판단이 있으면 안 된다.**
+**요청·응답 스키마는 도메인 모델과 다른 클래스다.** SQLModel 테이블 클래스를 그대로 응답으로 내보내지 않는다. 내부 `id`처럼 노출하면 안 되는 필드가 새어 나가고, 스키마를 바꾸려면 DB를 바꿔야 하는 상태가 된다.
 
-## 자주 나오는 위반과 판별법
+## 조회 전용 경로는 도메인을 거치지 않아도 된다
 
-| 증상 | 왜 문제인가 | 어떻게 고치나 |
-|---|---|---|
-| 유스케이스가 상태를 직접 비교하고 분기 | 규칙이 도메인 밖으로 샜다 | 애그리거트에 판단 메서드를 만든다 |
-| 컨트롤러가 리포지토리를 직접 호출 | 레이어를 건너뛰었다 | 유스케이스를 거친다 |
-| 도메인 클래스에 `@Service`, `@Component` | 도메인이 Spring에 묶였다 | 순수 클래스로 만들고 유스케이스에서 생성 |
-| 도메인이 `RedisTemplate`을 참조 | 기술이 도메인에 침투 | 포트를 정의하고 어댑터에서 구현 |
-| DTO가 도메인 객체를 그대로 노출 | 내부 구조가 API에 새어나감 | 응답 전용 DTO를 만든다 |
+검색처럼 **읽기만 하고 상태를 바꾸지 않는** 경로는 애그리거트를 로드할 이유가 없다. 필요한 컬럼만 뽑는 쿼리를 `infrastructure`에 두고 결과를 바로 응답 형태로 만든다.
 
-## 바운디드 컨텍스트 나누기
+이건 규칙 위반이 아니라 **의도된 분리**다. 쓰기 모델은 불변식을 지켜야 해서 애그리거트가 필요하지만, 읽기 모델은 화면에 필요한 모양이면 된다. 둘을 같은 모델로 억지로 맞추면 양쪽이 다 어색해진다.
 
-컨텍스트는 **같은 단어가 다른 뜻을 가지는 지점**에서 나눈다. 억지로 잘게 나누지 않는다. 이 규모에서는 컨텍스트가 하나여도 문제없다.
+**대신 조회 경로는 쓰기 경로에 간섭하지 않는다.** 잠금 읽기(`FOR UPDATE`)를 쓰지 않고, 재고를 수정하지 않는다.
 
-컨텍스트를 추가하려면 ADR을 남긴다. 병렬 작업에서 컨텍스트는 소유권의 단위이기도 하다. `docs/architecture/parallel-work.md`를 참고한다.
+## 파일 배치를 정할 때 던지는 질문
+
+| 질문 | 그렇다면 |
+|---|---|
+| DB·웹·Redis 없이 테스트할 수 있는가 | `domain` |
+| 여러 도메인 객체의 협력 순서를 정하는가 | `application/usecases` |
+| HTTP 요청을 받아 옮기는가 | `presentation` |
+| DB·Redis 같은 바깥 세계를 다루는가 | `infrastructure` |
+| 안쪽이 필요로 하지만 바깥이 구현해야 하는가 | 포트 — 안쪽에 `Protocol`, 바깥에 구현 |
+| 여러 컨텍스트가 함께 쓰는가 | `common` — **단, 특정 컨텍스트에 의존하면 안 된다** |
+
+**마지막 줄이 중요하다.** `common`에 있는 것이 `reservation`을 import하면 의존 방향이 뒤집히고, 그 컨텍스트를 쓰지 않는 feature까지 그 의존을 함께 받는다. **`common`은 아무에게도 의존하지 않는다.**

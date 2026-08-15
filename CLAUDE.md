@@ -26,21 +26,24 @@
 
 | 항목 | 선택 | 비고 |
 |---|---|---|
-| 언어 | Java 21 | |
-| 프레임워크 | Spring Boot 4.0.7 (MVC, 동기) | WebFlux·코루틴 사용 금지 |
-| 빌드 | Gradle 9.7.0 (wrapper) | |
+| 언어 | Python | |
+| 프레임워크 | FastAPI | 동기(sync) 기준. async 채택 여부는 F01 스펙에서 결정 |
+| ORM | SQLModel (SQLAlchemy) | |
+| 조립 | Dependency Injector | 포트·어댑터를 컨테이너로 조립 |
 | DB | MySQL 8.4 | 일별 재고 테이블 모델링 |
-| 스키마 | Flyway + `ddl-auto: validate` | 스키마의 진실은 SQL |
+| 스키마 | Alembic | 스키마의 진실은 SQL. 자동 생성에 기대지 않는다 |
 | 캐시·락 | Redis 7.4 | 멱등성 키, 분산락, 조회 캐시 |
-| 테스트 | JUnit 5 + Testcontainers | H2 사용 금지 |
+| 테스트 | pytest + Testcontainers | SQLite 사용 금지 |
 | 부하테스트 | k6 | |
 | 인증 | `X-User-Id` 헤더 | 이 과제의 관심사가 아님을 문서에 명시 |
+
+2026-08-15에 Java 21 / Spring Boot 4에서 위 스택으로 전환했다. 근거는 [ADR-0050](docs/decisions/ADR-0050-기술-스택-전환.md)에 있다. 전환 시점에 구현 코드가 0줄이었고, 남은 시간에 구현과 검토를 모두 하려면 익숙한 도구가 필요하다는 판단이었다.
 
 ## 핵심 설계 결정
 
 읽지 않고 코드를 쓰면 리뷰에서 반려된다.
 
-**도메인 모델과 JPA 엔티티는 통합한다.** 도메인 객체에 `@Entity`를 직접 붙인다. 대신 도메인은 `jakarta.persistence` 외의 프레임워크에 의존하지 않는다. Spring, 웹, Redis 관련 타입이 `domain` 패키지에 들어오면 안 된다.
+**도메인 모델과 ORM 모델은 통합한다.** 도메인 객체를 `SQLModel` 테이블 클래스로 직접 만든다. 대신 도메인은 `sqlmodel`·`sqlalchemy` 외의 프레임워크에 의존하지 않는다. FastAPI, Redis, Dependency Injector 관련 타입이 `domain` 모듈에 들어오면 안 된다.
 
 **상태 전이는 전이 테이블로 구현한다.** `(현재 상태, 이벤트) -> 다음 상태` 맵을 두고 그 표로만 판단한다. if-else 분기로 상태를 전이시키지 않는다. `setStatus` 같은 세터는 만들지 않는다. 외부는 이벤트만 던진다.
 
