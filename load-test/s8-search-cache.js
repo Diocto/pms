@@ -90,6 +90,14 @@ export const options = {
         'http_req_duration{op:create}': ['p(95)<1000'],
         // 캐시 히트 응답이 TTL보다 오래됐다면 TTL이 안 걸린 것이다.
         response_staleness_ms: ['p(100)<=10000'],
+        // 회차 유효성 (F03 계약, 2026-08-15): 캐시 on 회차인데 source=CACHE 가
+        // 한 번도 없으면 캐시가 죽어 있었던 것이다. 그 회차를 on 으로 세면
+        // "차이 없음"이라는 거짓 결론이 나온다 — 스위치 미작동(reset.sh 검사)과
+        // 다른 경로로 같은 거짓말이라 여기서 따로 막는다. 실행 중 Redis 가
+        // 죽어 DB 로 쏠려도 이 게이트에 잡힌다.
+        // off 회차는 반대로 CACHE 응답이 한 건이라도 있으면 안 된다 — 있으면
+        // 캐시가 살아 있던 것이라 그 대조도 무효다.
+        ...(CACHE === 'on' ? { cache_hit_rate: ['rate>0'] } : { cache_hit_rate: ['rate==0'] }),
     },
 };
 
@@ -119,7 +127,12 @@ function doSearch(p, fresh) {
     let body = null;
     try { body = res.json(); } catch (e) { /* 에러 응답 */ }
 
-    if (body && body[SEARCH_FIELDS.source]) {
+    // 표본은 200 응답마다 무조건 넣는다. "source 필드가 있을 때만 넣기"로
+    // 짜면, 필드명이 어긋났을 때(예: ApiModel 미상속으로 snake_case) 표본이
+    // 0건이 되는데 — **k6는 표본 없는 지표의 임계값을 조용히 통과시킨다.**
+    // 회차 유효성 게이트(rate>0)가 정확히 그 상황에서 울어야 하므로,
+    // 필드가 없으면 false 로 넣어 게이트가 잡게 한다.
+    if (res.status === 200 && body) {
         cacheHit.add(body[SEARCH_FIELDS.source] === 'CACHE');
         const searchedAt = Date.parse(body[SEARCH_FIELDS.searchedAt]);
         if (!isNaN(searchedAt)) {

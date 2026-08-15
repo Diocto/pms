@@ -234,7 +234,14 @@ export const ERROR_CODE = {
     INSUFFICIENT_INVENTORY: 'INSUFFICIENT_INVENTORY',
     REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
     LOCK_ACQUISITION_FAILED: 'LOCK_ACQUISITION_FAILED',   // 503 (ServiceUnavailableError)
-    // F02 특가. error_codes.py 에는 아직 없다 — F02 병합 때 대조한다.
+    // F02 특가 — 이 둘이 전부다 (2026-08-15 PM 확정). error_codes.py 에는
+    // 아직 없다 — F02 병합 때 대조한다.
+    //
+    // PROMOTION_ALREADY_CLAIMED 같은 셋째 코드는 없다. 1인 1건 제한이 없어서
+    // (D8) 다른 멱등 키로 같은 특가를 두 번 사면 두 장을 갖는 게 **정상
+    // 성공**이고, 발동 조건이 없는 코드를 목록에 두면 영원히 0건인 항목이
+    // 생긴다 — "0건이라 안심"인지 "발동 자체가 불가능"인지 구분이 안 된다.
+    PROMOTION_NOT_OPEN: 'PROMOTION_NOT_OPEN',
     PROMOTION_SOLD_OUT: 'PROMOTION_SOLD_OUT',
 };
 
