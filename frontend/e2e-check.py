@@ -2,6 +2,7 @@
 import json
 import urllib.error
 import urllib.request
+import uuid
 
 B = "http://localhost:3000/api"
 
@@ -25,7 +26,9 @@ _, a = call("GET", q)
 _, b = call("GET", q)
 print("1) 캐시:", a["source"], "→", b["source"])
 
-h = {"X-User-Id": "user-e2e", "Idempotency-Key": "e2e-full-1"}
+# 키는 실행마다 새로 만든다 — 고정 키를 쓰면 서버가 (올바르게) 이전 실행의 예약을
+# 200으로 재생해 이후 단계가 어긋난다. 이 스크립트가 그걸로 한 번 검증해 준 셈이다.
+h = {"X-User-Id": "user-e2e", "Idempotency-Key": f"e2e-{uuid.uuid4()}"}
 s, r = call("POST", "/reservations",
             {"roomTypeId": 3, "checkIn": "2026-09-05", "checkOut": "2026-09-07",
              "roomCount": 1, "guestCount": 2}, h)

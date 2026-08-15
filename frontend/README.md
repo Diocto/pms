@@ -16,6 +16,14 @@ npm install
 npm run dev                            # http://localhost:3000
 ```
 
+터미널을 닫아도 살아 있게 하려면 (백그라운드 기동):
+
+```bash
+nohup .venv/bin/uvicorn app.main:app --port 8000 --workers 1 > /tmp/pms-api.log 2>&1 &
+cd frontend && nohup npm run dev > /tmp/pms-web.log 2>&1 &
+# 내리기: pkill -f "uvicorn app.main:app"; pkill -f "next dev"
+```
+
 - 위 명령은 2026-08-16에 실제 실행으로 검증했다.
 - 백엔드 확인: `curl localhost:8000/health` → `{"status":"UP"}`. Swagger: http://localhost:8000/docs
 - 프론트의 `/api/*` 호출은 Next 프록시가 백엔드(8000)로 넘긴다. 백엔드 포트를 바꾸면
