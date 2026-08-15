@@ -29,9 +29,28 @@ def _scalar(engine, sql: str):
         return conn.execute(text(sql)).scalar_one()
 
 
-def test_T27_마이그레이션이_head까지_적용됐다(engine):
-    version = _scalar(engine, "SELECT version_num FROM alembic_version")
-    assert version == "052_seed_daily_inventory"
+def test_T27_F01_마이그레이션이_전부_적용됐다(engine):
+    """현재 리비전의 조상에 052가 있는지 본다.
+
+    `version_num == "052"` 단정은 "052가 전체 체인의 head다"라서, F02가
+    `201_…`을 붙이는 순간 F01 스키마는 멀쩡한데 빨개진다 (리뷰 지적).
+    검증할 것은 "F01 것이 적용됐다"이므로 조상 관계로 본다.
+    """
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    current = _scalar(engine, "SELECT version_num FROM alembic_version")
+
+    project_root = Path(__file__).resolve().parent.parent
+    config = Config(str(project_root / "alembic.ini"))
+    config.set_main_option("script_location", str(project_root / "migrations"))
+    script = ScriptDirectory.from_config(config)
+    ancestors = {
+        revision.revision for revision in script.iterate_revisions(current, "base")
+    }
+    assert "052_seed_daily_inventory" in ancestors
 
 
 def test_T28_모델과_실제_스키마의_autogenerate_diff가_비어_있다(engine):
@@ -64,6 +83,32 @@ class Test_T29_시드_계약:
             engine, "SELECT total_quantity FROM room_type WHERE id = 3"
         )
         assert quantity == 10  # 스위트. 부하테스트의 경합 대상
+
+    def test_호텔_계약_전체를_고정한다(self, engine):
+        # id 한 칸만 보면 나머지 매핑이 무방비다 (리뷰 지적). 표를 통째로 박는다
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, name FROM hotel ORDER BY id")
+            ).all()
+        assert rows == [(1, "서울 그랜드 호텔"), (2, "부산 오션뷰 호텔")]
+
+    def test_객실타입_계약_전체를_고정한다(self, engine):
+        # 스펙 1.9절 (3) 표 그대로. capacity가 틀리면 F02·F03의 정원
+        # 검증 상수가 통합 시점에 조용히 어긋난다
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT id, hotel_id, name, capacity, total_quantity, base_price"
+                    " FROM room_type ORDER BY id"
+                )
+            ).all()
+        assert rows == [
+            (1, 1, "스탠다드", 2, 100, 150000),
+            (2, 1, "디럭스", 3, 50, 250000),
+            (3, 1, "스위트", 4, 10, 600000),
+            (4, 2, "오션뷰 스탠다드", 2, 80, 180000),
+            (5, 2, "오션뷰 스위트", 4, 20, 450000),
+        ]
 
     def test_초기_잔여는_전부_총량과_같다(self, engine):
         # "판매 시작 전" 상태. 일부러 줄여둔 날짜는 하나도 없다 (1.9절 (4))

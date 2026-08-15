@@ -32,6 +32,27 @@ def _all_response_models() -> list[type[BaseModel]]:
     return list(found.values())
 
 
+def test_모든_파이썬_디렉터리에_init이_있다():
+    """`__init__.py`가 없는 패키지는 `walk_packages` 순회에서 조용히 빠진다.
+
+    그 패키지에 예외·응답 모델이 들어오는 순간 계약 검사가 그것을 못 보는데
+    테스트는 초록이다 — 이 파일과 error 계약 테스트의 존재 목적이 무력화된다
+    (리뷰 지적). 구조적으로 재발을 막는다.
+    """
+    import pathlib
+
+    app_root = pathlib.Path(app.__path__[0])
+    missing = [
+        str(directory.relative_to(app_root.parent))
+        for directory in app_root.rglob("*")
+        if directory.is_dir()
+        and directory.name != "__pycache__"
+        and any(directory.glob("*.py"))
+        and not (directory / "__init__.py").exists()
+    ]
+    assert missing == [], f"__init__.py가 없어 순회에서 빠지는 패키지: {missing}"
+
+
 def test_모든_Response_모델은_ApiModel을_상속한다():
     models = _all_response_models()
 
