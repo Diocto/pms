@@ -31,7 +31,9 @@ if not config.get_main_option("sqlalchemy.url", None):
     config.set_main_option("sqlalchemy.url", Settings().database_url)
 
 # 각 컨텍스트의 domain/models.py를 여기서 import해야 autogenerate가 인식한다.
-# 아직 모델이 없다. 모델을 만드는 세션이 자기 import를 추가한다.
+import app.inventory.domain.models  # noqa: E402, F401
+import app.reservation.domain.models  # noqa: E402, F401
+
 target_metadata = SQLModel.metadata
 
 
