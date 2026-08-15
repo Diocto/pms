@@ -1,7 +1,14 @@
-### Gradle ###
-.gradle/
+### Python ###
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 build/
-!gradle/wrapper/gradle-wrapper.jar
+dist/
 
 ### Node (F05 프론트엔드) ###
 node_modules/
@@ -17,11 +24,6 @@ out/
 
 ### OS ###
 .DS_Store
-
-### Java ###
-*.class
-*.log
-hs_err_pid*
 
 ### Claude Code ###
 .claude/worktrees/
