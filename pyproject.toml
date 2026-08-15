@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pms"
+version = "0.1.0"
+description = "PMS 숙박 예약 시스템"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlmodel>=0.0.22",
+    "alembic>=1.14",
+    "dependency-injector>=4.42",
+    "redis>=5.2",
+    "pydantic-settings>=2.6",
+    "PyMySQL>=1.1",
+    # MySQL 8.4의 기본 인증(caching_sha2_password)에 PyMySQL이 이 패키지를 쓴다.
+    # 없으면 접속 자체가 안 된다.
+    "cryptography>=43",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "testcontainers[mysql,redis]>=4.8",
+    "httpx>=0.27",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "concurrency: 동시성 테스트. 느리므로 개발 중에는 빼고 돌릴 수 있다",
+]

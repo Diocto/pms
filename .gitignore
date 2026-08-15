@@ -1,7 +1,14 @@
-### Gradle ###
-.gradle/
+### Python ###
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 build/
-!gradle/wrapper/gradle-wrapper.jar
+dist/
 
 ### IDE ###
 .idea/
@@ -13,11 +20,6 @@ out/
 
 ### OS ###
 .DS_Store
-
-### Java ###
-*.class
-*.log
-hs_err_pid*
 
 ### Claude Code ###
 .claude/worktrees/
