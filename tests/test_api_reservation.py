@@ -237,9 +237,9 @@ def test_T57_확정_성공은_CONFIRMED이고_재고는_불변이다(client, eng
 def test_T59_이미_확정된_예약의_재확정은_200이고_결제를_다시_부르지_않는다(client):
     code = _create(client, key="idem-reconfirm").json()["confirmationCode"]
     payment = client.app.state.container.reservation.payment()
-    client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
+    client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "user-api-1"})
     charged_before = len(payment.charged)
-    again = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
+    again = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "user-api-1"})
     assert again.status_code == 200
     assert again.json()["status"] == "CONFIRMED"
     assert len(payment.charged) == charged_before  # 결제를 다시 부르지 않았다
@@ -254,7 +254,7 @@ def test_T58_결제_거절은_200_CANCELLED이고_재고가_복원된다(client,
     container.reservation.payment.override(FakePaymentAdapter(decline_rate=1.0))
     try:
         response = client.post(
-            f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"}
+            f"/api/reservations/{code}/confirm", headers={"X-User-Id": "user-api-1"}
         )
     finally:
         container.reservation.payment.reset_override()
@@ -274,10 +274,23 @@ def test_T60_만료_대기_중인_예약의_확정은_409이고_결제를_부르
         )
     payment = client.app.state.container.reservation.payment()
     charged_before = len(payment.charged)
-    response = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
+    response = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "user-api-1"})
     assert response.status_code == 409
     assert response.json()["code"] == "INVALID_STATE_TRANSITION"
     assert len(payment.charged) == charged_before  # 만료 대기 중 — 결제를 부르지 않았다
+
+
+def test_남의_예약_확정은_404이고_결제를_부르지_않는다(client):
+    # 관리자 지시 (2026-08-16, D33). 확인번호만 알면 제3자가 남의 결제를
+    # 일으킬 수 있던 문을 닫는다 — 취소·조회와 같은 규칙이다
+    code = _create(client, user="owner-3", key="idem-d33").json()["confirmationCode"]
+    payment = client.app.state.container.reservation.payment()
+    charged_before = len(payment.charged)
+    response = client.post(
+        f"/api/reservations/{code}/confirm", headers={"X-User-Id": "stranger"}
+    )
+    assert response.status_code == 404
+    assert len(payment.charged) == charged_before
 
 
 def test_취소된_예약의_확정은_409이고_결제를_부르지_않는다(client):

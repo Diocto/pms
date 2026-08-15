@@ -122,7 +122,7 @@ def test_T62_결제_승인_후_경합에서_지면_환불하고_409다():
     payment = FakePaymentAdapter(decline_rate=0.0)
     usecase = ConfirmReservationUseCase(payment=payment, **_deps(repository))
     with pytest.raises(InvalidStateTransitionError):
-        usecase.execute(confirmation_code="RACE-0001")
+        usecase.execute(confirmation_code="RACE-0001", user_id="u")
     assert len(payment.charged) == 1
     assert len(payment.refunded) == 1        # 내 결제를 내가 되돌렸다
     # 결제를 정당화한 PENDING이 UPDATE 조건이다 — 재조회 상태가 아니다
@@ -133,6 +133,6 @@ def test_결제_거절_후_경합에서_지면_승자가_정리했으므로_200�
     repository = StubRepository(_reservation(ReservationStatus.PENDING), "lost")
     payment = FakePaymentAdapter(decline_rate=1.0)
     usecase = ConfirmReservationUseCase(payment=payment, **_deps(repository))
-    result = usecase.execute(confirmation_code="RACE-0001")
+    result = usecase.execute(confirmation_code="RACE-0001", user_id="u")
     assert result.failure_reason == "PAYMENT_DECLINED"
     assert payment.refunded == []            # 거절 건은 되돌릴 결제가 없다

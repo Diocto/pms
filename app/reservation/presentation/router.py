@@ -77,7 +77,7 @@ def confirm_reservation(
     user_id: str = Header(alias="X-User-Id"),
 ) -> ReservationResponse:
     result = request.app.state.container.reservation.confirm_reservation().execute(
-        confirmation_code=confirmation_code
+        confirmation_code=confirmation_code, user_id=user_id
     )
     return _to_response(result)
 

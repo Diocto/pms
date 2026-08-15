@@ -256,7 +256,7 @@ def test_K5_확정과_취소가_동시에_오면_최종_상태는_하나다(cont
 
     def task(index: int):
         if index % 2 == 0:
-            return confirm.execute(confirmation_code=code)
+            return confirm.execute(confirmation_code=code, user_id="transition-user")
         return cancel.execute(confirmation_code=code, user_id="transition-user")
 
     successes, failures, unexpected = _run(50, task)
@@ -331,7 +331,7 @@ def test_K6_취소와_만료가_겹쳐도_복원은_정확히_한_번이다(cont
 
 def test_K10_취소_이력은_정확히_한_줄이다(container, engine):
     code = _create_pending(container, key="confirmed-1")
-    container.reservation.confirm_reservation().execute(confirmation_code=code)
+    container.reservation.confirm_reservation().execute(confirmation_code=code, user_id="transition-user")
     cancel = container.reservation.cancel_reservation()
     successes, failures, unexpected = _run(
         50, lambda i: cancel.execute(confirmation_code=code, user_id="transition-user")
