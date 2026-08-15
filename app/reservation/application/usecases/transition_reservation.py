@@ -107,12 +107,16 @@ class ConfirmReservationUseCase(_TransitionBase):
         super().__init__(**deps)
         self._payment = payment
 
-    def execute(self, *, confirmation_code: str) -> ReservationResult:
+    def execute(self, *, confirmation_code: str, user_id: str) -> ReservationResult:
         now = self._now()
 
         # 1) 조회 + 표 판정 — 이 시점의 PENDING이 결제를 정당화한다
         with self._tx.read() as session:
             reservation = self._load_by_code(session, confirmation_code)
+            if reservation.user_id != user_id:
+                # 남의 예약은 404다 (관리자 지시 2026-08-16, D33) — 확인번호만
+                # 알면 제3자가 남의 결제를 일으킬 수 있던 문을 닫는다
+                raise ReservationNotFoundError("예약을 찾을 수 없습니다")
             current = ReservationStatus(reservation.status)
             resolution = resolve(current, ReservationEvent.CONFIRM)  # 거부면 409
             if resolution.is_idempotent:
