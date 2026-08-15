@@ -256,7 +256,7 @@ flowchart LR
   <div class="screen-head"><span class="screen-id">S1</span><h2>객실 검색</h2><span class="screen-uc">GET /api/availability (F03)</span></div>
   <p class="screen-intent">조건을 넣고 그 기간 내내 비어 있는 객실타입을 본다. 응답의 <code>minRemaining</code>은 "기간 중 가장 잔여가 적은 날"의 값이라, 화면도 그 의미 그대로 <b>"가장 적은 날 기준 N실"</b>이라고 말한다. 그리고 응답의 <code>source</code>·<code>staleToleranceSeconds</code>를 그대로 받아 <b>이 숫자가 최대 10초 전 값일 수 있음</b>을 결과 위에 항상 표시한다 — 낡음을 감추면 S2의 409를 설명할 수 없다.</p>
 
-  <div class="state-label"><span class="no">상태 1</span><h3>정상 — 결과 있음</h3><span class="code">200 · items 3건 · source: CACHE</span></div>
+  <div class="state-label"><span class="no">상태 1</span><h3>정상 — 결과 있음</h3><span class="code">200 · items 3건</span></div>
   <div class="frame">
     <div class="frame-bar"><div class="dots"><i></i><i></i><i></i></div><div class="frame-url">/search?hotelId=1&amp;checkIn=2026-09-01&amp;checkOut=2026-09-04&amp;guestCount=2</div></div>
     <div class="frame-body"><div class="p-app">
@@ -380,7 +380,8 @@ flowchart LR
     </ul></div>
     <div class="note"><h4>쓰는 계약 (F03 검색-API-계약)</h4><ul>
       <li><code>GET /api/availability?hotelId&amp;checkIn&amp;checkOut&amp;guestCount&amp;roomCount</code> — X-User-Id 불필요</li>
-      <li>응답: <code>items[].minRemaining·pricePerNight·totalPrice</code>, <code>searchedAt</code>, <code>source</code>, <code>staleToleranceSeconds</code>, <code>emptyReason</code>, <code>salesOpenUntil</code></li>
+      <li>응답: <code>items[].minRemaining·pricePerNight·totalPrice</code>, <code>searchedAt</code>, <code>staleToleranceSeconds</code>, <code>emptyReason</code>, <code>salesOpenUntil</code></li>
+      <li>응답의 <code>source</code>(CACHE/DB)는 <b>화면에 노출하지 않는다</b> — 부하테스트용 내부 정보다. 낡음 안내는 <code>searchedAt</code>·<code>staleToleranceSeconds</code>로만 한다</li>
       <li>재검색 시에만 <code>fresh=true</code> (409 이후·수동 새로고침). 평상시 검색은 캐시를 그대로 쓴다</li>
       <li>호텔 목록 API는 없다 — 시드 2곳을 상수로 갖는다 (D7)</li>
     </ul></div>
