@@ -9,8 +9,9 @@ autogenerate 대조(T28)가 성립하기 때문이다.
 전이 표이고 DB는 문자열로 보관한다 (1.6절).
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -24,6 +25,44 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlmodel import Field, SQLModel
+
+from app.common.errors import InvalidRequestError
+from app.reservation.domain.errors import InvalidStateTransitionError
+
+
+class StayPeriod(BaseModel):
+    """투숙 기간. **체크아웃 당일은 점유하지 않는다** — 하루를 더하면
+    백투백 예약(앞 손님 체크아웃일 = 뒷 손님 체크인일)이 서로를 밀어낸다."""
+
+    model_config = ConfigDict(frozen=True)
+
+    check_in: date
+    check_out: date
+
+    def model_post_init(self, _context) -> None:
+        if self.check_out <= self.check_in:
+            raise InvalidRequestError("체크아웃은 체크인보다 늦어야 합니다")
+
+    def occupied_dates(self) -> list[date]:
+        """재고를 쓰는 날짜들. 차감·복원·락 키가 전부 이 목록에서 나온다."""
+        return [
+            self.check_in + timedelta(days=offset) for offset in range(self.nights())
+        ]
+
+    def nights(self) -> int:
+        return (self.check_out - self.check_in).days
+
+
+class GuestCount(BaseModel):
+    """투숙 인원. 정원 검증(`guest_count <= capacity * room_count`)의 입력이다."""
+
+    model_config = ConfigDict(frozen=True)
+
+    value: int
+
+    def model_post_init(self, _context) -> None:
+        if self.value < 1:
+            raise InvalidRequestError("인원은 1명 이상이어야 합니다")
 
 
 class Reservation(SQLModel, table=True):
@@ -49,6 +88,76 @@ class Reservation(SQLModel, table=True):
         CheckConstraint("price_per_night >= 0", name="ck_reservation_price_per_night"),
         CheckConstraint("total_price >= 0", name="ck_reservation_total_price"),
     )
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        user_id: str,
+        idempotency_key: str,
+        room_type_id: int,
+        capacity: int,
+        period: StayPeriod,
+        room_count: int,
+        guest_count: "GuestCount",
+        price_per_night: "Money",
+        confirmation_code: str,
+        today: date,
+        now: datetime,
+        hold_minutes: int,
+    ) -> "Reservation":
+        """예약 생성 — 불변식 검증과 파생값 계산이 전부 여기 있다.
+
+        시각(`today`·`now`)은 유스케이스가 시계에서 한 번 읽어 넘긴다.
+        도메인은 현재 시각을 직접 읽지 않는다 (D2, T26).
+        """
+        # D21: checkOut > today다. checkIn >= today가 아니다 — 체크인일이
+        # 지났어도 체크아웃일이 남았으면 진행 중인 투숙이라 허용한다
+        if period.check_out <= today:
+            raise InvalidRequestError("이미 끝난 숙박 기간입니다")
+        if room_count < 1:
+            raise InvalidRequestError("객실 수는 1 이상이어야 합니다")
+        # D1: 정원 검증. capacity × room_count가 수용 한계다
+        if guest_count.value > capacity * room_count:
+            raise InvalidRequestError(
+                f"인원 {guest_count.value}명이 정원({capacity}명 × {room_count}실)을 넘습니다"
+            )
+
+        from app.reservation.domain.services import calculate_total_price
+
+        total_price = calculate_total_price(
+            price_per_night=price_per_night, period=period, room_count=room_count
+        )
+        return cls(
+            confirmation_code=confirmation_code,
+            user_id=user_id,
+            room_type_id=room_type_id,
+            check_in=period.check_in,
+            check_out=period.check_out,
+            room_count=room_count,
+            guest_count=guest_count.value,
+            price_per_night=price_per_night.amount,
+            total_price=total_price.amount,
+            # 항상 .value로 넣는다. str-Enum 객체를 그대로 저장 경로에 태우면
+            # 드라이버의 문자열 변환이 'ReservationStatus.PENDING'을 만들 수 있다
+            status="PENDING",
+            idempotency_key=idempotency_key,
+            expires_at=now + timedelta(minutes=hold_minutes),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def assert_check_in_window(self, today: date) -> None:
+        """체크인 시간창 — `checkIn <= today < checkOut`.
+
+        상한(`today < checkOut`)은 D4 기각으로 노쇼 스케줄러가 없는 지금,
+        기간 지난 예약의 체크인을 막는 **유일한 장치**다 (T20).
+        """
+        if not (self.check_in <= today < self.check_out):
+            raise InvalidStateTransitionError(
+                f"체크인 가능 기간이 아닙니다 (투숙 {self.check_in}~{self.check_out}, "
+                f"오늘 {today})"
+            )
 
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
     confirmation_code: str = Field(sa_column=Column(String(32), nullable=False))
