@@ -53,14 +53,16 @@
 
 | 키 | 기본 | 실행값 | 어느 시나리오에서 | 왜 |
 |---|---|---|---|---|
-| `pms.lock.enabled` | true | true / **false** | S5 | 두 회차를 대조한다 |
-| `pms.reservation.hold-minutes` | 10 | **1** | S4-B | 만료×확정 경합을 만들려고 10분을 기다릴 수 없다 |
-| `pms.reservation.expire-scan-interval` | 30s | ⟨기입⟩ | S4-B | 만료 판정이 자주 돌아야 경합 창이 촘촘해진다 |
-| `pms.payment.decline-rate` | 0.0 | 0.0 / **1.0** | S4 / 결제 분기 회차 | 경합 회차에 확률적 거절을 섞으면 실패 원인이 경합인지 결제인지 구분되지 않는다 |
-| `pms.search.cache.enabled` | true | true / **false** | S8 | 두 회차를 대조한다 |
-| `pms.search.cache.ttl-seconds` | 10 | 10 | S8 | stale window 합격선의 기준값 |
+| `PMS_LOCK_ENABLED` | true | true / **false** | S5 | 두 회차를 대조한다 |
+| `PMS_RESERVATION_HOLD_MINUTES` | 10 | **1** | S4-B | 만료×확정 경합을 만들려고 10분을 기다릴 수 없다 |
+| `PMS_RESERVATION_EXPIRE_SCAN_INTERVAL` | 30s | ⟨기입⟩ | S4-B | 만료 판정이 자주 돌아야 경합 창이 촘촘해진다 |
+| `PMS_PAYMENT_DECLINE_RATE` | 0.0 | 0.0 / **1.0** | S4 / 결제 분기 회차 | 경합 회차에 확률적 거절을 섞으면 실패 원인이 경합인지 결제인지 구분되지 않는다 |
+| `PMS_SEARCH_CACHE_ENABLED` | true | true / **false** | S8 | 두 회차를 대조한다 |
+| `PMS_SEARCH_CACHE_TTL_SECONDS` | 10 | 10 | S8 | stale window 합격선의 기준값 |
 
-**이 표는 손으로 옮겨 적은 것이므로 그 자체로는 증거가 아니다.** 실행 시점의 실제 설정은 `reset.sh`가 `/actuator/info`에서 받아 **`results/settings-<시나리오>.json`에 그대로 저장한다.** 표와 그 파일이 어긋나면 **파일이 맞다.** 표를 고친다.
+**이 표는 손으로 옮겨 적은 것이므로 그 자체로는 증거가 아니다.** 실행 시점의 실제 설정은 `reset.sh`가 앱의 설정 노출 엔드포인트에서 받아 **`results/settings-<시나리오>.json`에 그대로 저장한다.** 표와 그 파일이 어긋나면 **파일이 맞다.** 표를 고친다.
+
+**앱 프로세스 수(`uvicorn --workers`)도 여기 적는다.** ⟨기입⟩ 워커 수가 회차마다 다르면 그 대조는 조건 하나만 바꾼 것이 아니게 된다.
 
 ## 3. 무엇을 증명하려 했는가
 
@@ -184,7 +186,7 @@
 
 #### S5. 분산락 있음 vs 없음
 
-같은 부하(재고 100, 300 RPS × 20초)를 `pms.lock.enabled`만 바꿔 3회씩 교차 실행하고 중앙값을 채택했다.
+같은 부하(재고 100, 300 RPS × 20초)를 `PMS_LOCK_ENABLED`만 바꿔 3회씩 교차 실행하고 중앙값을 채택했다.
 
 **축 1 — 정확성 (양쪽 모두 통과해야 한다)**
 
@@ -318,7 +320,7 @@ F03이 스탬피드 방어 도입 여부를 "측정 후 판단"으로 미뤘고,
 | S4 | 두 요청이 안 겹쳐 경합 상황 자체가 안 만들어졌다 | `rej_transition ≥ 1`을 하드 게이트로. 0이면 재실행 | ⟨⟩ |
 | S1-C | 경계 판정(잔여 2에 3실)이 한 번도 안 걸렸다 | 1·2·3실 균등 혼합, 최종 잔여 3 이상이면 실패 | ⟨⟩ |
 | S2·S5 | 앱이 느려 실제 부하가 목표보다 작았다 | 도착률 고정 모델 사용. 달성 RPS가 목표의 80% 미만이면 병목 분석 | ⟨⟩ |
-| **S5** | **락 스위치가 실제로는 안 꺼져 두 회차가 같은 조건이었다** | `reset.sh`가 `/actuator/info`의 `pms.lock.enabled`를 읽어 기대값과 다르면 중단 (자동) | ⟨⟩ |
+| **S5** | **락 스위치가 실제로는 안 꺼져 두 회차가 같은 조건이었다** | `reset.sh`가 설정 노출 엔드포인트의 `PMS_LOCK_ENABLED`를 읽어 기대값과 다르면 중단 (자동) | ⟨⟩ |
 | **S4-B** | **보류 시간이 기본 10분이라 만료 경합이 아예 없었다** | 같은 장치로 `hold-minutes == 1` 확인 (자동) | ⟨⟩ |
 | **전 시나리오** | **아래 설정 표를 손으로 옮기다 틀려, 적힌 조건과 잰 조건이 다르다** | 실행 시점 설정을 `results/settings-*.json`으로 자동 저장 | ⟨⟩ |
 | S4-B | `hold-minutes`가 길어 만료가 0건이었다 | `CONFIRMED + EXPIRED == 400`을 하드 게이트로 | ⟨⟩ |
@@ -394,8 +396,7 @@ F03이 스탬피드 방어 도입 여부를 "측정 후 판단"으로 미뤘고,
 docker compose up -d
 
 # 2. 앱 (설정은 §2의 표를 따른다)
-./gradlew bootJar
-java -jar build/libs/pms.jar
+uvicorn app.main:app --host 0.0.0.0 --port 8080    # ⟨정확한 명령·워커 수 기입⟩
 
 # 3. 시나리오 하나 실행
 cd load-test

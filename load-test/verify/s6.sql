@@ -45,7 +45,7 @@ SELECT '--- I4. 이중 복원: 예약당 재고 복원 이벤트가 2줄 이상 
 -- 이력 테이블은 성공한 전이만 기록한다. 복원을 일으키는 전이는
 -- CANCEL / PAYMENT_FAILED / EXPIRE 세 가지다.
 -- 한 예약에 이 이벤트가 두 줄이면 재고가 두 번 돌아온 것이다.
--- 테이블·컬럼명은 F01 V001 병합 후 대조해 확정한다 (scenarios.md §8 Q4, Q12).
+-- 테이블·컬럼명은 F01 병합 후 마이그레이션과 대조해 확정한다 (scenarios.md §8 Q4, Q12).
 SELECT h.reservation_id, COUNT(*) AS restore_events
   FROM reservation_status_history h
   JOIN reservation r ON r.id = h.reservation_id

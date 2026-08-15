@@ -35,7 +35,7 @@ load-test/
 
 ```bash
 docker compose up -d
-./gradlew bootRun          # 또는 bootJar 후 java -jar
+uvicorn app.main:app --host 0.0.0.0 --port 8080   # ⚠️ 명령 확정 대기 (스택 전환)
 
 cd load-test
 ./reset.sh s1
@@ -52,10 +52,10 @@ mysql -h127.0.0.1 -upms -ppms pms < verify/common.sql    # 전 시나리오 공�
 
 | 키 | 기본 | 부하테스트 | 쓰는 곳 |
 |---|---|---|---|
-| `pms.lock.enabled` | true | ON/OFF 두 회차 | S5 |
-| `pms.reservation.hold-minutes` | 10 | **S4-B만 1** | S4-B |
-| `pms.payment.decline-rate` | 0.0 | 경합 0.0 / 결제 분기 1.0 | S4 |
-| `pms.search.cache.enabled` | true | ON/OFF 두 회차 | S8 |
+| `PMS_LOCK_ENABLED` | true | ON/OFF 두 회차 | S5 |
+| `PMS_RESERVATION_HOLD_MINUTES` | 10 | **S4-B만 1** | S4-B |
+| `PMS_PAYMENT_DECLINE_RATE` | 0.0 | 경합 0.0 / 결제 분기 1.0 | S4 |
+| `PMS_SEARCH_CACHE_ENABLED` | true | ON/OFF 두 회차 | S8 |
 
 **기본값과 다르게 둔 값은 전부 리포트에 적는다.** 재현하려는 사람이 같은 조건을 만들 수 없으면 그 수치는 근거가 못 된다. `decline-rate`는 0.0과 1.0만 결정적이고 그 사이는 확률적이니, 경합 시나리오에 확률적 거절을 섞지 않는다 — 테스트가 가끔 깨지고 그때 원인이 경합인지 결제인지 구분되지 않는다.
 

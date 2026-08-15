@@ -86,13 +86,17 @@ export const FIELDS = {
 // 부하 프로파일에서 조절하는 앱 설정 키.
 // 스크립트가 직접 쓰지는 않지만, 어느 회차에 무엇을 바꿨는지 기록에 남기려고
 // 여기 모아둔다. 리포트 §2의 표와 일치시킨다.
+//
+// **이름은 조작자가 셸에 그대로 치는 환경변수 이름이다.** 스택 전환(2026-08-15)
+// 이후 표기를 이렇게 제안했다 — 리포트를 보고 재현하는 사람이 그대로 붙여넣을
+// 수 있어야 하기 때문이다. 실제 철자는 F01·F02가 확정한다.
 export const APP_SETTINGS = {
-    lockEnabled: 'pms.lock.enabled',                       // S5 대조
-    holdMinutes: 'pms.reservation.hold-minutes',           // S4-B에서 1로
-    declineRate: 'pms.payment.decline-rate',               // 경합 0.0 / 결제 분기 1.0
-    searchCacheEnabled: 'pms.search.cache.enabled',        // S8 대조
+    lockEnabled: 'PMS_LOCK_ENABLED',                       // S5 대조
+    holdMinutes: 'PMS_RESERVATION_HOLD_MINUTES',           // S4-B에서 1로
+    declineRate: 'PMS_PAYMENT_DECLINE_RATE',               // 경합 0.0 / 결제 분기 1.0
+    searchCacheEnabled: 'PMS_SEARCH_CACHE_ENABLED',        // S8 대조
     // S7-C 대조. 실제 키 이름은 F02가 정한다. 병합 후 대조할 것.
-    promotionGateEnabled: 'pms.promotion.gate.enabled',
+    promotionGateEnabled: 'PMS_PROMOTION_GATE_ENABLED',
 };
 
 // 특가 예약에 실을 할인 항목.

@@ -170,7 +170,13 @@ fi
 # 그래서 S5는 스위치 확인에 실패하면 부하를 넣지 않는다.
 # (scenarios.md §3-10 S5 항목의 자동화가 이것이다)
 #
-# 값을 /actuator/info 에서 읽는다. /actuator/env 가 아니다.
+# ⚠️ 경로 확정 대기 (2026-08-15 스택 전환).
+#   FastAPI 로 전환하면서 actuator 가 없어진다. F01 이 대체 엔드포인트
+#   (제안: GET /internal/config) 를 정하면 아래 기본값을 바꾼다.
+#   **응답 계약과 "읽지 못하면 중단" 규칙은 그대로다.** 경로만 바뀐다.
+#   그때까지는 CONFIG_URL 환경변수로 덮어쓸 수 있게 해뒀다.
+#
+# 값을 /actuator/info 에서 읽었다. /actuator/env 가 아니다.
 #   env 로 읽으려면 management.endpoint.env.show-values=ALWAYS 가 필요한데,
 #   그러면 설정 전체가 마스킹 없이 열려 DB 접속 정보까지 노출된다. 로컬
 #   전용이라 실질 위험은 없지만, 제출 문서에 "이 설정 그대로 실서비스에
@@ -181,7 +187,7 @@ fi
 #   {"loadTest":{"pms.lock.enabled":false,"pms.reservation.hold-minutes":10,...}}
 #   키는 스프링 설정 키 이름 그대로다. 이름을 바꾸지 않으므로 번역 과정에서
 #   어긋날 자리가 없다.
-INFO_URL="${BASE_URL:-http://localhost:8080}/actuator/info"
+INFO_URL="${CONFIG_URL:-${BASE_URL:-http://localhost:8080}/actuator/info}"
 
 # info 응답에서 키 하나의 값을 꺼낸다. 없으면 빈 문자열.
 info_value() {
@@ -201,7 +207,8 @@ check_switch() {
 
     if ! body=$(curl -sf --max-time 5 "$INFO_URL"); then
         echo "[reset] 실패: ${INFO_URL} 를 읽을 수 없다." >&2
-        echo "[reset] 앱이 안 떠 있거나 actuator info 엔드포인트가 안 열려 있다." >&2
+        echo "[reset] 앱이 안 떠 있거나 설정 노출 엔드포인트가 안 열려 있다." >&2
+        echo "[reset] 경로가 바뀌었으면 CONFIG_URL 환경변수로 지정해라." >&2
         echo "[reset] S5는 스위치가 실제 값인지 확인하지 못하면 의미가 없으므로 중단한다." >&2
         return 1
     fi
@@ -222,10 +229,17 @@ check_switch() {
     echo "[reset] 스위치 확인: ${key} = ${actual} (기대와 일치)"
 }
 
+# 설정 키 이름. 스택 전환으로 환경변수 이름 표기를 제안해둔 상태다.
+# F01 이 다르게 정하면 아래 기본값만 바꾸거나 환경변수로 덮어쓴다.
+# 키가 틀리면 check_switch 가 응답 본문을 통째로 찍고 중단하므로,
+# 실제 키 이름을 그 자리에서 눈으로 확인할 수 있다.
+LOCK_KEY="${LOCK_KEY:-PMS_LOCK_ENABLED}"
+HOLD_KEY="${HOLD_KEY:-PMS_RESERVATION_HOLD_MINUTES}"
+
 case "$SCENARIO" in
-    s5on)  check_switch "pms.lock.enabled" "true"  || exit 1 ;;
-    s5off) check_switch "pms.lock.enabled" "false" || exit 1 ;;
-    s4b)   check_switch "pms.reservation.hold-minutes" "1" || exit 1 ;;
+    s5on)  check_switch "$LOCK_KEY" "true"  || exit 1 ;;
+    s5off) check_switch "$LOCK_KEY" "false" || exit 1 ;;
+    s4b)   check_switch "$HOLD_KEY" "1"     || exit 1 ;;
 esac
 
 # 실제 설정값을 리포트에 그대로 싣기 위해 통째로 저장해둔다.

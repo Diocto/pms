@@ -25,6 +25,33 @@
 --
 -- 실행: mysql -h127.0.0.1 -upms -ppms pms < verify/common.sql
 
+-- ---------------------------------------------------------------------------
+-- (0) 검증 전제 — 이걸 먼저 본다
+-- ---------------------------------------------------------------------------
+-- 아래 검증 여럿이 `event IN ('CANCEL', ...)` 같은 값 필터다.
+-- **값 표기가 기대와 다르면 필터가 0행을 돌려주고, 모든 검증이 통과로 보인다.**
+-- 깨진 게 아니라 아무것도 안 본 것인데 초록불이 켜진다. 가장 나쁜 실패다.
+--
+-- 파이썬으로 옮기면서(2026-08-15 스택 전환) 이 위험이 실제로 커졌다.
+-- Enum 을 저장할 때 이름(CANCEL)이 아니라 값(cancel)이 들어가는 일이 흔하고,
+-- SQLModel 기본 동작이 어느 쪽인지는 마이그레이션을 봐야 안다.
+--
+-- 그래서 부하를 넣은 뒤 **가장 먼저** 이 두 쿼리를 눈으로 확인한다.
+-- 기대와 다른 표기가 보이면 아래 검증 결과는 전부 믿지 말고 쿼리를 고친다.
+
+SELECT '=== (0-a) 이력에 행이 있는가 (0이면 아래 검증은 전부 무의미) ===' AS check_name;
+SELECT COUNT(*) AS history_rows FROM reservation_status_history;
+
+SELECT '=== (0-b) 실제로 저장된 표기 — 기대: 전부 대문자 ENUM 이름 ===' AS check_name;
+-- 기대 event  : CONFIRM, PAYMENT_FAILED, CANCEL, EXPIRE, CHECK_IN, CHECK_OUT
+-- 기대 status : PENDING, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED, EXPIRED
+SELECT 'event' AS kind, event AS value, COUNT(*) AS cnt
+  FROM reservation_status_history GROUP BY event
+ UNION ALL
+SELECT 'to_status', to_status, COUNT(*)
+  FROM reservation_status_history GROUP BY to_status
+ ORDER BY kind, value;
+
 SELECT '=== (1) 이중 복원: 예약당 재고 복원이 두 번 이상 (기대: 0행) ===' AS check_name;
 -- 복원을 일으키는 이벤트는 정확히 셋이다.
 -- CONFIRM·CHECK_IN·CHECK_OUT은 재고를 건드리지 않는다.
