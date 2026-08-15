@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from app.common.error_handlers import register_error_handlers
 from app.containers import AppContainer
+from app.reservation.presentation.actuator import router as actuator_router
 
 
 def create_app() -> FastAPI:
@@ -22,6 +23,7 @@ def create_app() -> FastAPI:
     app.state.container = container
 
     register_error_handlers(app)
+    app.include_router(actuator_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

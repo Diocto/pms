@@ -28,6 +28,7 @@ from sqlalchemy.dialects.mysql import DATETIME
 from sqlmodel import Field, SQLModel
 
 from app.common.errors import InvalidRequestError
+from app.inventory.domain.models import RoomType
 from app.reservation.domain.enums import ReservationStatus
 from app.reservation.domain.errors import InvalidStateTransitionError
 
@@ -105,8 +106,7 @@ class Reservation(SQLModel, table=True):
         *,
         user_id: str,
         idempotency_key: str,
-        room_type_id: int,
-        capacity: int,
+        room_type: "RoomType",
         period: StayPeriod,
         room_count: int,
         guest_count: "GuestCount",
@@ -118,9 +118,14 @@ class Reservation(SQLModel, table=True):
     ) -> "Reservation":
         """예약 생성 — 불변식 검증과 파생값 계산이 전부 여기 있다.
 
+        `RoomType`을 통째로 받는다 — `(room_type_id, capacity)`로 분해해 받으면
+        호출자가 둘을 어긋나게 조합할 수 있다 (파라미터는 가급적 도메인 객체로,
+        관리자 지침). 저장은 규칙대로 ID만 한다 — 참조를 들고 있지 않는다.
+
         시각(`today`·`now`)은 유스케이스가 시계에서 한 번 읽어 넘긴다.
         도메인은 현재 시각을 직접 읽지 않는다 (D2, T26).
         """
+        capacity = room_type.capacity
         # D21: checkOut > today다. checkIn >= today가 아니다 — 체크인일이
         # 지났어도 체크아웃일이 남았으면 진행 중인 투숙이라 허용한다
         if period.check_out <= today:
@@ -139,7 +144,7 @@ class Reservation(SQLModel, table=True):
         return cls(
             confirmation_code=confirmation_code,
             user_id=user_id,
-            room_type_id=room_type_id,
+            room_type_id=room_type.id,  # 저장은 ID만 — 애그리거트 간 참조 금지
             check_in=period.check_in,
             check_out=period.check_out,
             room_count=room_count,

@@ -8,14 +8,14 @@
 import secrets
 from datetime import date
 
+from app.inventory.domain.models import RoomType
+
 # 혼동 문자(0·O·1·I)를 뺀 알파벳. 전화로 불러줄 수 있어야 한다 (D7)
 _CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 _RANDOM_LENGTH = 8
 
 
-def generate_confirmation_code(
-    *, check_in: date, hotel_id: int, room_type_id: int
-) -> str:
+def generate_confirmation_code(*, check_in: date, room_type: RoomType) -> str:
     """`yyMMdd-H{h}R{r}-{무작위 8자}` (D7).
 
     **만드는 함수만 있고 읽는 함수는 없다.** 접두는 운영자가 눈으로 식별하기
@@ -25,4 +25,4 @@ def generate_confirmation_code(
     random_part = "".join(
         secrets.choice(_CODE_ALPHABET) for _ in range(_RANDOM_LENGTH)
     )
-    return f"{check_in:%y%m%d}-H{hotel_id}R{room_type_id}-{random_part}"
+    return f"{check_in:%y%m%d}-H{room_type.hotel_id}R{room_type.id}-{random_part}"
