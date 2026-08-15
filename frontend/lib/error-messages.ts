@@ -53,8 +53,12 @@ const FALLBACK: ScreenMessage = {
   body: "알 수 없는 문제가 있습니다. 잠시 후 다시 시도해 주세요.",
 };
 
+function isKnownCode(code: string): code is ErrorCode {
+  return code in MESSAGES;
+}
+
 export function messageFor(code: string, traceId?: string): ScreenMessage {
-  const base = (MESSAGES as Record<string, ScreenMessage>)[code] ?? FALLBACK;
+  const base = isKnownCode(code) ? MESSAGES[code] : FALLBACK;
   if (!traceId) return base;
   return { ...base, body: `${base.body} (문의 번호 ${traceId})` };
 }

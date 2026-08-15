@@ -25,6 +25,14 @@ const C = ERROR_CODES; // 가짜 서버도 계약 상수만 내보낸다 — 계
 const HOLD_MINUTES = 10; // PMS_RESERVATION_HOLD_MINUTES 기본값과 동일
 const SALES_OPEN_FROM = "2026-08-01";
 const SALES_OPEN_UNTIL = "2026-10-29"; // 시드 재고의 마지막 날짜
+// 마지막 숙박일의 체크아웃까지 허용 — SALES_OPEN_UNTIL에서 유도해 두 값이 따로 놀지 않게
+const SALES_CHECKOUT_LIMIT = shiftDate(SALES_OPEN_UNTIL, 1); // "2026-10-30"
+
+// 날짜 라벨 산술은 UTC로만 — "+09:00 파싱 후 toISOString" 조합은 라벨이 하루 어긋난다
+function shiftDate(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 interface SeedRoomType {
   id: number;
@@ -66,12 +74,7 @@ interface MockReservation {
 function occupiedDates(checkIn: string, checkOut: string): string[] {
   // 체크아웃 당일은 점유하지 않는다 (계약)
   const dates: string[] = [];
-  const d = new Date(`${checkIn}T00:00:00+09:00`);
-  const end = new Date(`${checkOut}T00:00:00+09:00`);
-  while (d < end) {
-    dates.push(d.toISOString().slice(0, 10));
-    d.setDate(d.getDate() + 1);
-  }
+  for (let d = checkIn; d < checkOut; d = shiftDate(d, 1)) dates.push(d);
   return dates;
 }
 

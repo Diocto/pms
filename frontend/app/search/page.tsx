@@ -11,16 +11,7 @@ import { HOTELS } from "@/lib/hotels";
 import { validateSearchForm, type SearchFormErrors } from "@/lib/search-form";
 import type { AvailabilityResponse } from "@/lib/contracts";
 
-function todayLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+import { addDays, todayLocal } from "@/lib/dates";
 
 function won(n: number): string {
   return n.toLocaleString("ko-KR");

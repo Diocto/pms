@@ -194,7 +194,67 @@ describe("날짜 창 (F01 D21·시드 범위)", () => {
   });
 });
 
-// 라운드1 중요-8 — 전이 기계의 도달 가능 칸 전수 (F01 1.4 전수 표의 주의 칸 포함)
+// 라운드2 중요 — HTTP로 도달 가능한 전 칸(상태 6 × 이벤트 4 = 24)의 테이블 주도 전수.
+// 진실은 F01 스펙 1.4 전수 표다. 표를 바꾸지 않고 분기 순서만 바꿔도 여기서 잡힌다.
+describe("전이 표 — 24칸 전수", () => {
+  const stay = { ...book, checkIn: "2026-08-15", checkOut: "2026-08-17" }; // 오늘 체크인 가능
+
+  type State = "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED" | "EXPIRED";
+  type Event = "confirm" | "cancel" | "check-in" | "check-out";
+
+  async function prepare(state: State): Promise<string> {
+    const r = await api.createReservation(stay, { userId: "u", idempotencyKey: `prep-${state}` });
+    const code = r.confirmationCode;
+    if (state === "CONFIRMED" || state === "CHECKED_IN" || state === "CHECKED_OUT")
+      await api.confirmReservation(code, "u");
+    if (state === "CHECKED_IN" || state === "CHECKED_OUT") await staffAction(code, "u", "check-in");
+    if (state === "CHECKED_OUT") await staffAction(code, "u", "check-out");
+    if (state === "CANCELLED") await api.cancelReservation(code, "u");
+    if (state === "EXPIRED") nowMs += 11 * 60 * 1000; // 다음 접근에서 스케줄러 흉내가 옮긴다
+    return code;
+  }
+
+  // 기대값: 숫자면 그 HTTP 상태로 거부(409), 문자열이면 200 + 그 상태(전이 또는 멱등)
+  const TABLE: Record<State, Record<Event, number | State>> = {
+    PENDING: { confirm: "CONFIRMED", cancel: "CANCELLED", "check-in": 409, "check-out": 409 },
+    CONFIRMED: { confirm: "CONFIRMED", cancel: "CANCELLED", "check-in": "CHECKED_IN", "check-out": 409 },
+    CHECKED_IN: { confirm: 409, cancel: 409, "check-in": "CHECKED_IN", "check-out": "CHECKED_OUT" },
+    CHECKED_OUT: { confirm: 409, cancel: 409, "check-in": 409, "check-out": "CHECKED_OUT" },
+    CANCELLED: { confirm: 409, cancel: "CANCELLED", "check-in": 409, "check-out": 409 },
+    EXPIRED: { confirm: 409, cancel: 409, "check-in": 409, "check-out": 409 },
+  };
+
+  for (const [state, events] of Object.entries(TABLE) as [State, Record<Event, number | State>][]) {
+    for (const [event, expected] of Object.entries(events) as [Event, number | State][]) {
+      it(`${state} + ${event} → ${typeof expected === "number" ? `거부 ${expected}` : expected}`, async () => {
+        const code = await prepare(state);
+        const res = await staffAction(code, "u", event);
+        if (typeof expected === "number") {
+          expect(res.status).toBe(expected);
+          expect(res.body.code).toBe("INVALID_STATE_TRANSITION");
+        } else {
+          expect(res.status).toBe(200);
+          expect(res.body.status).toBe(expected);
+        }
+      });
+    }
+  }
+
+  it("CHECKED_IN + cancel 거부 시 재고도 불변이다 — 이미 팔린 밤은 되돌리지 않는다", async () => {
+    const code = await prepare("CHECKED_IN");
+    const before = await api.searchAvailability({
+      hotelId: 1, checkIn: "2026-08-15", checkOut: "2026-08-17", guestCount: 4, roomCount: 1,
+    });
+    expect(before.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(9);
+    await staffAction(code, "u", "cancel"); // 409
+    const after = await api.searchAvailability({
+      hotelId: 1, checkIn: "2026-08-15", checkOut: "2026-08-17", guestCount: 4, roomCount: 1,
+    });
+    expect(after.items.find((i) => i.roomTypeId === 3)?.minRemaining).toBe(9);
+  });
+});
+
+// 라운드1 중요-8 — 스펙이 강조한 칸의 부수 효과(재고)까지 검증
 describe("전이 표 — 스펙이 강조한 칸", () => {
   it("EXPIRED + CANCEL = 409 — '이미 취소됨'으로 조용히 성공시키지 않는다", async () => {
     const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });

@@ -61,13 +61,22 @@ function BookScreen() {
   // 멱등성 키 — 화면에 들어올 때 1회 발급. 연타·재시도 전부 같은 키로 나간다.
   // 성공하면 이 화면을 떠나므로 자연히 폐기된다. 입력은 이 화면에서 바뀌지 않는다
   // (조건 변경은 검색으로 돌아가서 하고, 그러면 새 화면 = 새 키다). 시안 D6.
-  const idemKeyRef = useRef<string>(crypto.randomUUID());
+  // useState로 두어 화면에 보이는 "요청 번호"와 실제 전송 키가 항상 같은 값이 되게 한다.
+  const [idemKey, setIdemKey] = useState<string>(() => crypto.randomUUID());
   const [screen, setScreen] = useState<ScreenState>({ kind: "idle" });
 
-  // 사용자 식별값이 바뀌면 새 키 — 서버의 중복 판정 키는 (X-User-Id, Idempotency-Key)
-  // 쌍이라, 사용자가 바뀌면 "다른 예약 시도"다 (리뷰 라운드1 concurrency 제안)
+  // 사용자 식별값이 바뀌면 새 키 + 화면 초기화 — 서버의 중복 판정 키는
+  // (X-User-Id, Idempotency-Key) 쌍이라 사용자가 바뀌면 "다른 예약 시도"다.
+  // 이전 사용자의 오류·마감 카드("중복으로 잡히지 않습니다")를 남겨두면 그 약속이
+  // 새 (사용자, 키) 쌍에서는 거짓이 된다 (라운드2 concurrency 제안).
+  const firstUserRef = useRef(true);
   useEffect(() => {
-    idemKeyRef.current = crypto.randomUUID();
+    if (firstUserRef.current) {
+      firstUserRef.current = false; // 마운트 직후에는 재발급하지 않는다 — 표시 키와 어긋난다
+      return;
+    }
+    setIdemKey(crypto.randomUUID());
+    setScreen({ kind: "idle" });
   }, [userId]);
 
   if (!order) {
@@ -100,7 +109,7 @@ function BookScreen() {
               roomCount: order!.roomCount,
               guestCount: order!.guestCount,
             },
-            { userId, idempotencyKey: idemKeyRef.current },
+            { userId, idempotencyKey: idemKey },
           ),
         checkFresh: async () => {
           const fresh = await api.searchAvailability(
@@ -273,7 +282,7 @@ function BookScreen() {
             </span>
           </p>
           <div style={{ marginTop: 7, fontSize: 11, color: "var(--ink-faint)" }} className="mono">
-            요청 번호 {idemKeyRef.current}
+            요청 번호 {idemKey}
           </div>
         </div>
       </div>
