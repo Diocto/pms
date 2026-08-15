@@ -138,14 +138,32 @@ expect "보존식 위반 없음" "$(count_conservation_violations)" "0"
 expect "음수 없음"        "$(count_negative)" "0"
 expect "복원 과다 없음"   "$(count_over_restore)" "0"
 
-echo "[selftest] 1. 보존식을 깨뜨린다 (잔여 +1)"
-set_remaining "$((ORIGINAL + 1))"
+# 2026-08-16 실행에서 배운 것: 스키마에 CHECK 제약
+# (ck_inventory_remaining_lower/upper)이 있어 "잔여 > 총량"과 "잔여 < 0"은
+# **DB가 상태 자체를 거부한다.** 심을 수 없는 오류는 검증 쿼리로 잡는 대신
+# 제약의 존재를 확인한다 — 게이트가 잡을 일을 구조가 금지하면, 게이트 검증은
+# 구조 확인으로 대체된다 (구조가 게이트보다 강하다).
+echo "[selftest] 1. 보존식을 깨뜨린다 (잔여 -1 — CHECK 제약 안쪽에서 깨뜨린다)"
+if [ "$ORIGINAL" -lt 1 ]; then
+    echo "[selftest] 실패: 잔여가 0이라 -1 조작을 못 한다. reset 후 다시 돌릴 것." >&2
+    exit 1
+fi
+set_remaining "$((ORIGINAL - 1))"
 # 이게 0이면 보존식 쿼리가 위반을 못 잡는다는 뜻이다. 검증기가 고장난 것이다.
 expect "보존식 쿼리가 위반을 잡아낸다" "$(count_conservation_violations)" "1"
+set_remaining "$ORIGINAL"
 
 echo "[selftest] 2. 복원 과다를 만든다 (잔여 = 총량 + 5)"
-set_remaining "$((TOTAL + 5))"
-expect "복원 과다 쿼리가 잡아낸다" "$(count_over_restore)" "1"
+if set_remaining "$((TOTAL + 5))" 2>/dev/null; then
+    expect "복원 과다 쿼리가 잡아낸다" "$(count_over_restore)" "1"
+    echo "  참고  DB CHECK 제약이 총량 초과를 막지 않았다. 3차 방어선을 확인할 것."
+else
+    echo "  통과  DB CHECK 제약이 총량 초과 UPDATE를 거부했다 — 3차 방어선이 살아 있다"
+    UPPER_CK=$(q "SELECT COUNT(*) FROM information_schema.CHECK_CONSTRAINTS
+                   WHERE CONSTRAINT_SCHEMA = '$MYSQL_DB'
+                     AND CONSTRAINT_NAME = 'ck_inventory_remaining_upper';")
+    expect "상한 CHECK 제약이 스키마에 존재한다" "$UPPER_CK" "1"
+fi
 
 echo "[selftest] 3. 초과 판매를 만든다 (잔여 = -1)"
 # CHECK 제약이 있으면 이 UPDATE 자체가 거부된다. 그건 실패가 아니라
