@@ -1,0 +1,141 @@
+/* 디자인 토큰 — docs/design/F05-화면-시안.html의 「디자인 토큰」 절이 진실이다.
+   라이트 단일 테마(시안 결정). 상태색은 예약 상태에 고정하고 장식에 쓰지 않는다. */
+:root {
+  --paper: #fbfaf8;
+  --surface: #ffffff;
+  --sunken: #f2f0eb;
+  --ink: #16222c;
+  --ink-soft: #5a6b76;
+  --ink-faint: #93a0a8;
+  --line: #e4e1d9;
+  --line-strong: #cfcbc0;
+  --brass: #8e6329;        /* 주요 행동 전용 */
+  --brass-tint: #f5eada;
+  --ok: #2a6c55;           /* CONFIRMED · 재고 여유 */
+  --ok-tint: #e4f0ea;
+  --warn: #9c5e10;         /* PENDING · 낡음 · 마감 임박 */
+  --warn-tint: #faeedc;
+  --danger: #a33a30;       /* 매진 · 거절 */
+  --danger-tint: #fae7e4;
+  --info: #2e5a7a;
+  --info-tint: #e5eef5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---- 상단 내비게이션 ---- */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 13px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.nav-mark { display: flex; align-items: baseline; gap: 8px; text-decoration: none; }
+.nav-mark .ko {
+  font-family: "AppleMyungjo", "Nanum Myeongjo", Georgia, serif;
+  font-size: 19px; letter-spacing: 0.06em; color: var(--ink);
+}
+.nav-mark .en {
+  font-size: 9.5px; letter-spacing: 0.26em; color: var(--ink-faint); text-transform: uppercase;
+}
+.nav-links { display: flex; gap: 18px; font-size: 13.5px; }
+.nav-links a { color: var(--ink-soft); text-decoration: none; padding: 2px 0; }
+.nav-links a.on { color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--brass); }
+.nav-user { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-faint); }
+.nav-user select, .nav-user input {
+  font: inherit; font-size: 12px; color: var(--ink-soft);
+  border: 1px dashed var(--line-strong); border-radius: 999px;
+  padding: 3px 10px; background: var(--surface);
+}
+
+.main { max-width: 960px; margin: 0 auto; padding: 24px; }
+
+/* ---- 공통 부품 ---- */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.card-pad { padding: 18px 20px; }
+.h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }
+.sub { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 16px; }
+.label {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 700; margin: 0 0 6px;
+}
+.field {
+  width: 100%;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px;
+  padding: 9px 12px; font: inherit; font-size: 14px; color: var(--ink);
+}
+.field:focus-visible, .btn:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--brass); outline-offset: 2px;
+}
+.field.bad { border-color: var(--danger); background: var(--danger-tint); }
+.field-error { font-size: 12.5px; color: var(--danger); margin-top: 6px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--ink); color: #fff; border: 0; border-radius: 7px;
+  padding: 11px 20px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn.brass { background: var(--brass); }
+.btn.ghost { background: transparent; color: var(--ink-soft); border: 1px solid var(--line-strong); }
+.btn.sm { padding: 7px 14px; font-size: 13px; }
+.btn:disabled { background: var(--sunken); color: var(--ink-faint); border: 1px solid var(--line); cursor: default; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 700; padding: 2.5px 9px; border-radius: 999px; white-space: nowrap;
+}
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge.plain::before { display: none; }
+.badge.ok { background: var(--ok-tint); color: var(--ok); }
+.badge.warn { background: var(--warn-tint); color: var(--warn); }
+.badge.danger { background: var(--danger-tint); color: var(--danger); }
+.badge.info { background: var(--info-tint); color: var(--info); }
+.badge.mute { background: var(--sunken); color: var(--ink-faint); }
+
+.note { font-size: 12.5px; color: var(--ink-faint); display: flex; gap: 7px; align-items: flex-start; }
+.note b { color: var(--ink-soft); font-weight: 600; }
+.money { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+.money small { font-size: 12px; font-weight: 500; color: var(--ink-faint); margin-left: 3px; }
+.divide { height: 1px; background: var(--line); margin: 13px 0; border: 0; }
+.row { display: flex; justify-content: space-between; gap: 16px; font-size: 13.5px; color: var(--ink-soft); padding: 3px 0; }
+.row b { color: var(--ink); font-weight: 600; }
+
+.empty { padding: 36px 24px; text-align: center; }
+.empty .big { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.empty .why { font-size: 13.5px; color: var(--ink-soft); max-width: 44ch; margin: 0 auto; }
+.empty .actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+
+.skel {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--sunken) 25%, #e9e6df 50%, var(--sunken) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.meter { height: 5px; background: var(--sunken); border-radius: 99px; overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--brass); border-radius: 99px; }
+.meter.low span { background: var(--danger); }
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.between { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.grow { flex: 1; min-width: 0; }
