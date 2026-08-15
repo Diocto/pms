@@ -9,18 +9,16 @@ from datetime import date, datetime
 from app.common.response import ApiModel
 
 
-class DiscountRefRequest(ApiModel):
-    type: str            # "PROMOTION". 유스케이스에서 enum으로 좁힌다
-    reference: str
-
-
 class CreateReservationRequest(ApiModel):
+    """일반 예약 요청. **`discounts`는 여기 없다** — 스펙 2.2가 일반 예약
+    API에 노출하지 않는다고 못 박았다 (D22). 할인 예약은 F02의 특가
+    유스케이스가 Command를 직접 채운다."""
+
     room_type_id: int
     check_in: date
     check_out: date
     room_count: int
     guest_count: int
-    discounts: list[DiscountRefRequest] = []
 
 
 class ReservationResponse(ApiModel):

@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.common.clock import Clock
 from app.common.db import TransactionManager
-from app.common.errors import InvalidRequestError, NotFoundError
+from app.common.errors import ConflictError, InvalidRequestError, NotFoundError
 from app.inventory.domain.errors import InsufficientInventoryError
 from app.inventory.domain.models import Money, RoomType
 from app.inventory.domain.repositories import InventoryRepository
@@ -46,8 +46,8 @@ from app.reservation.application.ports import (
     ReservationPreCheckHook,
 )
 from app.reservation.domain.models import Reservation
+from app.reservation.domain.repositories import ReservationRepository
 from app.reservation.domain.services import generate_confirmation_code
-from app.reservation.infrastructure.persistence import MySqlReservationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class CreateReservationUseCase:
         lock: LockPort,
         idempotency: IdempotencyPort,
         inventory_repository: InventoryRepository,
-        reservation_repository: MySqlReservationRepository,
+        reservation_repository: ReservationRepository,
         clock: Clock,
         hold_minutes: int,
         lock_wait_s: float,
@@ -98,8 +98,6 @@ class CreateReservationUseCase:
             raise RequestInProgressError("같은 요청이 처리 중입니다")
         if claim.outcome == "failed":
             # 같은 키 재요청은 같은 실패를 받는다 (D30). 코드가 곧 저장된 결과다
-            from app.common.errors import ConflictError
-
             raise ConflictError("이전 요청과 같은 결과입니다", code=claim.failure_code)
 
         try:
@@ -116,6 +114,7 @@ class CreateReservationUseCase:
             today = self._clock.today()
 
             # ── 락 (밖) → 트랜잭션 (안) — 순서가 뒤집히면 커밋 전에 풀린다 ──
+            idempotency_conflict = False
             with self._lock.acquire_all(
                 keys, wait_s=self._lock_wait_s, ttl_s=self._lock_ttl_s
             ):
@@ -134,13 +133,17 @@ class CreateReservationUseCase:
                             continue
                         if "uk_reservation_idempotency" in message:
                             # Redis가 뚫린 상황 — DB UK가 정답이다 (D9).
-                            # 500이 아니라 기존 예약으로 200이다 (T54)
-                            logger.warning(
-                                "멱등 UK 충돌 — Redis 우회 감지 user=%s",
-                                command.user_id,
-                            )
-                            return self._replay_by_idempotency(command)
+                            # 재생 조회·저장은 락 밖에서 한다 — 락을 쥔 채
+                            # Redis·재조회를 하면 장애 국면에 락 보유가 늘어난다
+                            idempotency_conflict = True
+                            break
                         raise
+            if idempotency_conflict:
+                logger.warning(
+                    "멱등 UK 충돌 — Redis 우회 감지. 500이 아니라 기존 예약으로 "
+                    "응답한다 (T54) user=%s", command.user_id,
+                )
+                return self._replay_by_idempotency(command)
             # ── 커밋·락 해제 완료 후 멱등 결과 저장 (Redis, 밖) ────────────
             self._idempotency.store(
                 user_id=command.user_id, key=command.idempotency_key,
@@ -163,15 +166,22 @@ class CreateReservationUseCase:
                 user_id=command.user_id, key=command.idempotency_key
             )
             raise
-        except Exception as error:
-            # 사전 검사 훅의 거부(F02의 409류) — 실패로 완료 표시 (2.2절)
-            from app.common.errors import ConflictError
-
-            if isinstance(error, ConflictError) and error.code is not None:
+        except ConflictError as error:
+            # 사전 검사 훅의 거부(F02의 409류) — 재고 부족과 같은 성격이라
+            # 실패로 완료 표시한다. 같은 키 재요청이 같은 409를 받는다 (D30)
+            if error.code is not None:
                 self._idempotency.store_failure(
                     user_id=command.user_id, key=command.idempotency_key,
                     failure_code=error.code, ttl_seconds=ttl_seconds,
                 )
+            raise
+        except Exception:
+            # 예상 못 한 실패(500) — 아무것도 커밋되지 않았으므로 키를 지워
+            # 재시도가 최초 요청이 되게 한다 (D31). PROCESSING으로 방치하면
+            # 사용자가 TTL 10분간 가짜 409 루프에 갇힌다
+            self._idempotency.release(
+                user_id=command.user_id, key=command.idempotency_key
+            )
             raise
 
     # ── 트랜잭션 안 ────────────────────────────────────────────────────

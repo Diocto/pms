@@ -11,8 +11,6 @@ from fastapi import APIRouter, Header, Request, Response
 
 from app.reservation.application.commands import (
     CreateReservationCommand,
-    DiscountRef,
-    DiscountType,
     OrderLine,
     ReservationResult,
 )
@@ -48,10 +46,7 @@ def create_reservation(
             room_count=body.room_count,
             guest_count=GuestCount(value=body.guest_count),
         ),
-        discounts=[
-            DiscountRef(type=DiscountType(item.type), reference=item.reference)
-            for item in body.discounts
-        ],
+        # discounts는 비워 둔다 — 일반 예약 API는 할인을 받지 않는다 (2.2절, D22)
     )
     result = request.app.state.container.reservation.create_reservation().execute(
         command

@@ -203,6 +203,10 @@ def test_K3_같은_멱등_키_50_동시_요청은_예약_1건이다(container, e
     )
     assert unexpected == []
     assert all(isinstance(f, RequestInProgressError) for f in failures)
+    assert len(successes) + len(failures) == 50   # 회계가 닫힌다
+    # 경합 증거 — 실패 0건이면 요청이 안 겹친 것이고 그런 통과는 무의미하다
+    assert len(failures) >= 1
+    assert sum(1 for r in successes if not r.replayed) == 1  # 최초는 정확히 하나
     assert _reservation_count(engine) == 1   # 예약은 정확히 1건
     assert _remaining(engine, D1) == 9       # 한 번만 깎였다
 
@@ -263,17 +267,28 @@ def test_K5_확정과_취소가_동시에_오면_최종_상태는_하나다(cont
             text("SELECT status FROM reservation WHERE confirmation_code = :c"),
             {"c": code},
         ).scalar_one()
-        history = conn.execute(
+        rows = conn.execute(
             text(
-                "SELECT COUNT(*) FROM reservation_status_history h"
+                "SELECT h.from_status, h.event, h.to_status"
+                " FROM reservation_status_history h"
                 " JOIN reservation r ON r.id = h.reservation_id"
-                " WHERE r.confirmation_code = :c"
+                " WHERE r.confirmation_code = :c ORDER BY h.id"
             ),
             {"c": code},
-        ).scalar_one()
+        ).all()
+    # 불변식으로 단언한다 (리뷰 지적) — "이력 1줄"은 시스템 불변식이 아니다.
+    # 확정이 먼저 이기고 취소가 뒤따르는 순서(CONFIRMED→CANCELLED)는 합법이라
+    # 이력 2줄이 정당하다. 불변은 "복원을 동반한 전이는 최대 1회"다
+    restoring = [r for r in rows if r[2] in ("CANCELLED", "EXPIRED")]
+    assert len(restoring) <= 1
     assert status in ("CONFIRMED", "CANCELLED")
-    assert history == 1                      # 실제 전이는 정확히 하나
-    expected_remaining = 10 if status == "CANCELLED" else 9
+    if status == "CANCELLED":
+        assert len(restoring) == 1           # 취소됐으면 복원 전이가 정확히 하나
+        expected_remaining = 10
+    else:
+        assert restoring == []               # 확정 상태면 복원이 없었어야 한다
+        assert rows == [("PENDING", "CONFIRM", "CONFIRMED")]
+        expected_remaining = 9
     for offset in range(3):
         assert _remaining(engine, D1 + timedelta(days=offset)) == expected_remaining
 
@@ -296,9 +311,22 @@ def test_K6_취소와_만료가_겹쳐도_복원은_정확히_한_번이다(cont
     successes, failures, unexpected = _run(60, task)
     assert unexpected == []
     for offset in range(3):
-        # 10 - 1(생성 차감) + 1(복원 정확히 한 번) = 10. 이중 복원이면 11인데
-        # CHECK 상한이 그 전에 막고 그것도 감지 예외로 드러난다
+        # 10 - 1(생성 차감) + 1(복원 정확히 한 번) = 10. 이중 복원이면 11이다 —
+        # 총량이 100이라 CHECK 상한에 안 걸리므로 이 단언이 직접 잡는다
         assert _remaining(engine, D1 + timedelta(days=offset)) == 10
+    # 이력 줄 수도 함께 센다 (4.3절 공통 규칙) — "두 번 깎고 두 번 되돌린"
+    # 회귀는 잔여가 10으로 돌아와 위 단언을 통과하기 때문이다
+    with engine.connect() as conn:
+        restoring = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM reservation_status_history h"
+                " JOIN reservation r ON r.id = h.reservation_id"
+                " WHERE r.confirmation_code = :c"
+                "   AND h.to_status IN ('CANCELLED', 'EXPIRED')"
+            ),
+            {"c": code},
+        ).scalar_one()
+    assert restoring == 1
 
 
 def test_K10_취소_이력은_정확히_한_줄이다(container, engine):

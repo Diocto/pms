@@ -136,7 +136,9 @@ class ReservationContainer(containers.DeclarativeContainer):
         CancelReservationUseCase, **_transition_deps
     )
     expire_reservations = providers.Factory(
-        ExpireReservationsUseCase, **_transition_deps
+        ExpireReservationsUseCase,
+        batch_size=100,  # 한 주기의 처리 상한 — 조립에서 보이게 명시한다
+        **_transition_deps,
     )
     check_in_out = providers.Factory(CheckInOutUseCase, **_transition_deps)
     get_reservation = providers.Factory(GetReservationUseCase, **_transition_deps)

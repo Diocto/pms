@@ -96,17 +96,42 @@ def client(engine, database_url, redis_url, monkeypatch):
     app.state.container.reservation.lock.reset_override()
 
 
-def _create(client, *, key: str, discounts=None):
+def _create(client, *, key: str):
     body = {
         "roomTypeId": ROOM_TYPE_ID, "checkIn": str(IN_1), "checkOut": str(OUT_3),
         "roomCount": 1, "guestCount": 2,
     }
-    if discounts is not None:
-        body["discounts"] = discounts
     return client.post(
         "/api/reservations", json=body,
         headers={"X-User-Id": USER, "Idempotency-Key": key},
     )
+
+
+def _execute_with_discounts(client, *, key: str, discounts):
+    """할인은 공개 API에 없다 (2.2절, D22) — F02처럼 Command를 직접 채워
+    유스케이스를 부른다."""
+    from app.common.errors import DomainError
+    from app.reservation.application.commands import (
+        CreateReservationCommand, DiscountRef, DiscountType, OrderLine,
+    )
+    from app.reservation.domain.models import GuestCount, StayPeriod
+
+    command = CreateReservationCommand(
+        user_id=USER,
+        idempotency_key=key,
+        line=OrderLine(
+            room_type_id=ROOM_TYPE_ID,
+            stay_period=StayPeriod(check_in=IN_1, check_out=OUT_3),
+            room_count=1,
+            guest_count=GuestCount(value=2),
+        ),
+        discounts=[
+            DiscountRef(type=DiscountType(item["type"]), reference=item["reference"])
+            for item in discounts
+        ],
+    )
+    usecase = client.app.state.container.reservation.create_reservation()
+    return usecase.execute(command)
 
 
 def _remaining(engine, stay_date: date) -> int:
@@ -245,6 +270,11 @@ def test_T79b_훅이_성공한_뒤_호출부가_실패하면_훅이_쓴_행도_�
     response = _create(client, key="k-t79b")
     assert response.status_code == 500
     assert _probe_count(engine) == 0  # 살아남았다면 훅이 별도 세션을 쓴 것이다
+    # D31 — 500의 멱등 키는 지워져, 재시도가 가짜 REQUEST_IN_PROGRESS에
+    # 갇히지 않고 최초 요청이 된다
+    client.app.state.container.reservation.creation_hooks.reset_override()
+    retry = _create(client, key="k-t79b")
+    assert retry.status_code == 201
 
 
 def test_T79c_반납_훅_성공_뒤_실패도_함께_롤백된다(client, engine):
@@ -297,38 +327,60 @@ def test_T80a_할인이_없으면_정가이고_해석기를_부르지_않는다(
     assert resolver.calls == []
 
 
+def test_공개_API는_discounts를_받지_않는다(client):
+    # 스펙 2.2: 일반 예약 API에 노출하지 않는다 (D22). 보내도 무시된다
+    resolver = FixedResolver(price=1)
+    client.app.state.container.reservation.discount_resolvers.override([resolver])
+    body = {
+        "roomTypeId": ROOM_TYPE_ID, "checkIn": str(IN_1), "checkOut": str(OUT_3),
+        "roomCount": 1, "guestCount": 2,
+        "discounts": [{"type": "PROMOTION", "reference": "smuggled"}],
+    }
+    response = client.post(
+        "/api/reservations", json=body,
+        headers={"X-User-Id": USER, "Idempotency-Key": "k-smuggle"},
+    )
+    assert response.status_code == 201
+    assert response.json()["pricePerNight"] == 100000  # 정가 — 밀반입 무효
+    assert resolver.calls == []
+
+
 def test_T80b_해석_성공은_특가_단가가_스냅샷된다(client):
     resolver = FixedResolver(price=70000)
     client.app.state.container.reservation.discount_resolvers.override([resolver])
-    body = _create(
+    result = _execute_with_discounts(
         client, key="k-t80b",
         discounts=[{"type": "PROMOTION", "reference": "promo-1"}],
-    ).json()
-    assert body["pricePerNight"] == 70000       # 실제 청구 단가 (D22)
-    assert body["totalPrice"] == 140000         # 70000 × 2박 × 1실
+    )
+    assert result.price_per_night == 70000      # 실제 청구 단가 (D22)
+    assert result.total_price == 140000         # 70000 × 2박 × 1실
     assert resolver.calls == ["promo-1"]
 
 
 def test_T80c_해석_실패는_400이다__정가로_조용히_넘어가지_않는다(client):
+    from app.common.errors import InvalidRequestError
+
     client.app.state.container.reservation.discount_resolvers.override(
         [FixedResolver(price=None)]
     )
-    response = _create(
-        client, key="k-t80c",
-        discounts=[{"type": "PROMOTION", "reference": "promo-x"}],
-    )
-    assert response.status_code == 400  # fail-closed
+    with pytest.raises(InvalidRequestError):  # fail-closed
+        _execute_with_discounts(
+            client, key="k-t80c",
+            discounts=[{"type": "PROMOTION", "reference": "promo-x"}],
+        )
 
 
 def test_T80d_할인_2개는_400이다(client):
-    response = _create(
-        client, key="k-t80d",
-        discounts=[
-            {"type": "PROMOTION", "reference": "a"},
-            {"type": "PROMOTION", "reference": "b"},
-        ],
-    )
-    assert response.status_code == 400
+    from app.common.errors import InvalidRequestError
+
+    with pytest.raises(InvalidRequestError):
+        _execute_with_discounts(
+            client, key="k-t80d",
+            discounts=[
+                {"type": "PROMOTION", "reference": "a"},
+                {"type": "PROMOTION", "reference": "b"},
+            ],
+        )
 
 
 # ── 사전 검사 (T80f·T80g, D23) ──────────────────────────────────────

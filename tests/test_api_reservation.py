@@ -80,7 +80,8 @@ def client(engine, database_url, redis_url, monkeypatch):
     redis_client.close()
 
     app = create_app()
-    with TestClient(app) as test_client:
+    # 500도 '응답'으로 받아 계약(코드·롤백)을 검증한다 (T68)
+    with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
 
 
@@ -237,12 +238,12 @@ def test_T59_이미_확정된_예약의_재확정은_200이고_결제를_다시_
     code = _create(client, key="idem-reconfirm").json()["confirmationCode"]
     payment = client.app.state.container.reservation.payment()
     client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
-    charged_before = len(payment.refunded)  # refund 기록으로 부수효과 추적은 안 되니
-    # 결제 호출 수는 훅 테스트에서 세고, 여기서는 멱등 200만 확인한다
+    charged_before = len(payment.charged)
     again = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
     assert again.status_code == 200
     assert again.json()["status"] == "CONFIRMED"
-    assert len(payment.refunded) == charged_before  # 보상도 안 일어났다
+    assert len(payment.charged) == charged_before  # 결제를 다시 부르지 않았다
+    assert payment.refunded == []                  # 보상도 없다
 
 
 def test_T58_결제_거절은_200_CANCELLED이고_재고가_복원된다(client, engine):
@@ -271,9 +272,93 @@ def test_T60_만료_대기_중인_예약의_확정은_409이고_결제를_부르
             text("UPDATE reservation SET expires_at = NOW(6) - INTERVAL 1 MINUTE WHERE confirmation_code = :c"),
             {"c": code},
         )
+    payment = client.app.state.container.reservation.payment()
+    charged_before = len(payment.charged)
     response = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
     assert response.status_code == 409
     assert response.json()["code"] == "INVALID_STATE_TRANSITION"
+    assert len(payment.charged) == charged_before  # 만료 대기 중 — 결제를 부르지 않았다
+
+
+def test_취소된_예약의_확정은_409이고_결제를_부르지_않는다(client):
+    # 2.3절 실패 표 3행. 표 수준(T13)이 아니라 API 경로로 확인한다
+    code = _create(client, user="u", key="idem-conf-cancelled").json()["confirmationCode"]
+    client.post(f"/api/reservations/{code}/cancel", headers={"X-User-Id": "u"})
+    payment = client.app.state.container.reservation.payment()
+    charged_before = len(payment.charged)
+    response = client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u"})
+    assert response.status_code == 409
+    assert len(payment.charged) == charged_before
+
+
+def test_T64_확정된_예약의_취소도_재고를_복원한다(client, engine):
+    code = _create(client, user="u64", key="idem-t64").json()["confirmationCode"]
+    client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u64"})
+    assert _remaining(engine, IN_1) == 4
+    response = client.post(f"/api/reservations/{code}/cancel", headers={"X-User-Id": "u64"})
+    assert response.status_code == 200
+    assert _remaining(engine, IN_1) == 5
+    assert _history_rows(engine, code) == [
+        ("PENDING", "CONFIRM", "CONFIRMED"),
+        ("CONFIRMED", "CANCEL", "CANCELLED"),
+    ]
+
+
+def test_T68_복원_갱신_수_불일치는_조용히_넘기지_않고_500이다(client, engine):
+    code = _create(client, user="u68", key="idem-t68").json()["confirmationCode"]
+    # 이중 복원 상황의 재현 — 잔여를 이미 총량으로 만들어 복원이 0건이 되게 한다
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE room_daily_inventory SET remaining = total_quantity WHERE room_type_id = :id"),
+            {"id": ROOM_TYPE_ID},
+        )
+    response = client.post(f"/api/reservations/{code}/cancel", headers={"X-User-Id": "u68"})
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
+    # 트랜잭션 롤백 — 상태도 이력도 남지 않았다
+    body = client.get(f"/api/reservations/{code}", headers={"X-User-Id": "u68"}).json()
+    assert body["status"] == "PENDING"
+    assert _history_rows(engine, code) == []
+
+
+def test_이미_체크인된_예약의_체크인_재요청은_200_멱등이다(client):
+    # 2.6절 표의 멱등 칸 — 시간창 검증을 건너뛰는 분기까지 이 경로가 덮는다
+    code = _confirmed_today(client, "idem-recheckin")
+    client.post(f"/api/reservations/{code}/check-in", headers={"X-User-Id": "guest"})
+    again = client.post(f"/api/reservations/{code}/check-in", headers={"X-User-Id": "guest"})
+    assert again.status_code == 200
+    assert again.json()["status"] == "CHECKED_IN"
+
+
+def test_T25b_포맷을_따르지_않는_확인번호도_전_경로가_정상_동작한다(client, engine):
+    """만드는 함수만 있고 읽는 함수는 없다 (D7). 어딘가에서 포맷을 파싱하거나
+    형식 검사를 걸면 이 테스트가 깨진다."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO reservation"
+                " (confirmation_code, user_id, room_type_id, check_in, check_out,"
+                "  room_count, guest_count, price_per_night, total_price, status,"
+                "  idempotency_key, expires_at, created_at, updated_at)"
+                " VALUES ('zzz', 'u25b', :rt, :ci, :co, 1, 2, 100000, 300000,"
+                "  'PENDING', 'idem-zzz', '2026-12-31 23:59:59', NOW(6), NOW(6))"
+            ),
+            {"rt": ROOM_TYPE_ID, "ci": str(IN_1), "co": str(OUT_4)},
+        )
+        # 합성 예약이므로 점유분을 수동으로 차감해 둔다 — 안 하면 취소의
+        # 복원이 총량을 넘어 이중 복원 감지(정상 작동)에 걸린다
+        conn.execute(
+            text(
+                "UPDATE room_daily_inventory SET remaining = remaining - 1"
+                " WHERE room_type_id = :rt AND stay_date >= :ci AND stay_date < :co"
+            ),
+            {"rt": ROOM_TYPE_ID, "ci": str(IN_1), "co": str(OUT_4)},
+        )
+    assert client.get("/api/reservations/zzz", headers={"X-User-Id": "u25b"}).status_code == 200
+    confirm = client.post("/api/reservations/zzz/confirm", headers={"X-User-Id": "u25b"})
+    assert confirm.status_code == 200 and confirm.json()["status"] == "CONFIRMED"
+    cancel = client.post("/api/reservations/zzz/cancel", headers={"X-User-Id": "u25b"})
+    assert cancel.status_code == 200 and cancel.json()["status"] == "CANCELLED"
 
 
 # ── 취소·만료 (T63~T71) ─────────────────────────────────────────────
@@ -362,6 +447,45 @@ def _confirmed_today(client, key: str) -> str:
     ).json()["confirmationCode"]
     client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "guest"})
     return code
+
+
+def test_T71_배치_중_한_건이_실패해도_나머지는_계속_처리된다(client, engine):
+    a = _create(client, user="u71", key="idem-t71a").json()["confirmationCode"]
+    b = _create(
+        client, user="u71", key="idem-t71b",
+        check_in=IN_1 + timedelta(days=4), check_out=IN_1 + timedelta(days=5),
+    ).json()["confirmationCode"]
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE reservation SET expires_at = NOW(6) - INTERVAL 1 MINUTE WHERE confirmation_code IN (:a, :b)"),
+            {"a": a, "b": b},
+        )
+
+    from app.inventory.infrastructure.persistence import MySqlInventoryRepository
+
+    class FailsOnce(MySqlInventoryRepository):
+        def __init__(self) -> None:
+            self.failed = False
+
+        def restore(self, session, **kwargs):
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError("첫 건의 복원이 실패한다")
+            return super().restore(session, **kwargs)
+
+    container = client.app.state.container
+    container.reservation.inventory_repository.override(FailsOnce())
+    try:
+        response = client.post("/api/internal/reservations/expire")
+    finally:
+        container.reservation.inventory_repository.reset_override()
+    # 한 건은 실패(롤백·로그), 다른 한 건은 계속 처리됐다
+    assert response.json()["expiredCount"] == 1
+    statuses = {
+        client.get(f"/api/reservations/{c}", headers={"X-User-Id": "u71"}).json()["status"]
+        for c in (a, b)
+    }
+    assert statuses == {"PENDING", "EXPIRED"}
 
 
 def test_T72_체크인_체크아웃_정상_흐름(client):

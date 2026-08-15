@@ -11,34 +11,16 @@
 
 import logging
 from datetime import datetime
-from typing import Literal
 
-from sqlalchemy import select
-
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.reservation.domain.enums import ReservationEvent, ReservationStatus
 from app.reservation.domain.models import Reservation, ReservationStatusHistory
+from app.reservation.domain.repositories import EventApplication
 from app.reservation.domain.transitions import resolve
 
 logger = logging.getLogger(__name__)
-
-
-class EventApplication(BaseModel):
-    """`apply_event`의 결과.
-
-    - `won` — 전이 성공. 이력이 기록됐고, `restores_inventory`면 호출부가
-      **같은 트랜잭션에서** 재고를 복원해야 한다
-    - `lost` — 경합 패배. 오류가 아니라 정상 결과다. 아무것도 바뀌지 않았다
-    - `idempotent` — 이미 목표 상태. UPDATE도 이력도 없다. 성공으로 응답한다
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    outcome: Literal["won", "lost", "idempotent"]
-    restores_inventory: bool
 
 
 class MySqlReservationRepository:

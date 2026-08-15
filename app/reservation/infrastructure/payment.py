@@ -19,11 +19,13 @@ from app.reservation.application.ports import PaymentResult
 class FakePaymentAdapter:
     def __init__(self, decline_rate: float) -> None:
         self._decline_rate = decline_rate
-        self.refunded: list[str | None] = []   # 보상 호출 관찰용 (테스트가 본다)
+        self.charged: list[int] = []           # 호출 관찰용 — "결제를 부르지
+        self.refunded: list[str | None] = []   # 않는다"는 계약의 검증 수단이다
 
     def charge(
         self, *, reservation_id: int, amount: int, idempotency_key: str
     ) -> PaymentResult:
+        self.charged.append(reservation_id)
         if self._decline_rate >= 1.0:
             declined = True          # 결정적 — 결제 실패 분기 전용 회차
         elif self._decline_rate <= 0.0:
