@@ -131,7 +131,7 @@ restore_inventory(session, ...)              # 이긴 하나만 여기 도달한
 
 ## 도메인이 의존해도 되는 것
 
-**`sqlmodel`·`sqlalchemy`와 표준 라이브러리뿐이다.** `fastapi`, `redis`, `dependency_injector`가 `domain`에 들어오면 규칙 위반이다.
+**`sqlmodel`·`sqlalchemy`와 표준 라이브러리, 그리고 `app.common`의 프레임워크 무의존 부분(예외 계층, 시계)뿐이다.** `fastapi`, `redis`, `dependency_injector`가 `domain`에 들어오면 규칙 위반이다. 자세한 근거는 `clean-architecture.md`에 있다.
 
 **시각을 직접 읽지 않는다.** `datetime.now()`를 도메인에서 부르면 테스트가 실제 시각에 묶인다. 시계를 주입받거나 인자로 받는다.
 
