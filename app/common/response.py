@@ -21,6 +21,7 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
+        from_attributes=True,   # Result·SQLModel 객체에서 model_validate로 응답을 만든다
     )
 
 
