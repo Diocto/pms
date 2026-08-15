@@ -9,7 +9,9 @@
 """
 
 from datetime import date, datetime
+from typing import Any
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -22,6 +24,27 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlmodel import Field, SQLModel
+
+from app.common.errors import InvalidRequestError
+
+
+class Money(BaseModel):
+    """원 단위 정수 금액. 음수가 없고, 연산은 새 값을 돌려준다 (불변)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    amount: int
+
+    def model_post_init(self, _context: Any) -> None:
+        # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (D27)
+        if self.amount < 0:
+            raise InvalidRequestError("금액은 음수가 될 수 없습니다")
+
+    def multiply(self, factor: int) -> "Money":
+        return Money(amount=self.amount * factor)
+
+    def add(self, other: "Money") -> "Money":
+        return Money(amount=self.amount + other.amount)
 
 
 class Hotel(SQLModel, table=True):
