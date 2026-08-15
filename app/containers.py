@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.common.clock import SystemClock
 from app.common.config import Settings
 from app.common.db import TransactionManager
+from app.inventory.query.container import InventoryQueryContainer
 from app.reservation.container import ReservationContainer
 
 
@@ -40,6 +41,14 @@ class AppContainer(containers.DeclarativeContainer):
 
     reservation = providers.Container(
         ReservationContainer,
+        settings=settings,
+        redis_client=redis_client,
+        transaction_manager=transaction_manager,
+        clock=clock,
+    )
+
+    inventory_query = providers.Container(
+        InventoryQueryContainer,
         settings=settings,
         redis_client=redis_client,
         transaction_manager=transaction_manager,
