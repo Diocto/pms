@@ -60,6 +60,9 @@ const searchToReserve409 = new Rate('search_to_reserve_409_rate');
 const reserveGaveUp = new Counter('reserve_gave_up');
 // 범위 밖을 찍고 있다는 신호. 대량 발생하면 시나리오 오류다.
 const notYetOpen = new Counter('empty_not_yet_open');
+// 200을 받은 검색 수. cache_hit_rate 표본과 같은 분기에서 함께 늘어나므로,
+// 이게 0이 아니면 히트율 표본도 0이 아니다 — "세었는가"를 세는 지표다.
+const searchOk = new Counter('search_ok');
 
 export const options = {
     scenarios: {
@@ -98,6 +101,9 @@ export const options = {
         // off 회차는 반대로 CACHE 응답이 한 건이라도 있으면 안 된다 — 있으면
         // 캐시가 살아 있던 것이라 그 대조도 무효다.
         ...(CACHE === 'on' ? { cache_hit_rate: ['rate>0'] } : { cache_hit_rate: ['rate==0'] }),
+        // 성공한 검색이 0건이면 위 게이트는 표본이 없어 조용히 통과한다.
+        // 그래서 "검색이 실제로 성공했는가"를 따로 건다. 이 둘이 한 쌍이다.
+        search_ok: ['count>0'],
     },
 };
 
@@ -127,14 +133,22 @@ function doSearch(p, fresh) {
     let body = null;
     try { body = res.json(); } catch (e) { /* 에러 응답 */ }
 
-    // 표본은 200 응답마다 무조건 넣는다. "source 필드가 있을 때만 넣기"로
-    // 짜면, 필드명이 어긋났을 때(예: ApiModel 미상속으로 snake_case) 표본이
-    // 0건이 되는데 — **k6는 표본 없는 지표의 임계값을 조용히 통과시킨다.**
-    // 회차 유효성 게이트(rate>0)가 정확히 그 상황에서 울어야 하므로,
-    // 필드가 없으면 false 로 넣어 게이트가 잡게 한다.
-    if (res.status === 200 && body) {
-        cacheHit.add(body[SEARCH_FIELDS.source] === 'CACHE');
-        const searchedAt = Date.parse(body[SEARCH_FIELDS.searchedAt]);
+    // 표본은 200 응답마다 **조건 없이 정확히 한 번** 넣는다.
+    //
+    // "source 필드가 있을 때만 넣기"로 짜면 필드명이 어긋났을 때(ApiModel
+    // 미상속 등) 표본이 0건이 되는데 — **k6는 표본 없는 지표의 임계값을
+    // 조용히 통과시킨다.** 게이트가 울어야 할 바로 그 상황에서 게이트가
+    // 사라진다. 그래서 필드가 없어도, 본문 파싱이 실패해도 false 로 넣는다.
+    //
+    // "표본을 넣는 경로 자체가 안 도는" 위험(PM 제안: 표본 수 == 200 응답 수
+    // 게이트)은 임계값으로는 못 건다 — k6 임계값은 지표 하나에 대한 식이라
+    // 두 지표를 비교할 수 없다. 대신 구조로 막는다: 이 줄이 200 판정과 같은
+    // 분기에 있어 건너뛸 조건 분기 자체가 없고, "200이 있었는가"는 아래
+    // search_ok 게이트가 따로 확인한다. 둘을 합치면 같은 보장이 된다.
+    if (res.status === 200) {
+        searchOk.add(1);
+        cacheHit.add(body ? body[SEARCH_FIELDS.source] === 'CACHE' : false);
+        const searchedAt = body ? Date.parse(body[SEARCH_FIELDS.searchedAt]) : NaN;
         if (!isNaN(searchedAt)) {
             // 음수가 나오면 서버·클라이언트 시계가 어긋난 것이다. 0으로 깎는다.
             staleness.add(Math.max(0, Date.now() - searchedAt));
