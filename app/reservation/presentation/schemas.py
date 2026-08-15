@@ -1,6 +1,45 @@
-"""요청·응답 스키마 — 전부 `ApiModel` 상속, camelCase로 나간다."""
+"""요청·응답 스키마 — 전부 `ApiModel` 상속, camelCase로 나간다.
+
+도메인 모델(SQLModel)을 그대로 `response_model`에 달지 않는다 — 내부 `id`와
+`idempotency_key`가 새어 나간다. 응답은 `ReservationResult`에서 옮긴다.
+"""
+
+from datetime import date, datetime
 
 from app.common.response import ApiModel
+
+
+class CreateReservationRequest(ApiModel):
+    """일반 예약 요청. **`discounts`는 여기 없다** — 스펙 2.2가 일반 예약
+    API에 노출하지 않는다고 못 박았다 (D22). 할인 예약은 F02의 특가
+    유스케이스가 Command를 직접 채운다."""
+
+    room_type_id: int
+    check_in: date
+    check_out: date
+    room_count: int
+    guest_count: int
+
+
+class ReservationResponse(ApiModel):
+    confirmation_code: str
+    status: str
+    room_type_id: int
+    check_in: date
+    check_out: date
+    room_count: int
+    guest_count: int
+    price_per_night: int
+    total_price: int
+    expires_at: datetime
+    confirmed_at: datetime | None = None
+    terminated_at: datetime | None = None
+    created_at: datetime
+    failure_reason: str | None = None
+
+
+class ExpireResponse(ApiModel):
+    expired_count: int
 
 
 class RuntimeConfigResponse(ApiModel):
