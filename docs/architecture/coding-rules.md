@@ -18,28 +18,138 @@
 
 동기를 택하면 얻는 것도 있다. `threading.Barrier`가 동시성 테스트에서 스레드를 한 지점에 모았다가 함께 출발시킨다. 이건 검증된 패턴이고 재현이 안정적이다.
 
-## 트랜잭션 경계
+## 세션과 트랜잭션의 수명
 
-**세션이 곧 트랜잭션 경계다.** SQLAlchemy는 세션 없이 쿼리할 수 없으므로 "트랜잭션을 열지 않는다"는 표현은 성립하지 않는다. 대신 **세션의 수명을 얼마나 짧게 잡는가**로 말한다.
+### 둘은 같은 것이 아니다
 
-**세션은 유스케이스에서만 연다.** 라우터, 도메인, 리포지토리 구현이 스스로 세션을 만들지 않는다. 구현체는 주입받은 세션을 쓰기만 한다.
+SQLAlchemy에서 **세션은 작업 단위이고 트랜잭션은 DB의 원자 단위다.** 한 세션이 커밋을 여러 번 하며 여러 트랜잭션을 걸칠 수 있다.
+
+| | 세션 | 트랜잭션 |
+|---|---|---|
+| 무엇인가 | 신원 맵 + 커넥션 대여 + 보류 중인 변경 | DB가 원자적으로 처리하는 단위 |
+| 열림 | `sessionmaker()` 호출 | 첫 쿼리에서 자동, 또는 `begin()` |
+| 닫힘 | `close()` — 커넥션 반납 | `commit()` 또는 `rollback()` |
+| 안 닫으면 | **커넥션 풀이 마른다** | 락을 쥔 채 남는다 |
+
+**이 프로젝트는 둘의 수명을 일치시킨다. 세션 하나 = 트랜잭션 하나다.**
+
+한 유스케이스에서 커밋을 두 번 하면 그 사이에 남이 끼어든다. 재고를 깎고 커밋한 뒤 예약을 넣다가 실패하면 재고만 줄어든 상태가 남는다. **수명을 일치시키면 이 실수가 구조적으로 불가능해진다.**
+
+### 진입점은 둘뿐이다
+
+**세션을 여는 것은 유스케이스뿐이다.** 라우터·도메인·리포지토리 구현은 주입받은 세션을 쓰기만 한다. 그리고 유스케이스도 `sessionmaker`를 직접 부르지 않는다 — `app/common/db.py`의 컨텍스트 매니저 **두 개만** 쓴다.
+
+```python
+class TransactionManager:
+    """세션과 트랜잭션의 수명을 함께 관리한다. 유스케이스가 주입받는다."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    @contextmanager
+    def write(self) -> Iterator[Session]:
+        """쓰기 경로. 정상 종료하면 커밋, 예외가 나면 롤백."""
+        with self._session_factory() as session:
+            with session.begin():
+                yield session
+            # begin() 블록을 나오며 커밋 · 예외면 롤백
+        # 세션이 닫히며 커넥션 반납
+
+    @contextmanager
+    def read(self) -> Iterator[Session]:
+        """조회 경로. 커밋하지 않는다."""
+        with self._session_factory() as session:
+            yield session
+            session.rollback()   # 자동으로 열린 읽기 트랜잭션을 명시적으로 닫는다
+```
 
 ```python
 class CreateReservationUseCase:
     def execute(self, command: CreateReservationCommand) -> CreateReservationResult:
-        with self._session_factory() as session, session.begin():
-            ...   # 여기가 트랜잭션이다
+        with self._tx.write() as session:
+            ...        # 여기가 트랜잭션이다. 블록을 나오면 커밋된다
 ```
 
-**세션 안에서 하면 안 되는 것.**
+**`with`를 쓰는 이유는 경계가 코드에 보이기 때문이다.** 들여쓰기가 곧 트랜잭션의 범위이고, 무엇이 안에 있고 무엇이 밖에 있는지를 문서 없이 읽을 수 있다.
+
+**조회 경로에서 `rollback()`을 부르는 것**은 되돌릴 것이 있어서가 아니다. SQLAlchemy는 첫 `SELECT`에서 트랜잭션을 자동으로 열고, 그것을 닫지 않으면 커넥션이 유휴 트랜잭션 상태로 반납된다. MySQL에서 이 상태가 쌓이면 오래된 스냅샷이 유지되고 정리가 밀린다. **명시적으로 닫는다.**
+
+### 데코레이터를 쓰지 않는다
+
+`@transactional`로 감싸는 방식은 쓰지 않는다. 두 가지를 잃기 때문이다.
+
+**첫째, 락이 트랜잭션 밖에 있다는 사실이 안 보인다.** 이 프로젝트에서 순서가 틀리면 바로 버그가 되는데, 데코레이터는 그 순서를 메서드 바깥으로 감춘다.
+
+```python
+def create(self, command) -> ReservationResult:
+    self._idempotency.claim(...)                    # 트랜잭션 밖
+    for hook in self._pre_check_hooks:
+        hook.check(command)                         # 트랜잭션 밖
+    with self._lock.acquire_all(keys, ttl):         # ← 락이 밖이라는 게 보인다
+        with self._tx.write() as session:           # ← 여기부터 트랜잭션
+            price = self._pricing.resolve(session, command)
+            deduct_inventory(session, ...)
+            reservation = insert_reservation(session, ...)
+            for hook in self._creation_hooks:
+                hook.on_created(session, reservation.id, command)
+        # 커밋됨
+    # 락 해제
+    self._idempotency.store(...)                    # 트랜잭션 밖
+```
+
+**이 열두 줄이 락 순서·확장 지점 호출 순서·사전 검사 위치를 전부 눈으로 확인시켜 준다.** 데코레이터를 쓰면 이게 사라지고, 순서는 다시 문서에만 남는다.
+
+**둘째, 한 메서드 안에 트랜잭션 밖 작업이 섞이는 것이 정상이다.** 위에서 멱등 키 선점과 저장, 사전 검사, 락이 전부 밖이다. 데코레이터는 메서드 전체를 감싸므로 이걸 표현하려면 메서드를 억지로 쪼개야 한다. **그건 우리가 이 스택으로 옮기며 없앤 바로 그 강제 분할이다.**
+
+### 무엇이 안이고 무엇이 밖인가
+
+| 밖 (트랜잭션 전) | 안 | 밖 (커밋 후) |
+|---|---|---|
+| 멱등 키 선점 (Redis) | 재고 조건부 UPDATE | 락 해제 |
+| 입력 검증 | 예약 INSERT | 멱등 키에 결과 저장 (Redis) |
+| 사전 검사 훅 | 상태 전이 UPDATE | 캐시 무효화 |
+| 락 획득 | 이력 INSERT | |
+| | 확장 지점 훅 호출 | |
+
+**Redis 접근은 전부 밖이다.** 이유는 앞의 「세션 안에서 하면 안 되는 것」과 같다 — DB 커넥션과 행 락을 쥔 채 네트워크 왕복을 기다리면 그만큼 다른 요청이 막힌다.
+
+### 여러 건을 처리할 때는 건마다 트랜잭션을 연다
+
+만료 스케줄러처럼 N건을 처리하는 경로는 **한 트랜잭션에 다 넣지 않는다.**
+
+```python
+def expire_due(self) -> int:
+    with self._tx.read() as session:
+        ids = find_due_reservation_ids(session, self._clock.now())   # 조회만
+
+    expired = 0
+    for rid in ids:                       # 건마다 독립 트랜잭션
+        with self._tx.write() as session:
+            if transition_and_restore(session, rid):
+                expired += 1
+    return expired
+```
+
+이유가 셋이다. **한 건이 실패해도 나머지가 처리된다.** 한 트랜잭션이면 마지막 건의 실패가 앞의 999건을 되돌린다. **락을 오래 쥐지 않는다.** 그리고 **경합에서 진 건이 정상 흐름이다** — 사용자가 같은 예약을 확정하는 중이면 이 건의 전이 UPDATE가 0건을 받고, 그건 실패가 아니라 "졌다"이다.
+
+**조회와 처리를 나누는 것에 주의한다.** 조회 결과는 처리 시점에 이미 낡았을 수 있다. 그래서 처리 쪽이 `WHERE status = 'PENDING'` 조건을 다시 걸어 스스로 판정한다. **조회는 후보를 좁히는 것이지 판정이 아니다.**
+
+### 금지
+
+- **라우터가 세션을 받지 않는다.** FastAPI의 `Depends(get_db)`로 세션을 주입해 라우터에 넘기는 흔한 패턴을 쓰지 않는다. 그러면 트랜잭션 경계의 주인이 라우터가 되고, 유스케이스가 자기 원자성을 스스로 책임지지 못한다
+- **세션을 `self`에 저장하지 않는다.** 유스케이스는 상태가 없다. 저장하는 순간 동시 요청이 같은 세션을 공유한다
+- **세션을 반환하거나 `with` 블록 밖으로 넘기지 않는다.** 닫힌 세션의 객체를 만지면 그때 터진다
+- **`begin_nested()`(세이브포인트)를 쓰지 않는다.** 이 프로젝트는 "함께 커밋하거나 함께 롤백한다"가 계약이다. 세이브포인트는 그 계약에 구멍을 낸다
+- **유스케이스 안에서 `commit()`을 직접 부르지 않는다.** 커밋 시점은 `with` 블록의 끝 하나뿐이다
+- **도메인 메서드가 세션을 받지 않는다.** 받는 순간 DB 없이 테스트할 수 없다
+
+### 세션 안에서 하면 안 되는 것
 
 - **Redis 접근을 포함한 모든 원격 호출.** 이 규칙은 언어가 바뀌어도 그대로다. 이유가 언어와 무관하기 때문이다 — DB 커넥션과 행 락을 쥔 채 네트워크 왕복을 기다리면, 그 시간만큼 다른 요청이 막힌다. 부하가 걸릴수록 이 대기가 커진다
 - 외부 API 호출, 사용자 입력 대기, 파일 IO
 - 캐시 갱신 (읽기든 쓰기든 세션 밖에서)
 
-**읽기 전용은 커밋하지 않는다.** 조회만 하는 경로에서 세션을 열었다면 `session.begin()` 없이 읽고 닫는다. 불필요한 커밋은 커넥션을 더 오래 잡는다.
-
-**한 유스케이스에 세션 하나.** 같은 유스케이스에서 세션을 두 번 열면 두 트랜잭션이 되고, 그 사이에 남이 끼어든다. 예약 생성이 재고·예약·프로모션 세 구역을 한 묶음으로 다루는 것도 세션 하나로 처리한다.
+**한 유스케이스에 `write()` 하나.** 예약 생성이 재고·예약·프로모션 세 구역을 한 묶음으로 다루는 것도 이 하나 안에서 끝낸다. 두 번 열면 그 사이에 남이 끼어든다.
 
 ### ⚠️ 세션을 넘겨받는 쪽은 절대 스스로 열지 않는다
 
