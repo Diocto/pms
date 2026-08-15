@@ -11,11 +11,12 @@
 // [문서] 검색 응답 필드·emptyReason 3종·salesOpenUntil (F03 계약 3절)
 // [문서] 예약 생성 201 본문 필드 전부 (F01 2.2 응답 예시)
 // [문서] confirm 200 본문: status CONFIRMED+confirmedAt / CANCELLED+failureReason (F01 2.3)
-// [가정] GET /api/reservations/{code} 응답이 생성 201 본문과 같은 형태다 — 문서에
-//        "단건 조회"만 있고 본문 예시가 없다. parse가 대부분 필드를 선택으로 둔 이유.
-// [가정] cancel 200 본문도 같은 형태 (문서에는 출력 항목명만 있다: status·terminatedAt)
-// [가정] 날짜시각 문자열 형식 — expiresAt은 오프셋 없는 로컬(Asia/Seoul), searchedAt은
-//        오프셋 포함. 문서 예시가 그랬다. 화면은 Date 파싱만 하고 형식에 의존하지 않는다.
+// [확인됨 2026-08-16, 실 백엔드 대조] GET·confirm·cancel·check-in/out 전부 생성 201과
+//        같은 response_model(ReservationResponse, camelCase). 스키마·실호출로 검증.
+//        nights 필드는 응답에 없다(파서에서 선택 필드 — 화면은 날짜로 계산). createdAt 추가됨(미사용).
+// [확인됨 2026-08-16] 날짜시각은 오프셋 없는 로컬(Asia/Seoul) — expiresAt 실측 일치.
+// [확인됨 2026-08-16] 에러 본문 {code, message, traceId} camelCase — 400 실호출로 검증.
+// [확인됨 2026-08-16] 멱등 재요청은 200(최초 201과 상태 코드로 구분) — 라우터 D18 확인.
 // [가정] 검색 응답의 source 필드 존재(화면 미사용·타입에서 제외) — 대조만 하면 된다.
 // [확인 예정] 공용 설정 노출 계약 이름 ConfigReport→RuntimeReport (화면 무관, PM 공지)
 // [해소됨] 검색 경로 — F03이 구두 오기였다고 정정 (2026-08-16). 계약 문서의

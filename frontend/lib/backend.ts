@@ -1,17 +1,31 @@
 // 화면이 쓰는 api 인스턴스는 여기서 하나만 만든다.
 //
-// NEXT_PUBLIC_API_MODE=mock 이면 가짜 백엔드(mock-backend.ts)로 붙는다.
-// NEXT_PUBLIC_ 값은 번들에 실려 브라우저에서 전부 보인다 — 모드 스위치라 문제없지만,
-// 이 접두어에 비밀값을 담으면 안 된다는 사실을 여기 적어 둔다.
+// NEXT_PUBLIC_API_MODE 세 값 (번들에 실리는 모드 플래그 — 비밀값 아님):
+//   mock    전부 가짜 백엔드 (F01·F03 없이 화면 개발·시연)
+//   hybrid  검색(/api/availability)만 가짜, 예약 관련은 실 백엔드
+//           — F01은 병합됐지만 F03 검색 API가 아직 없는 구간용 (T6 1단계)
+//           주의: 검색의 잔여 수량은 가짜라 실 예약을 반영하지 않는다. F03 병합 시 real로
+//   real    전부 실 백엔드 (기본값)
 //
-// 실제 모드에서는 same-origin /api/* 로 나가고, next.config.mjs 의 rewrites가
-// 백엔드(FastAPI)로 프록시한다. T6에서 이 경로로 왕복을 확인한다.
+// 실 호출은 same-origin /api/* 로 나가고 next.config.mjs 의 rewrites가
+// 백엔드(FastAPI, 기본 http://localhost:8000)로 프록시한다.
 
 import { createApi, type Api } from "./api";
 import { createMockBackend } from "./mock-backend";
 
-export const isMockMode = process.env.NEXT_PUBLIC_API_MODE === "mock";
+const mode = process.env.NEXT_PUBLIC_API_MODE ?? "real";
+export const isMockMode = mode === "mock";
+export const isHybridMode = mode === "hybrid";
 
-export const api: Api = isMockMode
-  ? createApi({ fetchLike: createMockBackend({ latencyMs: 250 }).fetchLike })
-  : createApi();
+function buildFetch(): typeof fetch | undefined {
+  if (mode === "mock") return createMockBackend({ latencyMs: 250 }).fetchLike;
+  if (mode === "hybrid") {
+    const mock = createMockBackend({ latencyMs: 150 }).fetchLike;
+    return (input, init) =>
+      String(input).includes("/api/availability") ? mock(input, init) : fetch(input, init);
+  }
+  return undefined; // real — 전역 fetch 그대로
+}
+
+const fetchLike = buildFetch();
+export const api: Api = createApi(fetchLike ? { fetchLike } : {});
