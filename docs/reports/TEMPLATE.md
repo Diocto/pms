@@ -26,7 +26,7 @@
 만든 파일을 레이어별로 보여준다. 각 파일이 무슨 책임을 지는지 한 줄씩 쓴다.
 
 ```
-com.pms.reservation
+app/reservation
 ├── domain/
 │   └── ...
 ```
