@@ -7,6 +7,7 @@
 적용된다** — 자동 적용하면 일반가로 예약하려는 사용자까지 특가를 소진시킨다.
 """
 
+from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
@@ -43,3 +44,26 @@ class CreateReservationCommand(BaseModel):
     idempotency_key: str
     line: OrderLine
     discounts: list[DiscountRef] = []          # 지금은 0개 또는 1개
+
+
+class ReservationResult(BaseModel):
+    """유스케이스 출력. 도메인 모델을 그대로 응답에 내보내지 않기 위한 그릇이다 —
+    내부 `id`·`idempotency_key`는 여기 없다."""
+
+    model_config = ConfigDict(frozen=True, from_attributes=True)
+
+    confirmation_code: str
+    status: str
+    room_type_id: int
+    check_in: "date"
+    check_out: "date"
+    room_count: int
+    guest_count: int
+    price_per_night: int
+    total_price: int
+    expires_at: "datetime"
+    confirmed_at: "datetime | None" = None
+    terminated_at: "datetime | None" = None
+    created_at: "datetime"
+    failure_reason: str | None = None    # 결제 거절 시 PAYMENT_DECLINED (2.3절)
+    replayed: bool = False               # 멱등 재요청이면 True — 라우터가 200/201을 가른다
