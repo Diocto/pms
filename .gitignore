@@ -25,3 +25,6 @@ hs_err_pid*
 ### 로컬 환경 ###
 .env
 .env.local
+
+# 현황판 상태 스냅샷 (15분 주기) — git에 담지 않는다
+.claude/status/

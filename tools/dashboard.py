@@ -22,6 +22,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+# 상태 스냅샷 기록. git 밖에 둔다 — 15분마다 커밋하면 이력이 이걸로 도배된다.
+LOG = REPO / ".claude" / "status" / "activity.jsonl"
+
 # 코드 → (이름, 브랜치 후보, 담당, 우선순위, 가동 상태).
 #
 # 우선순위는 PM이 중재하는 값이라 여기 한 곳에서만 관리한다. 세션마다 자기 파일에
@@ -81,6 +84,83 @@ def parse_tasks(text: str) -> list[dict]:
             continue
         tasks.append({"id": tid, "title": title, "status": status, "done": done.strip()})
     return tasks
+
+
+def activity(sessions: list[dict]) -> list[dict]:
+    """모든 세션의 커밋을 시각순으로 합친다.
+
+    작업내역의 진실은 커밋이다. 별도 기록은 갱신을 잊으면 거짓이 되지만
+    커밋은 작업을 해야만 생긴다.
+    """
+    rows = []
+    for s in sessions:
+        if not s.get("branch"):
+            continue
+        raw = run("git", "log", "--format=%h\x1f%ct\x1f%cr\x1f%s",
+                  "-30", f"origin/main..origin/{s['branch']}")
+        for line in raw.splitlines():
+            parts = line.split("\x1f")
+            if len(parts) != 4:
+                continue
+            sha, ts, rel, subject = parts
+            rows.append({"code": s["code"], "sha": sha, "ts": int(ts),
+                         "rel": rel, "subject": subject})
+    rows.sort(key=lambda r: r["ts"], reverse=True)
+    return rows[:40]
+
+
+def read_log() -> list[dict]:
+    """15분마다 남기는 상태 스냅샷. 커밋이 없는 구간에도 무엇이 바뀌었는지 남긴다."""
+    if not LOG.exists():
+        return []
+    out = []
+    for line in LOG.read_text(encoding="utf-8").splitlines()[-60:]:
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue          # 깨진 줄 하나가 전체를 못 읽게 만들지 않는다
+    out.reverse()
+    return out
+
+
+def snapshot() -> str:
+    """지금 상태를 찍어 직전과 달라진 것만 기록한다. 15분 주기 작업이 부른다."""
+    now = collect()
+    prev = {}
+    if LOG.exists():
+        for line in reversed(LOG.read_text(encoding="utf-8").splitlines()):
+            try:
+                prev = json.loads(line).get("state", {})
+                break
+            except json.JSONDecodeError:
+                continue
+
+    state, changes = {}, []
+    for s in now["sessions"]:
+        done = sum(1 for t in s["tasks"] if t["status"] == "완료")
+        cur = s["current"]["id"] if s.get("current") else None
+        state[s["code"]] = {"head": s.get("head", ""), "done": done,
+                            "total": len(s["tasks"]), "cur": cur,
+                            "phase": s["phase"], "live": s["live"]}
+        was = prev.get(s["code"])
+        if not was:
+            continue
+        if was.get("head") != state[s["code"]]["head"] and s.get("head"):
+            changes.append(f"{s['code']} 새 커밋 · {s['head']}")
+        if was.get("done") != done:
+            changes.append(f"{s['code']} 완료 {was.get('done')}→{done}")
+        if was.get("cur") != cur:
+            changes.append(f"{s['code']} 현재 Task {was.get('cur') or '없음'}→{cur or '없음'}")
+        if was.get("live") != s["live"]:
+            changes.append(f"{s['code']} {was.get('live')}→{s['live']}")
+
+    stamp = datetime.now(timezone.utc).astimezone()
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": stamp.strftime("%m-%d %H:%M"),
+                             "main": now["main"], "changes": changes,
+                             "state": state}, ensure_ascii=False) + "\n")
+    return "변화 없음" if not changes else " / ".join(changes)
 
 
 def collect() -> dict:
@@ -146,6 +226,8 @@ def collect() -> dict:
     return {
         "main": main_head,
         "sessions": sessions,
+        "activity": activity(sessions),
+        "log": read_log(),
         "open_prs": js(run("gh", "pr", "list", "--state", "open", "--json",
                            "number,title,headRefName")),
         "merged_prs": js(run("gh", "pr", "list", "--state", "merged", "--limit", "6",
@@ -154,7 +236,7 @@ def collect() -> dict:
     }
 
 
-PAGE = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
+PAGE = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PMS 운영 현황판</title>
 <style>
@@ -208,6 +290,12 @@ width:100%;text-align:left;font:inherit;color:inherit}
 .haltbar{background:var(--sunk);border:1px dashed var(--rule);border-radius:8px;
 padding:11px 15px;margin:0 0 18px;font-size:13.5px;color:var(--ink2)}
 .haltbar b{color:var(--ink)}
+/* 작업내역 */
+li.act{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:baseline;padding:8px 14px}
+.ac{font-family:var(--mono);font-size:11.5px;font-weight:650;color:var(--accent)}
+.asub{font-size:13.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ago{font-family:var(--mono);font-size:11px;color:var(--ink3);white-space:nowrap}
+@media(max-width:640px){li.act{grid-template-columns:48px 1fr}.ago{grid-column:2;font-size:10.5px}}
 .prog{font-family:var(--mono);font-size:12px;color:var(--ink3);text-align:right;font-variant-numeric:tabular-nums}
 .bar{height:3px;background:var(--soft);border-radius:2px;margin-top:5px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -291,6 +379,18 @@ function renderList(){
         .map(function(s){ return s.code; }).join(' · ') + '</b>.</div>'
     : '';
 
+  var feed = (S.activity || []).slice(0, 18).map(function(a){
+    return '<li class="act"><span class="ac">' + esc(a.code) + '</span>' +
+      '<span class="asub">' + esc(a.subject) + '</span>' +
+      '<span class="ago">' + esc(a.rel) + '</span></li>';
+  }).join('') || '<li class="sub">main 이후 커밋 없음</li>';
+
+  var snaps = (S.log || []).slice(0, 8).map(function(l){
+    return '<li class="act"><span class="ago mono">' + esc(l.at) + '</span>' +
+      '<span class="asub">' + (l.changes && l.changes.length
+        ? esc(l.changes.join(' · ')) : '<span class="sub">변화 없음</span>') + '</span></li>';
+  }).join('') || '<li class="sub">아직 기록이 없다. 15분마다 쌓인다.</li>';
+
   return '<h1>PMS 운영 현황판</h1>' +
     '<p class="meta">' + esc(S.generated) + ' · 20초마다 갱신 · main <b>' + esc(S.main) + '</b></p>' +
     banner +
@@ -300,6 +400,10 @@ function renderList(){
     rows + '</div>' +
     '<p class="note">행을 누르면 상세가 열린다. <b>상태</b>는 문서 → Task 확정 → 구현 순으로 나아간다. ' +
     '<b>우선순위</b>는 자원이 부딪힐 때 누가 이기는지를 뜻한다 — 공유 파일 중재, 리뷰 순서, 병합 순서.</p>' +
+    '<h2>작업내역 — 커밋</h2><ul>' + feed + '</ul>' +
+    '<p class="note">작업내역의 진실은 커밋이다. 별도 기록은 갱신을 잊으면 거짓이 되지만, <b>커밋은 일을 해야만 생긴다</b>.</p>' +
+    '<h2>15분 스냅샷 — 상태 변화</h2><ul>' + snaps + '</ul>' +
+    '<p class="note">커밋이 없는 구간에도 무엇이 바뀌었는지 남긴다. Task 상태·현재 작업·가동 여부의 변화를 15분마다 찍는다.</p>' +
     '<h2>열린 PR</h2><ul>' + prs + '</ul>';
 }
 
@@ -407,6 +511,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    print(f"현황판: http://localhost:{port}  (Ctrl+C로 종료)")
-    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    if len(sys.argv) > 1 and sys.argv[1] == "snapshot":
+        print(snapshot())
+    else:
+        port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+        print(f"현황판: http://localhost:{port}  (Ctrl+C로 종료)")
+        HTTPServer(("127.0.0.1", port), Handler).serve_forever()
