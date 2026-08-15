@@ -48,8 +48,14 @@ export function TopNav() {
           예약 확인
         </Link>
       </nav>
-      <div className="nav-user">
-        <span>사용자(과제용 식별값)</span>
+      <div
+        className="nav-user"
+        title="이 값이 X-User-Id 헤더로 나갑니다. 누구나 아무 값이나 고를 수 있으므로 인증이 아니며, 로그인·회원가입은 이 과제의 범위 밖입니다 (ADR-0006)."
+      >
+        <span>
+          사용자 전환{" "}
+          <span style={{ color: "var(--ink-faint)" }}>· 로그인 아님</span>
+        </span>
         {editing || !known ? (
           <input
             aria-label="X-User-Id 직접 입력"
