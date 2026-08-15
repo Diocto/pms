@@ -118,6 +118,8 @@ GET /api/availability
 | 404 | `RESOURCE_NOT_FOUND` | 존재하지 않는 `hotelId` |
 | 500 | `INTERNAL_ERROR` | DB 장애 |
 
+**본문 형태는 프로젝트 공통 `ErrorResponse`(`code`·`message`·`traceId`)와 같다.** `code` 문자열이 계약이고 `message`는 사람이 읽는 것이라 바뀔 수 있다. **위 세 문자열을 그대로 비교해도 된다** — 특히 404가 공통 기본값 `NOT_FOUND`가 아니라 `RESOURCE_NOT_FOUND`인 점에 주의한다.
+
 **Redis 장애는 에러가 아니다.** 200 + `source: DB`로 나간다. 부하 중 Redis를 죽여도 실패율은 오르지 않고 `source` 분포와 응답 시간만 바뀐다.
 
 ## 4. 캐시 동작 (F04가 알아야 하는 것)
@@ -125,12 +127,32 @@ GET /api/availability
 | 항목 | 값 | 비고 |
 |---|---|---|
 | 캐시 켜고 끄기 | **`PMS_SEARCH_CACHE_ENABLED`** (기본 `true`) | **환경변수 한 줄로 전환된다.** 셸에 치는 이름과 노출되는 키 문자열이 같다. `PMS_SEARCH_CACHE_ENABLED=false uvicorn app.main:app` 형태로 그대로 쓸 수 있다 |
-| **현재 값 확인** | F03의 운영 엔드포인트로 노출한다 (스펙 D15) | **실행 전에 값을 읽어 확인하고 시작하기 바란다.** 껐다고 믿었는데 안 꺼져 있으면 두 회차가 같은 조건이 되고, 그 결과는 "차이 없음"으로 나와 **"캐시가 없어도 되더라"는 정반대 결론**을 만든다. 노출 값은 캐시 구현을 고르는 그 프로바이더에서 나온다 |
+| **현재 값 확인** | **`GET /internal/config/search-cache`** (스펙 D15) | **실행 전에 값을 읽어 확인하고 시작하기 바란다.** 껐다고 믿었는데 안 꺼져 있으면 두 회차가 같은 조건이 되고, 그 결과는 "차이 없음"으로 나와 **"캐시가 없어도 되더라"는 정반대 결론**을 만든다. 아래 응답 형태 참조 |
 | TTL | **`PMS_SEARCH_CACHE_TTL_SECONDS`** (**잠정 10초**) | 승인 시 확정. 값이 바뀌면 PM 경유로 알린다 |
 | 캐시 키 | `avail:{hotelId}:{checkIn}:{checkOut}:{guestCount}:{roomCount}` | `fresh`는 키에 없다 |
 | 캐시되는 것 | 빈 결과 포함 응답 전체 | 매진 날짜도 캐시된다 |
 | 무효화 | TTL 만료 + `fresh=true` 재적재만 | 재고 변경 이벤트 연동 없음 (스펙 D6) |
 | 스탬피드 방어 | **없음** (스펙 D10) | **F04가 이걸 측정해 주기를 기대하고 있다.** 아래 참고 |
+
+### 캐시 스위치 확인 엔드포인트
+
+```
+GET /internal/config/search-cache
+```
+
+```json
+{
+  "cache": {
+    "PMS_SEARCH_CACHE_ENABLED": true,
+    "PMS_SEARCH_CACHE_TTL_SECONDS": 10
+  },
+  "implementation": "RedisAvailabilityCacheAdapter"
+}
+```
+
+**안쪽 키가 `camelCase`가 아닌 것은 실수가 아니다.** 다른 응답과 달리 이 값은 **읽어서 셸에 그대로 옮겨 적는 값**이라 환경변수 이름을 그대로 쓴다. `coding-rules.md`가 설정 키 표기를 API JSON 표기보다 우선하도록 정한 예외다. 리포트의 설정 표에 이 문자열을 그대로 붙여넣으면 재현이 된다.
+
+**`implementation`까지 함께 보기 바란다.** 설정 값만 보면 "값은 `false`인데 실제로는 Redis 구현이 주입돼 있는" 상태를 놓친다. 이 필드가 실제 주입된 객체의 클래스 이름이므로, **캐시를 껐다면 `NoOpAvailabilityCacheAdapter`가 나와야 한다.** 값과 구현이 어긋나 보이면 그 회차는 버리고 PM에 알려 달라.
 
 부하 시나리오에서 키가 얼마나 흩어지는지에 따라 히트율이 크게 달라진다. 날짜 조합을 완전 무작위로 뽑으면 히트율이 0에 가깝고, 인기 날짜 소수에 몰면 90%를 넘는다. **둘 다 재보는 것이 이 캐시의 값어치를 보여주는 방법이다.**
 
@@ -173,5 +195,6 @@ L5가 F03에게 가장 필요한 측정이다. 스펙 D10에서 스탬피드 방
 | `pricePerNight`·`totalPrice` | `room_type.base_price` 확정. 유지 | 확정 |
 | 구현 착수 | F01 병합 후 | — |
 | 설정 키 이름 | `PMS_SEARCH_CACHE_ENABLED` / `PMS_SEARCH_CACHE_TTL_SECONDS` (스펙 D15) | 스펙 승인 시. **2026-08-15 스택 전환으로 점 표기에서 환경변수 표기로 바뀌었다** |
+| 캐시 스위치 확인 엔드포인트 | `GET /internal/config/search-cache` (스펙 D15). 경로와 응답 형태 모두 관리자 승인 대기 | 스펙 승인 시. **D15가 부결되면 이 엔드포인트가 없어지고, 캐시가 실제로 꺼졌는지 확인할 수단이 로그 추정뿐이 된다** |
 
 변경이 생기면 PM을 통해 알린다.
