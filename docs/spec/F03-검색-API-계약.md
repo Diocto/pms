@@ -118,7 +118,7 @@ GET /api/availability
 | 404 | `RESOURCE_NOT_FOUND` | 존재하지 않는 `hotelId` |
 | 500 | `INTERNAL_ERROR` | DB 장애 |
 
-**본문 형태는 프로젝트 공통 `ErrorResponse`(`code`·`message`·`traceId`)와 같다.** `code` 문자열이 계약이고 `message`는 사람이 읽는 것이라 바뀔 수 있다. **위 세 문자열을 그대로 비교해도 된다** — 특히 404가 공통 기본값 `NOT_FOUND`가 아니라 `RESOURCE_NOT_FOUND`인 점에 주의한다.
+**본문 형태는 프로젝트 공통 `ErrorResponse`(`code`·`message`·`traceId`)와 같다.** `code` 문자열이 계약이고 `message`는 사람이 읽는 것이라 바뀔 수 있다. **위 세 문자열을 그대로 비교해도 된다.**
 
 **Redis 장애는 에러가 아니다.** 200 + `source: DB`로 나간다. 부하 중 Redis를 죽여도 실패율은 오르지 않고 `source` 분포와 응답 시간만 바뀐다.
 
