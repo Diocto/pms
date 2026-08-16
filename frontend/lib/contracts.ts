@@ -17,6 +17,11 @@
 // [확인됨 2026-08-16] 날짜시각은 오프셋 없는 로컬(Asia/Seoul) — expiresAt 실측 일치.
 // [확인됨 2026-08-16] 에러 본문 {code, message, traceId} camelCase — 400 실호출로 검증.
 // [확인됨 2026-08-16] 멱등 재요청은 200(최초 201과 상태 코드로 구분) — 라우터 D18 확인.
+// [확인됨 2026-08-16 PR#38] GET /api/reservations — X-User-Id 필수, ?status= 선택,
+//        단건과 같은 형태의 배열(감싸는 객체 없음), 최신순, 빈 결과는 [] (실호출 검증).
+// [확인됨 2026-08-16 PR#38] GET /api/hotels — 익명, {hotels:[{hotelId,name,address,
+//        roomTypes:[{roomTypeId,name,capacity,totalQuantity,basePrice}]}]}, 잔여 없음.
+//        호텔 100곳, 확장 객실타입 id = 호텔id×1000+n (실호출로 50→50001~3 확인).
 // [가정] 검색 응답의 source 필드 존재(화면 미사용·타입에서 제외) — 대조만 하면 된다.
 // [확인 예정] 공용 설정 노출 계약 이름 ConfigReport→RuntimeReport (화면 무관, PM 공지)
 // [해소됨] 검색 경로 — F03이 구두 오기였다고 정정 (2026-08-16). 계약 문서의
@@ -106,6 +111,21 @@ export interface ReservationResponse {
   confirmedAt?: string;
   terminatedAt?: string;
   failureReason?: string;
+}
+
+export interface RoomTypeInfo {
+  roomTypeId: number;
+  name: string;
+  capacity: number;
+  totalQuantity: number;
+  basePrice: number;
+}
+
+export interface HotelInfo {
+  hotelId: number;
+  name: string;
+  address: string;
+  roomTypes: RoomTypeInfo[];
 }
 
 export interface ErrorBody {
@@ -226,6 +246,36 @@ export function parseReservationResponse(raw: unknown): ReservationResponse {
     terminatedAt: optStr(raw, "terminatedAt"),
     failureReason: optStr(raw, "failureReason"),
   };
+}
+
+export function parseReservationList(raw: unknown): ReservationResponse[] {
+  if (!Array.isArray(raw)) throw new ContractViolation("목록 본문이 배열이 아님");
+  return raw.map((item) => parseReservationResponse(item));
+}
+
+export function parseHotelsResponse(raw: unknown): HotelInfo[] {
+  if (!isRecord(raw) || !Array.isArray(raw.hotels))
+    throw new ContractViolation("hotels가 배열이 아님");
+  return raw.hotels.map((h, i) => {
+    if (!isRecord(h)) throw new ContractViolation(`hotels[${i}]가 객체가 아님`);
+    const roomTypesRaw = h.roomTypes;
+    if (!Array.isArray(roomTypesRaw)) throw new ContractViolation(`hotels[${i}].roomTypes가 배열이 아님`);
+    return {
+      hotelId: num(h, "hotelId"),
+      name: str(h, "name"),
+      address: str(h, "address"),
+      roomTypes: roomTypesRaw.map((rt, j) => {
+        if (!isRecord(rt)) throw new ContractViolation(`roomTypes[${j}]가 객체가 아님`);
+        return {
+          roomTypeId: num(rt, "roomTypeId"),
+          name: str(rt, "name"),
+          capacity: num(rt, "capacity"),
+          totalQuantity: num(rt, "totalQuantity"),
+          basePrice: num(rt, "basePrice"),
+        };
+      }),
+    };
+  });
 }
 
 // 오류 본문 해석은 절대 던지지 않는다. 오류 처리 중의 오류는 최악이다.

@@ -38,12 +38,34 @@ interface SeedRoomType {
   basePrice: number;
 }
 
+// 시드 규칙 (PR #38, 리비전 053): 호텔 1·2와 객실타입 1~5는 동결,
+// 확장 호텔 h=3~100은 이름 "호텔 003"~, 객실타입 id = h×1000+n (n=1..3 동일 구성)
+interface SeedHotel { hotelId: number; name: string; address: string }
+
+const HOTELS_SEED: SeedHotel[] = [
+  { hotelId: 1, name: "서울 그랜드 호텔", address: "서울특별시 중구 을지로 100" },
+  { hotelId: 2, name: "부산 오션뷰 호텔", address: "부산광역시 해운대구 해운대해변로 200" },
+  ...Array.from({ length: 98 }, (_, i) => {
+    const h = i + 3;
+    return {
+      hotelId: h,
+      name: `호텔 ${String(h).padStart(3, "0")}`,
+      address: `서울특별시 테스트구 예약로 ${h}`,
+    };
+  }),
+];
+
 const ROOM_TYPES: SeedRoomType[] = [
   { id: 1, hotelId: 1, name: "스탠다드", capacity: 2, totalQuantity: 100, basePrice: 150000 },
   { id: 2, hotelId: 1, name: "디럭스", capacity: 3, totalQuantity: 50, basePrice: 250000 },
   { id: 3, hotelId: 1, name: "스위트", capacity: 4, totalQuantity: 10, basePrice: 600000 },
   { id: 4, hotelId: 2, name: "오션뷰 스탠다드", capacity: 2, totalQuantity: 80, basePrice: 180000 },
   { id: 5, hotelId: 2, name: "오션뷰 스위트", capacity: 4, totalQuantity: 20, basePrice: 450000 },
+  ...HOTELS_SEED.filter((h) => h.hotelId >= 3).flatMap((h) => [
+    { id: h.hotelId * 1000 + 1, hotelId: h.hotelId, name: "스탠다드", capacity: 2, totalQuantity: 50, basePrice: 150000 },
+    { id: h.hotelId * 1000 + 2, hotelId: h.hotelId, name: "디럭스", capacity: 3, totalQuantity: 30, basePrice: 250000 },
+    { id: h.hotelId * 1000 + 3, hotelId: h.hotelId, name: "스위트", capacity: 4, totalQuantity: 10, basePrice: 400000 },
+  ]),
 ];
 
 interface MockReservation {
@@ -150,7 +172,8 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     const roomCount = Number(url.searchParams.get("roomCount") ?? "1");
     const today = isoLocal(now()).slice(0, 10);
 
-    if (![1, 2].includes(hotelId)) return error(404, C.RESOURCE_NOT_FOUND, "없는 호텔");
+    if (!HOTELS_SEED.some((h) => h.hotelId === hotelId))
+      return error(404, C.RESOURCE_NOT_FOUND, "없는 호텔");
     if (!checkIn || !checkOut || checkOut <= checkIn || guestCount < 1)
       return error(400, C.INVALID_REQUEST, "검색 조건이 규칙에 어긋남");
     // F03 계약: 검색은 과거를 400으로 막는다 (checkIn >= today)
@@ -335,9 +358,38 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
 
     if (path === "/api/availability") return handleSearch(url);
 
+    if (path === "/api/hotels") {
+      // PR #38 계약: id 오름차순, 잔여 없음
+      return json(200, {
+        hotels: HOTELS_SEED.map((h) => ({
+          ...h,
+          roomTypes: ROOM_TYPES.filter((rt) => rt.hotelId === h.hotelId).map((rt) => ({
+            roomTypeId: rt.id,
+            name: rt.name,
+            capacity: rt.capacity,
+            totalQuantity: rt.totalQuantity,
+            basePrice: rt.basePrice,
+          })),
+        })),
+      });
+    }
+
     const headers = new Headers(init?.headers);
     if (path === "/api/reservations" && init?.method === "POST") {
       return handleCreate(headers, init.body ? JSON.parse(String(init.body)) : {});
+    }
+    if (path === "/api/reservations") {
+      // PR #38 계약: X-User-Id 필수, ?status= 선택(enum 밖 400), 최신순 배열, 빈 결과 []
+      const userId = headers.get("X-User-Id") ?? "";
+      if (!userId) return error(400, C.INVALID_REQUEST, "X-User-Id 필요");
+      const status = url.searchParams.get("status");
+      const STATUSES = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "EXPIRED"];
+      if (status !== null && !STATUSES.includes(status))
+        return error(400, C.INVALID_REQUEST, "status 값이 계약 밖");
+      const rows = [...reservations.values()].filter((r) => r.userId === userId);
+      rows.forEach(settleExpiry);
+      const filtered = status ? rows.filter((r) => r.status === status) : rows;
+      return json(200, filtered.reverse().map(reservationBody)); // 삽입 역순 = 최신순
     }
     const m = path.match(/^\/api\/reservations\/([^/]+)(?:\/(confirm|cancel|check-in|check-out))?$/);
     if (m) return handleReservation(decodeURIComponent(m[1]), m[2], headers);

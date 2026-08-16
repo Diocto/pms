@@ -5,6 +5,8 @@ import {
   ContractViolation,
   parseAvailabilityResponse,
   parseErrorBody,
+  parseHotelsResponse,
+  parseReservationList,
   parseReservationResponse,
 } from "./contracts";
 
@@ -107,6 +109,43 @@ describe("parseReservationResponse", () => {
   it("confirmationCode가 없으면 계약 위반이다", () => {
     const { confirmationCode: _dropped, ...rest } = reservationOk;
     expect(() => parseReservationResponse(rest)).toThrow(ContractViolation);
+  });
+});
+
+describe("parseReservationList (PR #38)", () => {
+  it("단건과 같은 형태의 배열을 통과시키고, 빈 배열도 그대로", () => {
+    expect(parseReservationList([reservationOk])).toHaveLength(1);
+    expect(parseReservationList([])).toEqual([]);
+  });
+
+  it("배열이 아니면 계약 위반", () => {
+    expect(() => parseReservationList({ items: [] })).toThrow(ContractViolation);
+  });
+});
+
+describe("parseHotelsResponse (PR #38)", () => {
+  const hotelsOk = {
+    hotels: [
+      {
+        hotelId: 50,
+        name: "호텔 050",
+        address: "서울특별시 테스트구 예약로 50",
+        roomTypes: [
+          { roomTypeId: 50001, name: "스탠다드", capacity: 2, totalQuantity: 50, basePrice: 150000 },
+        ],
+      },
+    ],
+  };
+
+  it("계약 형태를 통과시킨다", () => {
+    const h = parseHotelsResponse(hotelsOk);
+    expect(h[0].roomTypes[0].roomTypeId).toBe(50001);
+  });
+
+  it("roomTypes가 없으면 계약 위반", () => {
+    expect(() =>
+      parseHotelsResponse({ hotels: [{ hotelId: 1, name: "a", address: "b" }] }),
+    ).toThrow(ContractViolation);
   });
 });
 

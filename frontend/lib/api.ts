@@ -10,9 +10,13 @@ import {
   ERROR_CODES,
   parseAvailabilityResponse,
   parseErrorBody,
+  parseHotelsResponse,
+  parseReservationList,
   parseReservationResponse,
   type AvailabilityResponse,
+  type HotelInfo,
   type ReservationResponse,
+  type ReservationStatus,
 } from "./contracts";
 
 export class ApiError extends Error {
@@ -130,9 +134,29 @@ export function createApi(deps: ApiDeps = {}) {
     return parseReservationResponse(await res.json());
   }
 
+  async function fetchHotels(): Promise<HotelInfo[]> {
+    const res = await fetchLike(`${base}/api/hotels`);
+    if (!res.ok) await throwApiError(res);
+    return parseHotelsResponse(await res.json());
+  }
+
+  async function listReservations(
+    userId: string,
+    status?: ReservationStatus,
+  ): Promise<ReservationResponse[]> {
+    const q = status ? `?status=${status}` : "";
+    const res = await fetchLike(`${base}/api/reservations${q}`, {
+      headers: { "X-User-Id": userId },
+    });
+    if (!res.ok) await throwApiError(res);
+    return parseReservationList(await res.json());
+  }
+
   return {
     searchAvailability,
     createReservation,
+    fetchHotels,
+    listReservations,
     getReservation: (code: string, userId: string) => reservationAction(code, userId),
     confirmReservation: (code: string, userId: string) => reservationAction(code, userId, "confirm"),
     cancelReservation: (code: string, userId: string) => reservationAction(code, userId, "cancel"),
