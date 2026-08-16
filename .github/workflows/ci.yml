@@ -1,0 +1,84 @@
+# main에 코드가 들어오면 테스트를 돌린다. PR에서도 같은 것을 돌려 병합 전에 본다.
+#
+# **SQLite로 대체하지 않는다.** 테스트가 Testcontainers로 실제 MySQL 8.4·Redis 7.4를
+# 띄운다(tests/conftest.py). 동시성이 주제인 프로젝트에서 SQLite로 초록불을 켜면
+# 그 초록불이 거짓이다. GitHub 러너에는 도커가 있으므로 로컬과 같은 방식으로 돈다.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 같은 브랜치에 새 커밋이 밀려오면 앞의 실행을 취소한다. 마지막 것만 의미가 있다.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 백엔드 — pytest (실제 MySQL·Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: 마이그레이션 사슬이 한 줄인지 확인
+        # 병렬 세션이 각자 리비전을 만들면 head가 둘로 갈리고 `upgrade head`가 멈춘다
+        # (docs/architecture/parallel-work.md). 테스트보다 먼저 걸러야 원인이 보인다.
+        run: |
+          alembic heads
+          # 리비전 이름에 'head'가 섞여도 오탐하지 않게 표시자 '(head)'만 센다
+          count=$(alembic heads | grep -c '(head)' || true)
+          echo "head 개수: $count"
+          if [ "$count" -ne 1 ]; then
+            echo "마이그레이션 head가 ${count}개다. 사슬이 갈렸다." >&2
+            exit 1
+          fi
+
+      - name: 테스트
+        run: pytest -q
+
+  frontend:
+    name: 프론트엔드 — vitest · 타입체크 · 빌드
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 테스트
+        run: npm run test
+
+      - name: 타입체크
+        run: npm run typecheck
+
+      - name: 빌드
+        # 테스트와 타입체크를 통과해도 빌드에서 깨지는 경우가 있다.
+        # 배포 전에 여기서 잡는다.
+        run: npm run build

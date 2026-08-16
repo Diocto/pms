@@ -1,5 +1,7 @@
 # PMS — 숙박 예약 시스템
 
+[![CI](https://github.com/Diocto/pms/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Diocto/pms/actions/workflows/ci.yml)
+
 동시성 제어, 멱등성, 상태 전이를 중심으로 설계한 숙박 예약 시스템입니다.
 
 ## 실행 방법
@@ -47,6 +49,19 @@ Python 3.12 · FastAPI · SQLModel(SQLAlchemy) · Dependency Injector · Alembic
 MySQL 8.4 · Redis 7.4 · Testcontainers · k6
 
 Java/Spring에서 전환한 이유는 [ADR-0050](docs/decisions/ADR-0050-기술-스택-전환.md)에 있습니다.
+
+## 자동화 (CI/CD)
+
+`main`에 코드가 들어오면 GitHub Actions가 테스트를 돌리고, 통과하면 Railway에 배포합니다.
+
+| | 무엇을 하나 |
+|---|---|
+| **CI** (`.github/workflows/ci.yml`) | 백엔드 `pytest` — **실제 MySQL 8.4·Redis 7.4를 Testcontainers로 띄워서** 돌립니다. 프론트엔드는 `vitest`·타입체크·빌드. 마이그레이션 사슬이 한 줄인지도 함께 봅니다 |
+| **CD** (`.github/workflows/cd.yml`) | CI가 **성공으로 끝났을 때만** Railway에 배포합니다. Actions 탭에서 손으로도 돌릴 수 있습니다 |
+
+동시성이 주제인 프로젝트라 CI에서도 SQLite로 바꿔치기하지 않습니다. 그러면 초록불이 거짓이 됩니다.
+
+배포 설정(서비스 구성, 환경변수, 토큰)은 [docs/deploy/railway.md](docs/deploy/railway.md)에 있습니다. **`RAILWAY_TOKEN`이 없으면 배포는 실패가 아니라 건너뜁니다** — 토큰을 넣기 전 상태와 진짜 실패가 구분돼야 하기 때문입니다.
 
 ## 문서
 
