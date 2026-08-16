@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.inventory.query.application.commands import (
     AvailabilityDiagnosis,
     AvailableRoomTypeView,
+    HotelRoomTypeView,
+    HotelView,
     SearchAvailableRoomsQuery,
 )
 
@@ -52,6 +54,58 @@ _DIAGNOSE_SQL = text(
 )
 
 
+# 호텔 목록 — 정적 마스터 조인 1발. 재고 테이블은 건드리지 않는다 (그건 검색의 일).
+# 정렬이 곧 응답 순서다 — F05가 이 순서를 그대로 그린다
+_LIST_HOTELS_SQL = text(
+    """
+    SELECT h.id             AS hotel_id,
+           h.name           AS hotel_name,
+           h.address        AS address,
+           rt.id            AS room_type_id,
+           rt.name          AS room_type_name,
+           rt.capacity      AS capacity,
+           rt.total_quantity AS total_quantity,
+           rt.base_price    AS base_price
+      FROM hotel h
+      JOIN room_type rt ON rt.hotel_id = h.id
+     ORDER BY h.id ASC, rt.id ASC
+    """
+)
+
+
+class MySqlHotelCatalogAdapter:
+    def list_hotels(self, session: Session) -> list[HotelView]:
+        rows = session.execute(_LIST_HOTELS_SQL).mappings()
+        hotels: list[HotelView] = []
+        grouped: dict[int, list[HotelRoomTypeView]] = {}
+        heads: dict[int, tuple[str, str]] = {}
+        for row in rows:
+            hotel_id = row["hotel_id"]
+            if hotel_id not in grouped:
+                grouped[hotel_id] = []
+                heads[hotel_id] = (row["hotel_name"], row["address"])
+            grouped[hotel_id].append(
+                HotelRoomTypeView(
+                    room_type_id=row["room_type_id"],
+                    name=row["room_type_name"],
+                    capacity=row["capacity"],
+                    total_quantity=row["total_quantity"],
+                    base_price=row["base_price"],
+                )
+            )
+        for hotel_id, room_types in grouped.items():  # 삽입 순서 = SQL 정렬 순서
+            name, address = heads[hotel_id]
+            hotels.append(
+                HotelView(
+                    hotel_id=hotel_id,
+                    name=name,
+                    address=address,
+                    room_types=room_types,
+                )
+            )
+        return hotels
+
+
 class MySqlAvailabilityQueryAdapter:
     def search(
         self, session: Session, query: SearchAvailableRoomsQuery
@@ -75,7 +129,8 @@ class MySqlAvailabilityQueryAdapter:
                 capacity=row["capacity"],
                 min_remaining=row["min_remaining"],
                 price_per_night=row["price_per_night"],
-                total_price=row["price_per_night"] * nights,
+                # 총액 = 단가 × 박수 × 객실 수 (스펙 8절) — F01 예약 청구액과 같은 식
+                total_price=row["price_per_night"] * nights * query.room_count,
             )
             for row in rows
         ]

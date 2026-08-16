@@ -1,4 +1,4 @@
-"""공용 실행 상태 노출 계약의 F03 기여자 (D15, D26).
+"""공용 실행 상태 노출 계약의 F03 기여자 (D15, F01 D26).
 
 라우터가 아니다 — `app/common/runtime_report.py`의 `RuntimeContributor`
 구현이고, F01 소유 엔드포인트(`GET /api/internal/config`)가 모아 내보낸다.

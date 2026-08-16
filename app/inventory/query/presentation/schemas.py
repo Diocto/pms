@@ -19,6 +19,30 @@ class AvailableRoomTypeResponse(ApiModel):
     total_price: int
 
 
+class HotelRoomTypeResponse(ApiModel):
+    room_type_id: int
+    name: str
+    capacity: int
+    total_quantity: int
+    base_price: int
+
+
+class HotelResponse(ApiModel):
+    hotel_id: int
+    name: str
+    address: str
+    room_types: list[HotelRoomTypeResponse]
+
+
+class HotelListResponse(ApiModel):
+    """`GET /api/hotels` — F05 검색 화면의 호텔 선택 목록.
+
+    배열을 그대로 내보내지 않고 `hotels`로 감싼다 — 나중에 총계·페이지
+    정보가 붙을 자리를 지금 만들어 두면 그때 계약이 안 깨진다."""
+
+    hotels: list[HotelResponse]
+
+
 class AvailabilitySearchResponse(ApiModel):
     """요청 에코 + 결과. 낡음 정보(searchedAt·source·staleToleranceSeconds)를
     숨기지 않고 실어 보낸다 (G2). emptyReason·salesOpenUntil은 빈 결과에만

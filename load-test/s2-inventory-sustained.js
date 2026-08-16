@@ -24,9 +24,20 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { check } from 'k6';
+import { Trend } from 'k6/metrics';
 import { BASE_URL, PATHS, PLAN, userId } from './config.js';
 import { installResponseCallback, createReservation } from './lib/api.js';
 import { BASE_THRESHOLDS } from './lib/metrics.js';
+
+// S5 대조용 지연 분해 (2026-08-16 추가. 부하 모양은 그대로, 계측만 더한다).
+//
+// scenarios.md §4 S5의 비교 항목에 "rej_inventory 응답의 p95"가 있다.
+// 전체 p95 하나로는 "성공이 느려졌는지, 거절이 느려졌는지"가 안 갈리므로
+// 결과 종류별로 지연을 따로 쌓는다. 락 OFF의 거절은 DB까지 갔다 오고,
+// 락 ON의 거절 대부분은 락 대기에서 끝난다 — 그 차이가 여기서 보인다.
+const durCreated = new Trend('dur_created', true);
+const durRejInventory = new Trend('dur_rej_inventory', true);
+const durLockFailed = new Trend('dur_lock_failed', true);
 
 const TARGET = PLAN[__ENV.TARGET || 's2'];
 const ROOM_TYPE = TARGET.roomType;
@@ -65,6 +76,10 @@ export const options = {
         // 워밍업 구간은 집계에서 뺀다.
         'http_req_duration{phase:main}': ['p(95)<800', 'p(99)<2000'],
         rsv_created: [`count==${STOCK}`],
+        // 항상 참인 합격선. 판정용이 아니라 본부하 구간의 요청 수를
+        // 요약(export)에 서브메트릭으로 드러내기 위한 장치다.
+        // 달성 RPS = 이 count / DURATION. 목표의 80% 미만이면 병목 분석 필수(§3-10).
+        'http_reqs{phase:main}': ['count>=0'],
     },
 };
 
@@ -86,6 +101,11 @@ export default function (data) {
         idempotencyKey: `s2-${data.date}-${exec.instance.idInTest}-${n}`,
         roomCount: 1,
     });
+
+    // 결과 종류별 지연 분해 (S5 대조용).
+    if (outcome.kind === 'created') durCreated.add(res.timings.duration);
+    else if (outcome.kind === 'inventory') durRejInventory.add(res.timings.duration);
+    else if (outcome.kind === 'lock_failed') durLockFailed.add(res.timings.duration);
 
     check(res, {
         '5xx 아님': () => outcome.kind !== 'error',

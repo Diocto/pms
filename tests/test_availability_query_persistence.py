@@ -197,6 +197,15 @@ def test_T5_가격은_1박_단가와_기간_총액으로_나온다(tx, adapter):
     assert (cheap.capacity, wide.capacity) == (2, 4)
 
 
+def test_T5_총액에는_객실_수가_곱해진다(tx, adapter):
+    with tx.read() as session:
+        items = adapter.search(session, _query(guest_count=2, room_count=2))
+    # 총액 = 1박 단가 × 박수 × 객실 수 (스펙 8절). F01 예약 청구액과 같은 식이라
+    # 여기가 어긋나면 검색 견적과 실제 청구액이 2실 이상에서 항상 갈라진다
+    cheap = next(item for item in items if item.room_type_id == CHEAP_TYPE)
+    assert cheap.total_price == 100000 * 3 * 2
+
+
 def test_T5_잔여가_요청_객실_수_미만인_날이_있으면_빠진다(tx, adapter, engine):
     _set_remaining(engine, WIDE_TYPE, date(2026, 9, 3), 1)
     with tx.read() as session:

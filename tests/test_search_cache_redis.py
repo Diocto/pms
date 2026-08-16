@@ -4,6 +4,7 @@ TTL 만료를 기다리지 않는다 — TTL이 걸렸는지는 Redis `TTL` 명�
 I5(만료 없는 적재)는 유일하게 회복 불가인 실패라 맨 앞에 둔다.
 """
 
+import time
 from datetime import date, datetime
 
 import pytest
@@ -72,6 +73,21 @@ def test_T15_적재하면_TTL이_설정값으로_걸린다(adapter, redis_client
     ttl = redis_client.ttl(key)
     # 방금 걸었으므로 (0, TTL] 범위여야 한다. -1(만료 없음)이면 I5 재현이다
     assert 0 < ttl <= TTL_SECONDS, f"TTL이 {ttl}이다 — 만료 없는 적재는 회복 불가다"
+
+
+def test_T15_조회는_TTL을_연장하지_않는다(adapter, redis_client):
+    key = _query().cache_key()
+    adapter.put(key, RESULT)
+    # 초 단위 TTL 명령은 판별력이 없다 — GETEX가 만료를 풀로 리셋해도
+    # 반올림 탓에 10 <= 10으로 통과한다 (2회차 리뷰 교차 지적). 밀리초
+    # PTTL로 재고, 시간이 확실히 흐르도록 잠깐 기다린 뒤 엄격 감소를 단언한다
+    pttl_before = redis_client.pttl(key)
+    time.sleep(0.02)
+    for _ in range(5):
+        assert adapter.get(key) is not None
+    # 히트가 만료를 되돌리면(GETEX류) 인기 키일수록 낡음의 상한(I5의 목적)이
+    # 사라진다 — 비연장이면 잔여 밀리초는 단조 감소, 리셋이면 오히려 커진다
+    assert redis_client.pttl(key) < pttl_before
 
 
 def test_적재_후_조회하면_같은_값이_나온다(adapter):

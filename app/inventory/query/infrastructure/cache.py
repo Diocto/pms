@@ -47,6 +47,8 @@ class RedisAvailabilityCacheAdapter:
 
     def evict_hotel(self, hotel_id: int) -> None:
         # 호텔 단위 키 설계(avail:{hotelId}:...)라 패턴 하나로 다 걷힌다.
-        # KEYS는 전체 블로킹이라 안 쓴다 — SCAN으로 순회한다
-        for key in self._redis.scan_iter(match=f"avail:{hotel_id}:*"):
-            self._redis.delete(key)
+        # KEYS는 전체 블로킹이라 안 쓴다 — SCAN으로 순회하고, 왕복을
+        # 줄이려 모아서 한 번에 지운다 (키 수는 검색 조건 조합 수준이라 작다)
+        keys = list(self._redis.scan_iter(match=f"avail:{hotel_id}:*"))
+        if keys:
+            self._redis.delete(*keys)

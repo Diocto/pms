@@ -93,6 +93,7 @@ def _search(client, **overrides):
         "roomCount": 1,
     }
     params.update(overrides)
+    params = {k: v for k, v in params.items() if v is not None}  # None이면 생략
     return client.get("/api/availability", params=params)
 
 
@@ -174,7 +175,29 @@ def test_T20_fresh_파라미터를_받는다(client):
     assert response.json()["source"] == "DB"
 
 
+def test_T20_roomCount는_선택이고_기본값은_1이다(client):
+    # 계약 문서 2절: "선택 | 1 ~ 10 (기본 1)". F04·F05가 생략하고 부른다
+    response = _search(client, roomCount=None)
+    assert response.status_code == 200, response.text
+    assert response.json()["roomCount"] == 1
+
+
+def test_T20_인원_객실_수_상한_경계는_200이다(client):
+    assert _search(client, guestCount=20).status_code == 200
+    assert _search(client, guestCount=20, roomCount=10).status_code == 200
+
+
 # --- TDD 20. 400 · 404 — code 문자열 직접 비교 ---
+
+
+def test_T20_인원_객실_수가_상한을_넘으면_400이다(client):
+    # 스펙 6절: guestCount 1~20, roomCount 1~10. 범위 밖은 400 INVALID_REQUEST
+    over_guest = _search(client, guestCount=21)
+    assert over_guest.status_code == 400
+    assert over_guest.json()["code"] == "INVALID_REQUEST"
+    over_room = _search(client, roomCount=11)
+    assert over_room.status_code == 400
+    assert over_room.json()["code"] == "INVALID_REQUEST"
 
 
 def test_T20_과거_체크인은_400_INVALID_REQUEST다(client):
