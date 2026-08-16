@@ -87,14 +87,15 @@ class ReservationContainer(containers.DeclarativeContainer):
     transaction_manager = providers.Dependency()
     clock = providers.Dependency()
 
-    lock = providers.Singleton(_build_lock, settings, redis_client)
+    # 잠금 없는 Singleton 금지 (D37, T90) — 냉시동 동시 접근에 여럿 만들어진다
+    lock = providers.ThreadSafeSingleton(_build_lock, settings, redis_client)
     lock_wait_s = providers.Callable(_lock_wait_seconds, settings)
-    idempotency = providers.Singleton(RedisIdempotencyAdapter, redis_client)
-    payment = providers.Singleton(
+    idempotency = providers.ThreadSafeSingleton(RedisIdempotencyAdapter, redis_client)
+    payment = providers.ThreadSafeSingleton(
         FakePaymentAdapter, decline_rate=settings.provided.payment_decline_rate
     )
-    repository = providers.Singleton(MySqlReservationRepository)
-    inventory_repository = providers.Singleton(MySqlInventoryRepository)
+    repository = providers.ThreadSafeSingleton(MySqlReservationRepository)
+    inventory_repository = providers.ThreadSafeSingleton(MySqlInventoryRepository)
 
     # 확장 지점 — F02가 자기 구현을 추가한다. 0개면 빈 리스트라 아무 일도
     # 일어나지 않고, F02 병합 전에도 코어가 그대로 돈다 (T74)
@@ -103,7 +104,7 @@ class ReservationContainer(containers.DeclarativeContainer):
     release_hooks = providers.List()
     discount_resolvers = providers.List()
 
-    runtime_contributor = providers.Singleton(
+    runtime_contributor = providers.ThreadSafeSingleton(
         ReservationRuntimeContributor, settings=settings, lock=lock, payment=payment
     )
 

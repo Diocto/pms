@@ -37,6 +37,9 @@ def _all_domain_error_classes() -> list[type[DomainError]]:
 
 
 def test_예외_클래스의_코드는_전부_계약_안에_있다():
+    """에러 응답 계약 — app 아래 모든 DomainError 하위 클래스의 code가 계약
+    (API_ERROR_CODES) 안에 있다. 모집단이 0개면 통과가 아니라 검사를 안 한
+    것이므로 그것부터 실패시킨다."""
     classes = _all_domain_error_classes()
 
     # 모집단을 먼저 확인한다. 한 개도 못 찾았으면 통과가 아니라 검사를 안 한 것이다.
@@ -51,7 +54,9 @@ def test_예외_클래스의_코드는_전부_계약_안에_있다():
 
 
 def test_기본_코드가_있는_갈래는_그_코드가_계약_안에_있다():
-    """기본값은 특히 위험하다. 하위 클래스가 안 덮으면 그대로 나가기 때문이다."""
+    """에러 응답 계약 — InvalidRequestError·NotFoundError의 기본 code가 계약
+    안에 있는지 본다. 기본값은 특히 위험하다. 하위 클래스가 안 덮으면 그대로
+    나가기 때문이다. 실제로 어긋났던 NotFoundError는 값까지 고정한다."""
     from app.common.errors import InvalidRequestError, NotFoundError
 
     assert InvalidRequestError.code in API_ERROR_CODES
@@ -90,4 +95,6 @@ def test_갈래마다_상태_코드가_계약과_같다():
 
 
 def test_예상_못_한_예외의_코드도_계약_안에_있다():
+    """에러 응답 계약 — 예상 못 한 예외가 500으로 변환될 때 쓰는
+    INTERNAL_ERROR_CODE도 계약 안의 문자열이다."""
     assert INTERNAL_ERROR_CODE in API_ERROR_CODES

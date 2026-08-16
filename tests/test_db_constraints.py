@@ -78,6 +78,9 @@ def _reservation_row(**overrides) -> dict:
 
 
 def test_T30_remaining은_음수가_될_수_없다(engine):
+    """DB 제약(3층 방어) — remaining을 음수로 만드는 UPDATE를 CHECK가 거부한다.
+    조건부 UPDATE의 `remaining >= :count`가 뚫려도 초과 판매된 데이터가 저장될
+    수 없다는 최후선의 증명이다."""
     with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             text(
@@ -89,6 +92,9 @@ def test_T30_remaining은_음수가_될_수_없다(engine):
 
 
 def test_T31_remaining은_총량을_넘을_수_없다_이중_복원_방어선(engine):
+    """DB 제약(3층 방어) — remaining이 total_quantity를 넘는 UPDATE를 CHECK가
+    거부한다. 이중 복원은 성공한 것처럼 보이고 팔 수 있는 방이 늘어나는데 아무
+    신호가 없는 가장 조용한 사고라, 이 제약이 마지막에 막는다."""
     with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             text(
@@ -101,6 +107,7 @@ def test_T31_remaining은_총량을_넘을_수_없다_이중_복원_방어선(en
 
 @pytest.mark.parametrize("bad_count", [0, -5])
 def test_T32_객실_수는_1_이상이다(engine, clean_reservation, bad_count):
+    """DB 제약(3층 방어) — room_count가 0·음수인 예약 INSERT를 CHECK가 거부한다."""
     # -5가 통과하면 차감 UPDATE의 remaining >= :count를 지나며 재고가 늘어난다
     with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row(room_count=bad_count))
@@ -108,6 +115,8 @@ def test_T32_객실_수는_1_이상이다(engine, clean_reservation, bad_count):
 
 
 def test_T33_뒤집힌_기간은_저장될_수_없다(engine, clean_reservation):
+    """DB 제약(3층 방어) — check_out이 check_in보다 앞선 예약 INSERT를 CHECK가
+    거부한다."""
     # 점유 날짜 목록이 비어 재고를 하나도 안 깎는 예약을 막는다
     with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
@@ -118,6 +127,8 @@ def test_T33_뒤집힌_기간은_저장될_수_없다(engine, clean_reservation)
 
 
 def test_T33b_같은_날짜도_기간이_아니다(engine, clean_reservation):
+    """DB 제약(3층 방어) — check_in과 check_out이 같은 0박 예약도 INSERT가
+    거부된다. 부등호의 경계(등호)까지 막히는지 T33과 별도로 확인한다."""
     with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(
             RESERVATION_INSERT,
@@ -127,12 +138,16 @@ def test_T33b_같은_날짜도_기간이_아니다(engine, clean_reservation):
 
 
 def test_T34_인원은_1_이상이다(engine, clean_reservation):
+    """DB 제약(3층 방어) — guest_count가 0인 예약 INSERT를 CHECK가 거부한다."""
     with pytest.raises(CONSTRAINT_ERRORS) as excinfo, engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row(guest_count=0))
     _assert_constraint_rejection(excinfo)
 
 
 def test_T35_같은_사용자의_같은_멱등_키는_두_번_저장될_수_없다(engine, clean_reservation):
+    """DB 제약(3층 방어) — 같은 (user_id, idempotency_key) 조합의 두 번째
+    INSERT를 유니크 제약이 거부한다. Redis 멱등 키가 죽어도 중복 예약이
+    저장되지 않는 최종 방어선이다."""
     with engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row())
     with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
@@ -141,6 +156,9 @@ def test_T35_같은_사용자의_같은_멱등_키는_두_번_저장될_수_없�
 
 
 def test_T35b_다른_사용자는_같은_키_문자열을_써도_간섭하지_않는다(engine, clean_reservation):
+    """DB 제약(3층 방어) — 유니크 제약이 (user_id, idempotency_key) 조합이라
+    다른 사용자는 같은 키 문자열로도 저장된다. 키가 사용자별로 격리된다는
+    반대 방향의 확인이다."""
     # UK가 (user_id, idempotency_key) 조합이라는 것의 반대 방향 확인
     with engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row())
@@ -151,6 +169,8 @@ def test_T35b_다른_사용자는_같은_키_문자열을_써도_간섭하지_�
 
 
 def test_T36_확인번호는_중복될_수_없다(engine, clean_reservation):
+    """DB 제약(3층 방어) — 같은 confirmation_code의 두 번째 INSERT를 유니크
+    제약이 거부한다. 확인번호가 겹치면 남의 예약이 조회·취소될 수 있다."""
     with engine.begin() as conn:
         conn.execute(RESERVATION_INSERT, _reservation_row())
     with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
@@ -162,6 +182,8 @@ def test_T36_확인번호는_중복될_수_없다(engine, clean_reservation):
 
 
 def test_T37_같은_타입_날짜의_재고_행은_둘일_수_없다(engine):
+    """DB 제약(3층 방어) — 같은 (room_type_id, stay_date) 재고 행의 INSERT를
+    유니크 제약이 거부한다."""
     # 뚫리면 잔여 수량의 진실이 두 곳이 된다
     with pytest.raises(IntegrityError) as excinfo, engine.begin() as conn:
         conn.execute(

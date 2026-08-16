@@ -1,0 +1,21 @@
+.git
+.github
+.claude
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# 배포 이미지에 들어갈 이유가 없다. 이미지가 커지고 빌드가 느려진다.
+tests
+frontend
+load-test
+docs
+tools
+docker-compose.yml
+CLAUDE.md
+README.md

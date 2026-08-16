@@ -65,12 +65,16 @@ def _count(engine, note: str) -> int:
 
 
 def test_T27a_write가_정상_종료하면_커밋된다(tx, engine):
+    """트랜잭션 관리자 — write() 블록이 정상 종료하면 안의 INSERT가 커밋된다.
+    커밋 여부는 별도의 새 커넥션으로 세어 실제 DB 상태로 판정한다."""
     with tx.write() as session:
         session.execute(text("INSERT INTO tx_probe (note) VALUES ('t27a')"))
     assert _count(engine, "t27a") == 1
 
 
 def test_T27b_write_안에서_예외가_나면_전부_롤백된다(tx, engine):
+    """트랜잭션 관리자 — write() 블록 안에서 예외가 나면 안의 INSERT가 전부
+    되돌아간다. "함께 커밋하거나 함께 롤백한다" 계약의 롤백 절반이다."""
     with pytest.raises(RuntimeError):
         with tx.write() as session:
             session.execute(text("INSERT INTO tx_probe (note) VALUES ('t27b')"))
@@ -79,6 +83,9 @@ def test_T27b_write_안에서_예외가_나면_전부_롤백된다(tx, engine):
 
 
 def test_T27c_read는_커밋하지_않고_유휴_트랜잭션도_남기지_않는다(tx, engine):
+    """트랜잭션 관리자 — read()는 커밋하지 않고, 커넥션을 유휴 트랜잭션 상태로
+    반납하지도 않는다. 후자는 innodb_trx를 직접 조회해 판정한다 — rollback을
+    빠뜨린 구현도 "커밋 안 됐다" 단언만으로는 통과하기 때문이다."""
     with tx.read() as session:
         session.execute(text("INSERT INTO tx_probe (note) VALUES ('t27c')"))
         # 이 커넥션의 스레드 id를 잡아둔다. 블록을 나간 뒤 이 id로

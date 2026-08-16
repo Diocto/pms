@@ -69,6 +69,9 @@ def test_T27_F01_마이그레이션이_전부_적용됐다(engine):
 
 
 def test_T28_모델과_실제_스키마의_autogenerate_diff가_비어_있다(engine):
+    """스키마 마이그레이션 — SQLModel metadata와 마이그레이션이 만든 실제
+    스키마를 alembic autogenerate로 대조해 diff가 0건임을 본다. 어긋나면
+    모델로 짠 코드가 없는 컬럼을 만지는데 그 어긋남은 조용하다."""
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         diffs = compare_metadata(context, SQLModel.metadata)
@@ -84,29 +87,37 @@ class Test_T29_시드_계약:
     """
 
     def test_호텔_100곳(self, engine):
+        """시드 계약 — hotel이 정확히 100행이다."""
         assert _scalar(engine, "SELECT COUNT(*) FROM hotel") == 100
 
     def test_객실타입_299종(self, engine):
+        """시드 계약 — room_type이 정확히 299행이다(기존 5종 + 98곳 × 3종)."""
         # 기존 5종 + 확장 98곳 × 3종
         assert _scalar(engine, "SELECT COUNT(*) FROM room_type") == 299
 
     def test_재고_26910행(self, engine):
+        """시드 계약 — 재고가 26,910행(객실타입 299종 × 90일)이다."""
         # 299종 × 90일
         assert _scalar(engine, "SELECT COUNT(*) FROM room_daily_inventory") == 26910
 
     def test_날짜_범위는_고정이다(self, engine):
+        """시드 계약 — 재고 날짜가 2026-08-01~2026-10-29로 고정이다. 부하테스트
+        시나리오가 이 범위 안의 날짜를 상수로 쓴다."""
         low = _scalar(engine, "SELECT MIN(stay_date) FROM room_daily_inventory")
         high = _scalar(engine, "SELECT MAX(stay_date) FROM room_daily_inventory")
         assert str(low) == "2026-08-01"
         assert str(high) == "2026-10-29"
 
     def test_경합_실험용_소량_재고_타입이_있다(self, engine):
+        """시드 계약 — id 3(스위트)의 총량이 10이다. 부하테스트가 경합을
+        일으키는 대상이라, 이 값이 커지면 매진 경합 실험이 성립하지 않는다."""
         quantity = _scalar(
             engine, "SELECT total_quantity FROM room_type WHERE id = 3"
         )
         assert quantity == 10  # 스위트. 부하테스트의 경합 대상
 
     def test_기존_호텔_계약_전체를_고정한다(self, engine):
+        """시드 계약 — 호텔 1·2를 (id, name)까지 통째로 고정한다."""
         # id 한 칸만 보면 나머지 매핑이 무방비다 (리뷰 지적). 표를 통째로 박는다
         with engine.connect() as conn:
             rows = conn.execute(
@@ -115,6 +126,8 @@ class Test_T29_시드_계약:
         assert rows == [(1, "서울 그랜드 호텔"), (2, "부산 오션뷰 호텔")]
 
     def test_기존_객실타입_계약_전체를_고정한다(self, engine):
+        """시드 계약 — 객실타입 1~5를 스펙 1.9절 (3) 그대로 전체 컬럼 단위로
+        고정한다."""
         # 스펙 1.9절 (3) 표 그대로. capacity가 틀리면 F03의 정원
         # 검증 상수가 통합 시점에 조용히 어긋난다
         with engine.connect() as conn:
@@ -208,6 +221,8 @@ class Test_T29_시드_계약:
         ]
 
     def test_초기_잔여는_전부_총량과_같다(self, engine):
+        """시드 계약 — 모든 재고 행이 remaining == total_quantity, 즉 판매 시작
+        전 상태다."""
         # "판매 시작 전" 상태. 일부러 줄여둔 날짜는 하나도 없다 (1.9절 (4))
         mismatch = _scalar(
             engine,
@@ -216,5 +231,6 @@ class Test_T29_시드_계약:
         assert mismatch == 0
 
     def test_예약_테이블은_비어_있다(self, engine):
+        """시드 계약 — reservation이 0행이다. 시드의 범위는 재고까지다."""
         # 시드는 재고까지다. 예약이 들어 있으면 시드가 아니라 오염이다
         assert _scalar(engine, "SELECT COUNT(*) FROM reservation") == 0

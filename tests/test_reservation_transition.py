@@ -82,6 +82,8 @@ def _history(engine, reservation_id: int) -> list[tuple]:
 
 
 def test_T43_현재_상태가_맞으면_전이가_이기고_이력이_한_줄_남는다(tx, reservation_id, engine):
+    """상태 전이 적용 — 호출자가 아는 현재 상태가 DB와 일치하면 전이가 이긴다(won).
+    상태가 CONFIRMED로 바뀌고 확정 시각이 채워지며 이력이 정확히 한 줄 남는다."""
     repository = MySqlReservationRepository()
     with tx.write() as session:
         applied = repository.apply_event(
@@ -102,6 +104,9 @@ def test_T43_현재_상태가_맞으면_전이가_이기고_이력이_한_줄_�
 
 
 def test_T44_현재_상태가_다르면_경합_패배이고_아무것도_안_바뀐다(tx, reservation_id, engine):
+    """상태 전이 적용 — DB가 이미 다른 상태(CANCELLED)로 바뀐 뒤의 시도는 패배(lost)로
+    끝나고 상태·이력·재고 복원 어느 것도 건드리지 않는다. 취소와 확정이 동시에 올 때
+    두 결과가 겹쳐 쓰이는 것을 막는 경합 규칙."""
     repository = MySqlReservationRepository()
     with tx.write() as session:
         applied = repository.apply_event(
@@ -134,7 +139,9 @@ def test_T44_현재_상태가_다르면_경합_패배이고_아무것도_안_바
 
 
 def test_표_밖_조합은_UPDATE에_도달하기_전에_거부된다(tx, reservation_id, engine):
-    """"표가 유일한 공급원"의 증명 — 종료 상태에서 나가는 전이를 시도한다."""
+    """상태 전이 적용 — 표 밖 조합(EXPIRED에서 CONFIRM)은 UPDATE에 도달하기 전에
+    예외다. "표가 유일한 공급원"의 증명 — 종료 상태에서 나가는 전이를 시도해도 DB가
+    바뀌지 않아, 재고 없는 확정 예약이 만들어질 수 없다."""
     repository = MySqlReservationRepository()
     with tx.write() as session:
         repository.apply_event(
@@ -159,6 +166,8 @@ def test_표_밖_조합은_UPDATE에_도달하기_전에_거부된다(tx, reserv
 
 
 def test_멱등_조합은_UPDATE도_이력도_없이_성공한다(tx, reservation_id, engine):
+    """상태 전이 적용 — 멱등 조합(CANCELLED에 다시 CANCEL)은 UPDATE도 이력도 없이
+    성공(idempotent)한다. 재취소가 재고를 두 번 복원하는 사고를 막는다."""
     repository = MySqlReservationRepository()
     with tx.write() as session:
         repository.apply_event(

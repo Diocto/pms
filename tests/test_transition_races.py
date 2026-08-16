@@ -96,6 +96,9 @@ def _deps(repository) -> dict:
 
 
 def test_취소가_경합에서_지면_200이_아니라_409다():
+    """전이 경합 패배(취소) — 취소가 조건부 UPDATE 경합에서 지면(lost) 조용히
+    200을 돌려주지 않고 409(InvalidStateTransitionError)를 던진다. UPDATE
+    조건이 재조회 상태가 아니라 정당화한 PENDING 그대로인지도 확인한다."""
     repository = StubRepository(_reservation(ReservationStatus.PENDING), "lost")
     usecase = CancelReservationUseCase(**_deps(repository))
     with pytest.raises(InvalidStateTransitionError):
@@ -105,6 +108,8 @@ def test_취소가_경합에서_지면_200이_아니라_409다():
 
 
 def test_체크인이_경합에서_지면_409다():
+    """전이 경합 패배(체크인) — CONFIRMED 예약의 체크인이 경합에서 지면(lost)
+    409(InvalidStateTransitionError)를 던진다. 스펙 2.3 실패 표의 체크인 행."""
     repository = StubRepository(_reservation(ReservationStatus.CONFIRMED), "lost")
     usecase = CheckInOutUseCase(**_deps(repository))
     with pytest.raises(InvalidStateTransitionError):
@@ -112,7 +117,9 @@ def test_체크인이_경합에서_지면_409다():
 
 
 def test_T62_결제_승인_후_경합에서_지면_환불하고_409다():
-    """스펙 2.3 실패 표 6행 — "결제 취소(환불)를 호출해 보상한다".
+    """전이 경합 패배(확정, 결제 승인 후) — 스펙 2.3 실패 표 6행,
+    "결제 취소(환불)를 호출해 보상한다". 승인 1건에 환불이 정확히 1건
+    대응하고 409를 돌려받는다.
 
     재조회 상태로 판정하던 옛 구현은 이 보상 경로에 사실상 도달하지 못했다
     (4회차 리뷰 심각). 지금은 승인 후 won이 아닌 모든 경합 패배가 이 분기
@@ -130,6 +137,9 @@ def test_T62_결제_승인_후_경합에서_지면_환불하고_409다():
 
 
 def test_결제_거절_후_경합에서_지면_승자가_정리했으므로_200이다():
+    """전이 경합 패배(확정, 결제 거절 후) — 결제가 거절된 뒤 거절 전이 경합에서
+    져도 승자가 이미 예약을 정리했으므로 409가 아니라 200(PAYMENT_DECLINED)을
+    돌려준다. 거절 건은 승인된 결제가 없으므로 환불도 0건이어야 한다."""
     repository = StubRepository(_reservation(ReservationStatus.PENDING), "lost")
     payment = FakePaymentAdapter(decline_rate=1.0)
     usecase = ConfirmReservationUseCase(payment=payment, **_deps(repository))

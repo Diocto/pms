@@ -73,6 +73,9 @@ def engine(database_url):
 
 
 def test_잔여_10에_100스레드가_동시_차감하면_성공은_정확히_10이다(engine):
+    """재고 차감 경합(100스레드 vs 잔여 10) — 유스케이스·락 없이 조건부 UPDATE만
+    직접 때려도 성공 10, 재고 부족 90, 잔여 0으로 회계가 닫힌다. 2층 방어(조건부
+    UPDATE) 단독으로 초과 판매가 없음을 리포지토리 층에서 증명한다."""
     with engine.begin() as conn:
         conn.execute(
             text("DELETE FROM room_daily_inventory WHERE room_type_id = :id"),
@@ -140,6 +143,9 @@ def test_잔여_10에_100스레드가_동시_차감하면_성공은_정확히_10
 
 
 def test_같은_예약에_50스레드가_동시_전이하면_승자는_정확히_1이다(engine):
+    """전이 경합(확정 25 vs 취소 25) — 같은 PENDING 예약 한 행에 50스레드가
+    서로 다른 이벤트로 동시에 apply_event를 걸면 승자는 정확히 1, 패배 49다.
+    최종 상태는 승자의 목표 상태 하나이며, 조건부 UPDATE가 심판임을 증명한다."""
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -211,7 +217,8 @@ def test_겹치는_날짜를_역순으로_넣어도_데드락이_나지_않는�
     이 테스트가 없으면 `sorted()`를 지워도 전부 초록이다(리뷰 지적).
     두 그룹이 같은 날짜 쌍을 **의도적으로 반대 순서**로 넘긴다. 정렬이
     없으면 A가 9/11 행을 쥐고 9/10을 기다리는 사이 B가 9/10을 쥐고
-    9/11을 기다려 InnoDB 데드락(1213)이 난다.
+    9/11을 기다려 InnoDB 데드락(1213)이 난다. 잔여를 100으로 넉넉히 두고
+    20스레드를 절반씩 반대 순서로 보내 데드락 0, 성공 20을 기대한다.
     """
     date_a, date_b = date(2026, 9, 10), date(2026, 9, 11)
     with engine.begin() as conn:
@@ -293,6 +300,7 @@ def test_동시_복원은_상한_감지가_정확히_하나를_거른다(engine)
     잔여 9/총량 10에서 두 스레드가 +1 복원을 동시 시도하면, 조건
     `remaining + 1 <= total_quantity`를 통과하는 것은 하나뿐이다.
     다른 하나는 이중 복원 감지(InventoryRestoreMismatchError)를 받아야 한다.
+    성공 1·감지 1, 최종 잔여는 총량과 같은 10이다.
     """
     from app.inventory.domain.errors import InventoryRestoreMismatchError
 
