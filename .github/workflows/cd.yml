@@ -1,0 +1,106 @@
+# Railway 배포.
+#
+# **CI가 통과한 뒤에만 돈다.** `workflow_run`으로 CI 완료를 기다리고, 결론이 success가
+# 아니면 아무것도 하지 않는다. 테스트가 깨진 코드가 배포되는 경로를 만들지 않는다.
+#
+# 손으로 돌릴 수도 있다(Actions 탭 → Run workflow). 배포만 다시 하고 싶을 때 쓴다.
+#
+# **RAILWAY_TOKEN이 없으면 배포를 건너뛴다.** 토큰을 넣기 전에 빨간 X가 뜨면 진짜
+# 실패와 구분이 안 되기 때문이다. 넣는 방법은 `docs/deploy/railway.md`에 있다.
+#
+# 비밀값은 job의 `if`에서 읽을 수 없다(GitHub 컨텍스트 제약). 그래서 앞단에
+# 확인 job을 두고 그 출력으로 판단한다.
+
+name: CD (Railway)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "배포 대상"
+        required: true
+        default: both
+        type: choice
+        options: [both, backend, frontend]
+
+concurrency:
+  group: cd-railway
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: 배포 조건 확인
+    runs-on: ubuntu-latest
+    # 손으로 돌렸거나, CI가 성공으로 끝났을 때만 여기까지 온다.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "RAILWAY_TOKEN이 없어 배포를 건너뛴다. docs/deploy/railway.md 참고." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  deploy:
+    name: Railway 배포
+    needs: guard
+    if: needs.guard.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT || 'production' }}
+      BACKEND_SERVICE: ${{ vars.RAILWAY_BACKEND_SERVICE || 'pms-api' }}
+      FRONTEND_SERVICE: ${{ vars.RAILWAY_FRONTEND_SERVICE || 'pms-web' }}
+      TARGET: ${{ github.event.inputs.target || 'both' }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_run으로 들어오면 기본 체크아웃이 기본 브랜치를 집는다.
+          # CI가 통과한 바로 그 커밋을 배포해야 한다.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Railway CLI 설치
+        run: npm install -g @railway/cli
+
+      - name: 백엔드 배포
+        if: env.TARGET == 'both' || env.TARGET == 'backend'
+        # --detach: 빌드 로그를 따라가지 않고 요청만 넣는다. Actions가 Railway 빌드
+        # 시간만큼 붙잡혀 있을 이유가 없다. 결과는 Railway 대시보드에서 본다.
+        run: railway up --service "$BACKEND_SERVICE" --environment "$RAILWAY_ENVIRONMENT" --detach
+
+      - name: 프론트엔드 배포
+        if: env.TARGET == 'both' || env.TARGET == 'frontend'
+        working-directory: frontend
+        run: railway up --service "$FRONTEND_SERVICE" --environment "$RAILWAY_ENVIRONMENT" --detach
+
+      - name: 요약
+        run: |
+          {
+            echo "### Railway 배포 요청 완료"
+            echo ""
+            echo "- 커밋: \`$DEPLOY_SHA\`"
+            echo "- 환경: \`$RAILWAY_ENVIRONMENT\`"
+            echo "- 대상: \`$TARGET\`"
+            echo ""
+            echo "빌드 결과는 Railway 대시보드에서 확인한다. 이 작업이 책임지는 것은 배포 **요청**까지다."
+          } >> "$GITHUB_STEP_SUMMARY"
