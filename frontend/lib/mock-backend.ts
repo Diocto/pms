@@ -38,19 +38,35 @@ interface SeedRoomType {
   basePrice: number;
 }
 
-// 시드 규칙 (PR #38, 리비전 053): 호텔 1·2와 객실타입 1~5는 동결,
-// 확장 호텔 h=3~100은 이름 "호텔 003"~, 객실타입 id = h×1000+n (n=1..3 동일 구성)
+// 시드 규칙 (PR #38, 리비전 053·054): 호텔 1·2와 객실타입 1~5는 동결,
+// 확장 호텔 h=3~100은 id 대역별로 지역이 갈린다 (리비전 054, 실 백엔드와 같은 규칙).
+// 객실타입 id = h×1000+n (n=1..3 동일 구성)
 interface SeedHotel { hotelId: number; name: string; address: string }
+
+// (끝 id, 이름 접두, 주소 접두) — 리비전 054의 REGIONS와 같은 값
+const REGIONS: [number, string, string][] = [
+  [23, "서울", "서울특별시 중구 세종대로"],
+  [36, "부산", "부산광역시 해운대구 해운대해변로"],
+  [52, "제주", "제주특별자치도 제주시 중앙로"],
+  [64, "강원", "강원특별자치도 속초시 중앙로"],
+  [72, "경기", "경기도 고양시 일산동구 중앙로"],
+  [78, "인천", "인천광역시 연수구 컨벤시아대로"],
+  [84, "경주", "경상북도 경주시 첨성로"],
+  [89, "전주", "전라북도 전주시 완산구 어진길"],
+  [95, "여수", "전라남도 여수시 돌산로"],
+  [100, "대구", "대구광역시 중구 동성로"],
+];
 
 const HOTELS_SEED: SeedHotel[] = [
   { hotelId: 1, name: "서울 그랜드 호텔", address: "서울특별시 중구 을지로 100" },
   { hotelId: 2, name: "부산 오션뷰 호텔", address: "부산광역시 해운대구 해운대해변로 200" },
   ...Array.from({ length: 98 }, (_, i) => {
     const h = i + 3;
+    const [, namePrefix, addrPrefix] = REGIONS.find(([hi]) => h <= hi)!;
     return {
       hotelId: h,
-      name: `호텔 ${String(h).padStart(3, "0")}`,
-      address: `서울특별시 테스트구 예약로 ${h}`,
+      name: `${namePrefix} 호텔 ${String(h).padStart(3, "0")}`,
+      address: `${addrPrefix} ${h}`,
     };
   }),
 ];
