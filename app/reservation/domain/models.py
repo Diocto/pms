@@ -10,7 +10,7 @@ autogenerate 대조(T28)가 성립하기 때문이다.
 """
 
 from datetime import date, datetime, timedelta
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
@@ -39,20 +39,14 @@ class StayPeriod(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    MAX_NIGHTS: ClassVar[int] = 30  # D29. 기간이 곧 락 키·차감 행 수다
-
     check_in: date
     check_out: date
 
     def model_post_init(self, _context: Any) -> None:
         if self.check_out <= self.check_in:
             raise InvalidRequestError("체크아웃은 체크인보다 늦어야 합니다")
-        # 상한이 없으면 1,200박 요청 하나가 락 키 1,200개를 쥐고 정상 요청을
-        # 락 대기 초과로 밀어낸다 (2회차 리뷰, D29)
-        if self.nights() > self.MAX_NIGHTS:
-            raise InvalidRequestError(
-                f"투숙 기간은 최대 {self.MAX_NIGHTS}박입니다"
-            )
+        # 박수 상한은 두지 않는다 (D29 뒤집음, 관리자 8/16). 예약 가능한 기간은
+        # 재고를 열어둔 날짜 범위가 정한다 — 행이 없는 날짜는 차감 0행 → 409
 
     def occupied_dates(self) -> list[date]:
         """재고를 쓰는 날짜들. 차감·복원·락 키가 전부 이 목록에서 나온다."""

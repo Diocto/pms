@@ -118,6 +118,8 @@ def _create(client, *, user="user-api-1", key="idem-api-1", check_in=IN_1,
 # ── 생성 (T46~T54) ──────────────────────────────────────────────────
 
 def test_T46_정상_생성은_201이고_재고가_깎이고_응답이_camelCase다(client, engine):
+    """예약 생성 — 정상 요청이면 201 PENDING과 camelCase 본문(총액 300000)을 받고,
+    날짜별 재고가 1 깎인다. 내부 필드(id, idempotencyKey)는 노출되지 않는다."""
     response = _create(client)
     assert response.status_code == 201
     body = response.json()
@@ -128,6 +130,8 @@ def test_T46_정상_생성은_201이고_재고가_깎이고_응답이_camelCase�
 
 
 def test_T49_멱등_재요청은_200과_같은_본문이다(client, engine):
+    """예약 생성 — 같은 멱등키로 다시 요청하면 200과 같은 확인번호를 받고(D18),
+    재고는 두 번 깎이지 않는다."""
     first = _create(client, key="idem-replay").json()
     second = _create(client, key="idem-replay")
     assert second.status_code == 200  # 최초 201과 상태 코드로 구분 (D18)
@@ -136,6 +140,8 @@ def test_T49_멱등_재요청은_200과_같은_본문이다(client, engine):
 
 
 def test_T51_입력_오류는_400이고_키가_지워져_고친_재시도가_성공한다(client):
+    """예약 생성 — 정원 초과 같은 입력 오류는 400 INVALID_REQUEST이고, 멱등키가
+    지워지므로 입력을 고쳐 같은 키로 재시도하면 201로 성공한다."""
     bad = _create(client, key="idem-fix", guest_count=99)  # 정원 2×1=2 초과
     assert bad.status_code == 400
     assert bad.json()["code"] == "INVALID_REQUEST"
@@ -144,6 +150,8 @@ def test_T51_입력_오류는_400이고_키가_지워져_고친_재시도가_성
 
 
 def test_T52_재고_부족은_409이고_같은_키_재요청도_같은_409다(client, engine):
+    """예약 생성 — 잔여가 0이면 409 INSUFFICIENT_INVENTORY이고, 같은 키로
+    재요청해도 REQUEST_IN_PROGRESS로 둔갑하지 않고 같은 409를 받는다 (D30)."""
     with engine.begin() as conn:
         conn.execute(
             text("UPDATE room_daily_inventory SET remaining = 0 WHERE room_type_id = :id AND stay_date = :d"),
@@ -159,6 +167,8 @@ def test_T52_재고_부족은_409이고_같은_키_재요청도_같은_409다(cl
 
 
 def test_T47_가운데_날짜만_부족하면_앞_날짜_차감분도_롤백된다(client, engine):
+    """예약 생성 — 숙박 기간 가운데 하루만 재고가 없으면 409이고, 앞 날짜에서
+    깎았던 분량도 롤백되어 부분 차감이 남지 않는다."""
     middle = IN_1 + timedelta(days=1)
     with engine.begin() as conn:
         conn.execute(
@@ -171,12 +181,15 @@ def test_T47_가운데_날짜만_부족하면_앞_날짜_차감분도_롤백된�
 
 
 def test_T48_없는_객실타입은_404다(client):
+    """예약 생성 — 존재하지 않는 객실타입이면 404 RESOURCE_NOT_FOUND다."""
     response = _create(client, key="idem-404", room_type_id=99999)
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
 def test_재고_행이_없는_날짜는_409_재고_부족이다(client):
+    """예약 생성 — 재고 행 자체가 만들어지지 않은 날짜의 요청은 409
+    INSUFFICIENT_INVENTORY로 답한다."""
     response = _create(
         client, key="idem-norow",
         check_in=date(2026, 11, 1), check_out=date(2026, 11, 3),
@@ -186,6 +199,8 @@ def test_재고_행이_없는_날짜는_409_재고_부족이다(client):
 
 
 def test_T53_락이_막히면_503이고_키가_지워져_재시도가_성공한다(client, redis_url):
+    """예약 생성 — 재고 락을 남이 쥐고 있으면 503 LOCK_ACQUISITION_FAILED이고,
+    멱등키가 지워지므로 락이 풀린 뒤 같은 키로 재시도하면 201로 성공한다."""
     lock_key = f"lock:inventory:{ROOM_TYPE_ID}:{IN_1}"
     holder = redis_library.Redis.from_url(redis_url)
     holder.set(lock_key, "someone-else")
@@ -201,6 +216,7 @@ def test_T53_락이_막히면_503이고_키가_지워져_재시도가_성공한�
 
 
 def test_헤더가_없으면_400_INVALID_REQUEST다(client):
+    """API 계약 — Idempotency-Key 헤더가 없으면 400 INVALID_REQUEST다."""
     response = client.post(
         "/api/reservations",
         json={"roomTypeId": 1, "checkIn": "2026-09-01", "checkOut": "2026-09-02",
@@ -214,6 +230,8 @@ def test_헤더가_없으면_400_INVALID_REQUEST다(client):
 # ── 조회·확정 (T57~T62) ─────────────────────────────────────────────
 
 def test_조회는_소유자만_보이고_남의_예약은_404다(client):
+    """예약 조회 — 소유자는 200으로 보고, 남의 확인번호로 조회하면 404다.
+    예약의 존재 자체를 알려주지 않는다."""
     code = _create(client, user="owner-1", key="idem-get").json()["confirmationCode"]
     mine = client.get(f"/api/reservations/{code}", headers={"X-User-Id": "owner-1"})
     assert mine.status_code == 200
@@ -222,6 +240,8 @@ def test_조회는_소유자만_보이고_남의_예약은_404다(client):
 
 
 def test_T57_확정_성공은_CONFIRMED이고_재고는_불변이다(client, engine):
+    """예약 확정(결제) — 확정하면 200 CONFIRMED와 confirmedAt을 받고, 재고는
+    생성 때 이미 확보했으므로 더 깎이지 않는다."""
     code = _create(client, key="idem-confirm").json()["confirmationCode"]
     before = _remaining(engine, IN_1)
     response = client.post(
@@ -235,6 +255,8 @@ def test_T57_확정_성공은_CONFIRMED이고_재고는_불변이다(client, eng
 
 
 def test_T59_이미_확정된_예약의_재확정은_200이고_결제를_다시_부르지_않는다(client):
+    """예약 확정(결제) — 이미 CONFIRMED인 예약의 재확정은 200 멱등이고,
+    결제 청구도 환불(보상)도 다시 일으키지 않는다."""
     code = _create(client, key="idem-reconfirm").json()["confirmationCode"]
     payment = client.app.state.container.reservation.payment()
     client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "user-api-1"})
@@ -247,6 +269,8 @@ def test_T59_이미_확정된_예약의_재확정은_200이고_결제를_다시_
 
 
 def test_T58_결제_거절은_200_CANCELLED이고_재고가_복원된다(client, engine):
+    """예약 확정(결제) — 결제가 거절되면 에러가 아니라 정상 흐름의 결과로 200
+    CANCELLED(failureReason=PAYMENT_DECLINED)를 받고, 재고가 복원된다."""
     code = _create(client, key="idem-decline").json()["confirmationCode"]
     container = client.app.state.container
     from app.reservation.infrastructure.payment import FakePaymentAdapter
@@ -266,6 +290,8 @@ def test_T58_결제_거절은_200_CANCELLED이고_재고가_복원된다(client,
 
 
 def test_T60_만료_대기_중인_예약의_확정은_409이고_결제를_부르지_않는다(client, engine):
+    """예약 확정(결제) — 기한은 지났지만 아직 만료 배치가 돌기 전인 PENDING을
+    확정하면 409 INVALID_STATE_TRANSITION이고, 결제를 부르지 않는다."""
     code = _create(client, key="idem-late").json()["confirmationCode"]
     with engine.begin() as conn:
         conn.execute(
@@ -281,6 +307,8 @@ def test_T60_만료_대기_중인_예약의_확정은_409이고_결제를_부르
 
 
 def test_남의_예약_확정은_404이고_결제를_부르지_않는다(client):
+    """예약 확정(결제) — 제3자가 확인번호만 알고 남의 예약을 확정하려 하면
+    404이고, 결제를 부르지 않는다. 취소·조회와 같은 소유자 규칙이다 (D33)."""
     # 관리자 지시 (2026-08-16, D33). 확인번호만 알면 제3자가 남의 결제를
     # 일으킬 수 있던 문을 닫는다 — 취소·조회와 같은 규칙이다
     code = _create(client, user="owner-3", key="idem-d33").json()["confirmationCode"]
@@ -294,6 +322,8 @@ def test_남의_예약_확정은_404이고_결제를_부르지_않는다(client)
 
 
 def test_취소된_예약의_확정은_409이고_결제를_부르지_않는다(client):
+    """예약 확정(결제) — 이미 취소된 예약의 확정은 409이고, 결제를 부르지
+    않는다. 2.3절 실패 표 3행을 API 경로로 확인한다."""
     # 2.3절 실패 표 3행. 표 수준(T13)이 아니라 API 경로로 확인한다
     code = _create(client, user="u", key="idem-conf-cancelled").json()["confirmationCode"]
     client.post(f"/api/reservations/{code}/cancel", headers={"X-User-Id": "u"})
@@ -305,6 +335,8 @@ def test_취소된_예약의_확정은_409이고_결제를_부르지_않는다(c
 
 
 def test_T64_확정된_예약의_취소도_재고를_복원한다(client, engine):
+    """예약 취소 — CONFIRMED 상태에서 취소해도 200이고 재고가 복원되며, 이력에
+    CONFIRM·CANCEL 두 전이가 순서대로 남는다."""
     code = _create(client, user="u64", key="idem-t64").json()["confirmationCode"]
     client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "u64"})
     assert _remaining(engine, IN_1) == 4
@@ -318,6 +350,8 @@ def test_T64_확정된_예약의_취소도_재고를_복원한다(client, engine
 
 
 def test_T68_복원_갱신_수_불일치는_조용히_넘기지_않고_500이다(client, engine):
+    """예약 취소 — 복원 UPDATE 건수가 기대와 다르면(이중 복원 징후) 500
+    INTERNAL_ERROR로 답하고, 트랜잭션이 롤백되어 상태도 이력도 바뀌지 않는다."""
     code = _create(client, user="u68", key="idem-t68").json()["confirmationCode"]
     # 이중 복원 상황의 재현 — 잔여를 이미 총량으로 만들어 복원이 0건이 되게 한다
     with engine.begin() as conn:
@@ -335,6 +369,8 @@ def test_T68_복원_갱신_수_불일치는_조용히_넘기지_않고_500이다
 
 
 def test_이미_체크인된_예약의_체크인_재요청은_200_멱등이다(client):
+    """체크인·체크아웃 — 이미 CHECKED_IN인 예약의 체크인 재요청은 200 멱등이고,
+    이때 시간창 검증을 건너뛰는 분기(2.6절 표)까지 함께 확인한다."""
     # 2.6절 표의 멱등 칸 — 시간창 검증을 건너뛰는 분기까지 이 경로가 덮는다
     code = _confirmed_today(client, "idem-recheckin")
     client.post(f"/api/reservations/{code}/check-in", headers={"X-User-Id": "guest"})
@@ -344,8 +380,9 @@ def test_이미_체크인된_예약의_체크인_재요청은_200_멱등이다(c
 
 
 def test_T25b_포맷을_따르지_않는_확인번호도_전_경로가_정상_동작한다(client, engine):
-    """만드는 함수만 있고 읽는 함수는 없다 (D7). 어딘가에서 포맷을 파싱하거나
-    형식 검사를 걸면 이 테스트가 깨진다."""
+    """API 계약 — 포맷을 따르지 않는 확인번호(zzz)로도 조회·확정·취소 전 경로가
+    정상 동작한다. 만드는 함수만 있고 읽는 함수는 없다 (D7) — 어딘가에서 포맷을
+    파싱하거나 형식 검사를 걸면 이 테스트가 깨진다."""
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -390,6 +427,8 @@ def _history_rows(engine, code: str) -> list[tuple]:
 
 
 def test_T63_PENDING_취소는_복원과_이력_한_줄이다(client, engine):
+    """예약 취소 — PENDING 취소는 200 CANCELLED이고 재고가 복원되며, 이력에
+    PENDING→CANCELLED 한 줄이 남는다."""
     code = _create(client, user="canceller", key="idem-cancel").json()["confirmationCode"]
     response = client.post(
         f"/api/reservations/{code}/cancel", headers={"X-User-Id": "canceller"}
@@ -401,6 +440,8 @@ def test_T63_PENDING_취소는_복원과_이력_한_줄이다(client, engine):
 
 
 def test_T65_이미_취소된_예약의_재취소는_200이고_복원이_안_늘어난다(client, engine):
+    """예약 취소 — 이미 취소된 예약의 재취소는 200 멱등이고, 재고가 두 번
+    복원되지 않으며 이력도 한 줄 그대로다."""
     code = _create(client, user="canceller", key="idem-recancel").json()["confirmationCode"]
     client.post(f"/api/reservations/{code}/cancel", headers={"X-User-Id": "canceller"})
     again = client.post(
@@ -412,6 +453,8 @@ def test_T65_이미_취소된_예약의_재취소는_200이고_복원이_안_늘
 
 
 def test_T67_남의_예약_취소는_403이_아니라_404다(client):
+    """예약 취소 — 남의 예약 취소는 403이 아니라 404다. 예약의 존재 자체를
+    알려주지 않는다."""
     code = _create(client, user="owner-2", key="idem-theft").json()["confirmationCode"]
     response = client.post(
         f"/api/reservations/{code}/cancel", headers={"X-User-Id": "thief"}
@@ -420,6 +463,8 @@ def test_T67_남의_예약_취소는_403이_아니라_404다(client):
 
 
 def test_T66_만료된_예약의_취소는_409다__이미_취소됨이_아니라_만료됨(client, engine):
+    """예약 취소 — 만료 처리가 끝난 예약의 취소는 409이고, 메시지에 EXPIRED를
+    담아 취소됨이 아니라 만료됐다고 답한다."""
     code = _create(client, user="u", key="idem-exp-cancel").json()["confirmationCode"]
     with engine.begin() as conn:
         conn.execute(
@@ -433,6 +478,8 @@ def test_T66_만료된_예약의_취소는_409다__이미_취소됨이_아니라
 
 
 def test_만료_트리거는_기한_지난_PENDING만_EXPIRED로_옮기고_복원한다(client, engine):
+    """예약 만료 — 만료 트리거는 기한이 지난 PENDING만 EXPIRED로 옮기고 재고를
+    복원하며, 기한 전 예약은 PENDING 그대로 둔다."""
     due = _create(client, user="u", key="idem-due").json()["confirmationCode"]
     alive = _create(
         client, user="u", key="idem-alive",
@@ -463,6 +510,8 @@ def _confirmed_today(client, key: str) -> str:
 
 
 def test_T71_배치_중_한_건이_실패해도_나머지는_계속_처리된다(client, engine):
+    """예약 만료 — 배치 중 한 건의 복원이 실패하면 그 건만 롤백되어 PENDING으로
+    남고, 나머지는 계속 처리되어 EXPIRED가 된다."""
     a = _create(client, user="u71", key="idem-t71a").json()["confirmationCode"]
     b = _create(
         client, user="u71", key="idem-t71b",
@@ -502,6 +551,8 @@ def test_T71_배치_중_한_건이_실패해도_나머지는_계속_처리된다
 
 
 def test_T72_체크인_체크아웃_정상_흐름(client):
+    """체크인·체크아웃 — 오늘 도착하는 CONFIRMED 예약은 체크인으로 CHECKED_IN,
+    이어서 체크아웃으로 CHECKED_OUT이 된다."""
     code = _confirmed_today(client, "idem-checkin")
     check_in = client.post(f"/api/reservations/{code}/check-in", headers={"X-User-Id": "guest"})
     assert check_in.status_code == 200
@@ -512,6 +563,7 @@ def test_T72_체크인_체크아웃_정상_흐름(client):
 
 
 def test_T72_PENDING_체크인은_409다(client):
+    """체크인·체크아웃 — 확정(결제) 전 PENDING 상태의 체크인은 409다."""
     code = _create(client, user="guest", key="idem-early",
                    check_in=TODAY, check_out=TODAY + timedelta(days=2)).json()["confirmationCode"]
     response = client.post(f"/api/reservations/{code}/check-in", headers={"X-User-Id": "guest"})
@@ -519,6 +571,7 @@ def test_T72_PENDING_체크인은_409다(client):
 
 
 def test_T72_도착_전_체크인은_409다(client):
+    """체크인·체크아웃 — 확정했더라도 도착일이 오지 않았으면 체크인은 409다."""
     code = _create(client, user="guest", key="idem-future",
                    check_in=IN_1, check_out=OUT_4).json()["confirmationCode"]
     client.post(f"/api/reservations/{code}/confirm", headers={"X-User-Id": "guest"})

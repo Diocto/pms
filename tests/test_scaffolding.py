@@ -37,6 +37,8 @@ def test_설정은_환경변수_이름_그대로_뒤집힌다(monkeypatch) -> No
 
 
 def test_분산락은_기본적으로_켜져_있다() -> None:
+    """실행 설정 — 환경변수 없이 기동하면 lock_enabled 기본값이 켜짐(True)이다.
+    기본이 꺼짐이면 평범한 기동에서 1차 방어선이 소리 없이 빠진다."""
     assert Settings().lock_enabled is True
 
 

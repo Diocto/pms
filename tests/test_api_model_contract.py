@@ -54,6 +54,9 @@ def test_모든_파이썬_디렉터리에_init이_있다():
 
 
 def test_모든_Response_모델은_ApiModel을_상속한다():
+    """API 응답 모양(camelCase) — 이름이 Response로 끝나는 모든 Pydantic 모델이
+    ApiModel을 상속한다. 상속을 빠뜨린 스키마는 그 엔드포인트만 조용히
+    snake_case로 나가고, k6는 어긋난 필드명을 "표본 0건 통과"로 삼킨다."""
     models = _all_response_models()
 
     # 모집단 확인. 0개면 통과가 아니라 검사를 안 한 것이다 —

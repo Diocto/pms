@@ -29,15 +29,18 @@ def _build_engine(settings: Settings):
 
 
 class AppContainer(containers.DeclarativeContainer):
-    # 설정은 여기서 한 번 만들어 필요한 곳에 나눠준다. 두 곳에서 따로 읽지 않는다.
-    settings = providers.Singleton(Settings)
+    # 전부 ThreadSafeSingleton이다 (D34). 잠금 없는 Singleton은 냉시동 상태에서
+    # 스레드풀 스레드 수만큼 엔진을 만들어 MySQL 커넥션 한도를 넘겼다 (F04 실측, T90)
+    settings = providers.ThreadSafeSingleton(Settings)
 
-    clock = providers.Singleton(SystemClock)
+    clock = providers.ThreadSafeSingleton(SystemClock)
 
-    redis_client = providers.Singleton(_build_redis, settings)
-    engine = providers.Singleton(_build_engine, settings)
-    session_factory = providers.Singleton(sessionmaker, bind=engine)
-    transaction_manager = providers.Singleton(TransactionManager, session_factory)
+    redis_client = providers.ThreadSafeSingleton(_build_redis, settings)
+    engine = providers.ThreadSafeSingleton(_build_engine, settings)
+    session_factory = providers.ThreadSafeSingleton(sessionmaker, bind=engine)
+    transaction_manager = providers.ThreadSafeSingleton(
+        TransactionManager, session_factory
+    )
 
     reservation = providers.Container(
         ReservationContainer,

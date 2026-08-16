@@ -27,12 +27,19 @@ def _config_response(monkeypatch, **environment) -> dict:
 
 
 def test_T87_라우트가_실제로_등록되고_필수_키가_있다(monkeypatch):
+    """실행 설정 API(부하테스트 지원) — GET /api/internal/config가 등록되어
+    200을 주고, 필수 키 PMS_LOCK_ENABLED가 loadTest 안에 있다. F04가 실험
+    전에 이 값을 확인하지 못하면 락 On/Off 대조 자체가 성립하지 않는다."""
     body = _config_response(monkeypatch)
     # 필수는 PMS_LOCK_ENABLED 하나다 (D26)
     assert "PMS_LOCK_ENABLED" in body["loadTest"]
 
 
 def test_T88_키는_조작자가_치는_환경변수_이름_그대로의_평평한_문자열이다(monkeypatch):
+    """실행 설정 API(부하테스트 지원) — loadTest 안 키 6개가 조작자가 셸에
+    치는 환경변수 이름 그대로, 중첩 없는 평평한 문자열이다. 표기를 바꾸면
+    리포트를 보고 셸에 옮겨 적는 재현이 깨진다. 바깥 키는 camelCase 규칙
+    그대로라는 것도 함께 본다."""
     body = _config_response(monkeypatch)
     load_test = body["loadTest"]
     # F01 소유 키 6개 전부, 중첩 없이
@@ -50,6 +57,9 @@ def test_T88_키는_조작자가_치는_환경변수_이름_그대로의_평평�
 
 
 def test_T89_false로_기동하면_값과_구현이_함께_꺼진다(monkeypatch):
+    """실행 설정 API(부하테스트 지원) — PMS_LOCK_ENABLED=false로 기동하면 값이
+    false이고 컨테이너도 실제로 NoOpLockAdapter를 물고 있다. 값만 보면
+    "꺼졌다고 보고하는데 실제로는 도는" 배선 실수를 못 잡는다."""
     body = _config_response(monkeypatch, PMS_LOCK_ENABLED="false")
     assert body["loadTest"]["PMS_LOCK_ENABLED"] is False
     # T89b — 값만 false가 아니라 컨테이너가 실제로 NoOp을 물고 있다
@@ -57,6 +67,8 @@ def test_T89_false로_기동하면_값과_구현이_함께_꺼진다(monkeypatch
 
 
 def test_T89_기본_기동은_Redis_락이다(monkeypatch):
+    """실행 설정 API(부하테스트 지원) — 락을 켜고 기동하면 값이 true이고 구현은
+    RedisLockAdapter다. 끈 회차 검증의 반대 방향 확인이다."""
     body = _config_response(monkeypatch, PMS_LOCK_ENABLED="true")
     assert body["loadTest"]["PMS_LOCK_ENABLED"] is True
     assert body["implementations"]["LockPort"] == "RedisLockAdapter"
@@ -81,6 +93,8 @@ def test_T89c_구현체_이름은_실물에서_나온다(monkeypatch):
 
 
 def test_T89d_결제_포트도_실물이_보고된다(monkeypatch):
+    """실행 설정 API(부하테스트 지원) — PaymentPort도 주입된 실물의 클래스
+    이름(FakePaymentAdapter)으로 보고된다. 락만 특별 취급하지 않는다."""
     body = _config_response(monkeypatch)
     assert body["implementations"]["PaymentPort"] == "FakePaymentAdapter"
 

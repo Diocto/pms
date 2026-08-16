@@ -92,6 +92,8 @@ def _remaining(engine, stay_date: date) -> int:
 
 
 def test_T38_잔여가_충분하면_전_날짜가_깎인다(tx, repository, engine):
+    """재고 조건부 UPDATE — 전 날짜의 잔여가 충분하면 요청 수만큼 모든 날짜가
+    깎인다(10 → 7). 차감의 정상 경로다."""
     with tx.write() as session:
         repository.deduct(
             session, room_type_id=ROOM_TYPE_ID, stay_dates=DATES, room_count=3, now=NOW
@@ -100,6 +102,9 @@ def test_T38_잔여가_충분하면_전_날짜가_깎인다(tx, repository, engi
 
 
 def test_T39_잔여가_부족하면_예외이고_아무_행도_안_깎인다(tx, repository, engine):
+    """재고 조건부 UPDATE — 잔여(10)보다 많은 11을 요청하면
+    InsufficientInventoryError가 나고 어느 행도 깎이지 않는다. rowcount 0을
+    재고 부족으로 판정하는 계약의 확인이다."""
     with pytest.raises(InsufficientInventoryError):
         with tx.write() as session:
             repository.deduct(
@@ -113,6 +118,9 @@ def test_T39_잔여가_부족하면_예외이고_아무_행도_안_깎인다(tx,
 
 
 def test_T39b_가운데_날짜만_부족해도_앞_날짜_차감분이_롤백된다(tx, repository, engine):
+    """재고 조건부 UPDATE — 가운데 날짜만 부족해도 앞 날짜에서 깎인 분량이
+    write() 블록의 예외 롤백으로 함께 되돌아간다. 부분 차감이 남으면 아무도
+    안 묵는데 팔 수 없는 유령 점유가 생긴다."""
     # K7의 단일 스레드 판. 부분 차감이 남으면 유령 점유가 생긴다
     with engine.begin() as conn:
         conn.execute(
@@ -136,6 +144,9 @@ def test_T39b_가운데_날짜만_부족해도_앞_날짜_차감분이_롤백된
 
 
 def test_T40_잔여와_요청이_같으면_경계에서_성공한다(tx, repository, engine):
+    """재고 조건부 UPDATE — 잔여와 요청이 같은 경계값(잔여 10에 10개 요청)에서
+    성공해 잔여가 0이 된다. `remaining >= :count` 조건의 등호가 살아 있는지
+    본다. 부등호로 잘못 짜면 마지막 방이 영원히 안 팔린다."""
     with tx.write() as session:
         repository.deduct(
             session,
@@ -148,6 +159,8 @@ def test_T40_잔여와_요청이_같으면_경계에서_성공한다(tx, reposit
 
 
 def test_T41_복원은_깎인_만큼_되돌린다(tx, repository, engine):
+    """재고 조건부 UPDATE — 취소·만료 복원이 깎인 만큼 정확히 되돌린다
+    (4 차감 뒤 4 복원 → 다시 10). 차감과 복원이 짝을 이루는 정상 경로다."""
     with tx.write() as session:
         repository.deduct(
             session, room_type_id=ROOM_TYPE_ID, stay_dates=DATES, room_count=4, now=NOW
@@ -160,6 +173,9 @@ def test_T41_복원은_깎인_만큼_되돌린다(tx, repository, engine):
 
 
 def test_T42_총량을_넘는_복원은_이중_복원_감지로_실패한다(tx, repository, engine):
+    """재고 조건부 UPDATE — 깎은 적 없는 상태의 복원(총량 초과)은
+    InventoryRestoreMismatchError로 실패하고 아무 행도 안 바뀐다. 이중 복원이
+    조용히 재고를 부풀리는 것을 막는다."""
     # 깎지 않은 상태에서 복원 = 이중 복원 시나리오. 조용히 넘기지 않는다
     with pytest.raises(InventoryRestoreMismatchError):
         with tx.write() as session:

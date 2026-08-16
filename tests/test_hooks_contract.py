@@ -176,6 +176,8 @@ class RecordingReleaseHook:
 
 
 def test_T74_훅이_0개여도_생성과_취소가_그대로_돈다(client):
+    """확장 훅 계약(F02 연동 지점) — 훅이 하나도 등록되지 않아도 생성과 취소가
+    그대로 돈다. F02 병합 전에도 F01이 단독으로 완결된다는 보장."""
     # 기본 컨테이너가 빈 리스트다 — F02 병합 전에도 F01이 돌아간다는 보장
     code = _create(client, key="k-t74").json()["confirmationCode"]
     response = client.post(
@@ -185,6 +187,8 @@ def test_T74_훅이_0개여도_생성과_취소가_그대로_돈다(client):
 
 
 def test_T75_T80_생성_훅은_INSERT_직후_id와_함께_전부_호출된다(client):
+    """확장 훅 계약(F02 연동 지점) — 생성 훅은 예약 INSERT 직후 확정된 예약 id를
+    받아(T75), 등록된 훅 전부가 각 1회씩 호출된다(T80)."""
     first, second = RecordingCreationHook(), RecordingCreationHook()
     client.app.state.container.reservation.creation_hooks.override([first, second])
     _create(client, key="k-t75")
@@ -194,6 +198,9 @@ def test_T75_T80_생성_훅은_INSERT_직후_id와_함께_전부_호출된다(cl
 
 
 def test_T76_T77_반납_훅은_전이에서_이긴_쪽만_정확히_한_번이다(client):
+    """확장 훅 계약(F02 연동 지점) — 반납 훅은 전이에서 이긴 취소만 정확히 한 번,
+    이전 상태·이벤트와 함께 부른다(T76). 멱등 재취소는 부르지 않는다(T77) —
+    특가 사용권이 두 번 반납되는 것을 막는다."""
     hook = RecordingReleaseHook()
     client.app.state.container.reservation.release_hooks.override([hook])
     code = _create(client, key="k-t76").json()["confirmationCode"]
@@ -205,6 +212,8 @@ def test_T76_T77_반납_훅은_전이에서_이긴_쪽만_정확히_한_번이�
 
 
 def test_T78_체크아웃은_반납_훅을_부르지_않는다(client, engine):
+    """확장 훅 계약(F02 연동 지점) — 확정·체크인·체크아웃 전 과정에서 반납 훅이
+    한 번도 불리지 않는다. 재고를 복원하지 않는 종료(1.4절)와 같은 대칭."""
     hook = RecordingReleaseHook()
     client.app.state.container.reservation.release_hooks.override([hook])
     today = SystemClock().today()
@@ -234,6 +243,9 @@ def test_T78_체크아웃은_반납_훅을_부르지_않는다(client, engine):
 
 
 def test_T79_훅이_던지면_예약도_차감도_전부_롤백된다(client, engine):
+    """확장 훅 계약(F02 연동 지점) — 생성 훅이 예외를 던지면 409로 응답하고
+    예약 INSERT·재고 차감·앞선 훅이 쓴 행까지 전부 롤백된다. 특가 매진인데
+    예약만 살아남는 반쪽 상태를 막는다."""
     client.app.state.container.reservation.creation_hooks.override(
         [WritingCreationHook(), RaisingCreationHook()]
     )
@@ -250,7 +262,8 @@ def test_T79_훅이_던지면_예약도_차감도_전부_롤백된다(client, en
 
 
 def test_T79b_훅이_성공한_뒤_호출부가_실패하면_훅이_쓴_행도_사라진다(client, engine):
-    """세션 분리를 잡는 유일한 판별 테스트다.
+    """확장 훅 계약(F02 연동 지점) — 훅이 성공한 뒤 호출부가 실패해도 훅이 쓴 행이
+    함께 롤백된다. 세션 분리를 잡는 유일한 판별 테스트다.
 
     훅이 자기 세션을 열었다면 그 세션은 이미 커밋되어 probe 행이 살아남는다 —
     T79는 이것을 못 잡는다 (갈라진 세션도 예외 시에는 함께 롤백되므로).
@@ -278,8 +291,9 @@ def test_T79b_훅이_성공한_뒤_호출부가_실패하면_훅이_쓴_행도_�
 
 
 def test_T79c_반납_훅_성공_뒤_실패도_함께_롤백된다(client, engine):
-    """반납 쪽 세션 분리 판별 (2회차 리뷰에서 확인한 공백). 갈라지면
-    "취소는 안 됐는데 특가만 복원된" — 같은 방을 두 번 파는 상태가 된다."""
+    """확장 훅 계약(F02 연동 지점) — 반납 훅이 성공한 뒤 실패하면 취소·재고 복원·
+    훅이 쓴 행이 전부 함께 롤백된다. 반납 쪽 세션 분리 판별 (2회차 리뷰에서 확인한
+    공백). 갈라지면 "취소는 안 됐는데 특가만 복원된" — 같은 방을 두 번 파는 상태가 된다."""
 
     class WritingRelease:
         def on_released(self, session, reservation_id, from_status, event) -> None:
@@ -320,6 +334,8 @@ class FixedResolver:
 
 
 def test_T80a_할인이_없으면_정가이고_해석기를_부르지_않는다(client):
+    """할인 해석기 계약(F02 연동 지점, D22) — 할인이 없는 일반 예약은 정가
+    (base_price)로 계산되고 해석기는 한 번도 불리지 않는다."""
     resolver = FixedResolver(price=70000)
     client.app.state.container.reservation.discount_resolvers.override([resolver])
     body = _create(client, key="k-t80a").json()
@@ -328,6 +344,9 @@ def test_T80a_할인이_없으면_정가이고_해석기를_부르지_않는다(
 
 
 def test_공개_API는_discounts를_받지_않는다(client):
+    """할인 해석기 계약(F02 연동 지점, D22) — 공개 예약 API에 discounts를 실어 보내도
+    무시되어 정가가 적용되고 해석기도 불리지 않는다. 특가 경로 밖에서의 할인
+    밀반입을 막는다."""
     # 스펙 2.2: 일반 예약 API에 노출하지 않는다 (D22). 보내도 무시된다
     resolver = FixedResolver(price=1)
     client.app.state.container.reservation.discount_resolvers.override([resolver])
@@ -346,6 +365,8 @@ def test_공개_API는_discounts를_받지_않는다(client):
 
 
 def test_T80b_해석_성공은_특가_단가가_스냅샷된다(client):
+    """할인 해석기 계약(F02 연동 지점, D22) — 해석이 성공하면 특가 단가가 예약에
+    스냅샷되어 총액까지 특가 기준으로 계산된다."""
     resolver = FixedResolver(price=70000)
     client.app.state.container.reservation.discount_resolvers.override([resolver])
     result = _execute_with_discounts(
@@ -358,6 +379,9 @@ def test_T80b_해석_성공은_특가_단가가_스냅샷된다(client):
 
 
 def test_T80c_해석_실패는_400이다__정가로_조용히_넘어가지_않는다(client):
+    """할인 해석기 계약(F02 연동 지점, D22) — 해석기가 None을 돌려주면 도메인
+    예외(400)다. 정가로 조용히 넘어가면 특가 조건이 사라진 예약이 손님 모르게
+    정가로 청구되므로 fail-closed로 막는다."""
     from app.common.errors import InvalidRequestError
 
     client.app.state.container.reservation.discount_resolvers.override(
@@ -371,6 +395,8 @@ def test_T80c_해석_실패는_400이다__정가로_조용히_넘어가지_않�
 
 
 def test_T80d_할인_2개는_400이다(client):
+    """할인 해석기 계약(F02 연동 지점, D22) — 할인을 2개 이상 실으면 도메인
+    예외(400)다. 할인은 예약당 최대 1개."""
     from app.common.errors import InvalidRequestError
 
     with pytest.raises(InvalidRequestError):
@@ -406,6 +432,9 @@ class RejectingPreCheck:
 
 
 def test_T80f_사전_검사가_거부하면_락을_잡지_않는다(client):
+    """사전 검사 계약(F02 연동 지점, D23) — 사전 검사가 거부하면 409로 끝나고
+    분산락은 한 번도 잡지 않는다. 어차피 실패할 요청에 락 비용을 치르지 않는다는
+    D23의 목적 그 자체."""
     lock = CountingLock()
     container = client.app.state.container
     container.reservation.pre_check_hooks.override([RejectingPreCheck()])
@@ -416,6 +445,8 @@ def test_T80f_사전_검사가_거부하면_락을_잡지_않는다(client):
 
 
 def test_T80g_사전_검사_거부의_멱등_키는_실패로_남는다(client):
+    """사전 검사 계약(F02 연동 지점, D30) — 사전 검사 거부(409)의 멱등 키는 실패로
+    남아, 같은 키 재요청도 같은 코드의 409를 받는다. 재고 부족과 같은 성격의 실패."""
     client.app.state.container.reservation.pre_check_hooks.override(
         [RejectingPreCheck()]
     )
