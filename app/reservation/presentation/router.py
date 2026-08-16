@@ -36,7 +36,7 @@ def create_reservation(
     user_id: str = Header(alias="X-User-Id"),
     idempotency_key: str = Header(alias="Idempotency-Key"),
 ) -> ReservationResponse:
-    # 요청 → Command. VO 불변식(기간·인원·30박)이 여기서 터지면 400이다
+    # 요청 → Command. VO 불변식(기간·인원)이 여기서 터지면 400이다
     command = CreateReservationCommand(
         user_id=user_id,
         idempotency_key=idempotency_key,

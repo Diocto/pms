@@ -29,12 +29,11 @@ def test_T1_체크아웃이_체크인보다_늦지_않으면_생성_거부():
         StayPeriod(check_in=date(2026, 9, 1), check_out=date(2026, 9, 1))
 
 
-def test_T1b_투숙_기간은_최대_30박이다():
-    # D29. 기간이 곧 락 키·차감 행 수라 상한이 없으면 한 요청이 락을
-    # 수천 개 쥘 수 있다
-    StayPeriod(check_in=date(2026, 8, 16), check_out=date(2026, 9, 15))  # 30박 허용
-    with pytest.raises(InvalidRequestError):
-        StayPeriod(check_in=date(2026, 8, 16), check_out=date(2026, 9, 16))  # 31박
+def test_T1b_투숙_기간에_박수_상한이_없다():
+    # D29 뒤집음 (관리자, 8/16). 예약 가능한 기간은 코드 상한이 아니라
+    # 재고를 열어둔 날짜 범위가 정한다 — 재고 행이 없는 날짜는 차감이 0행이라 409
+    period = StayPeriod(check_in=date(2026, 8, 16), check_out=date(2030, 1, 1))
+    assert period.nights() == 1234
 
 
 def test_T2_빈_입력은_생성_거부():
