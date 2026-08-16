@@ -24,7 +24,7 @@ cd frontend && nohup npm run dev > /tmp/pms-web.log 2>&1 &
 # 내리기: pkill -f "uvicorn app.main:app"; pkill -f "next dev"
 ```
 
-- 위 명령은 2026-08-16에 실제 실행으로 검증했다.
+- 위 명령은 2026-08-17에 실제 실행으로 검증했다.
 - 백엔드 확인: `curl localhost:8000/health` → `{"status":"UP"}`. Swagger: http://localhost:8000/docs
 - 프론트의 `/api/*` 호출은 Next 프록시가 백엔드(8000)로 넘긴다. 백엔드 포트를 바꾸면
   `PMS_BACKEND_ORIGIN=http://localhost:포트 npm run dev`.
@@ -39,8 +39,9 @@ cd frontend && nohup npm run dev > /tmp/pms-web.log 2>&1 &
 
 전 구간 왕복은 `python3 frontend/e2e-check.py`로 재검증할 수 있다 (서버 두 개가 떠 있어야 한다).
 
-- 마지막 전 구간 검증: **2026-08-16 05:4x — 7단계 전부 통과** (캐시 DB→CACHE · 생성 201 ·
-  fresh 재검색 재고 차감 · 확정 · 취소 복원 · 판매 전 · 인원 초과)
+- 마지막 전 구간 검증: **2026-08-17 — 10단계 전부 통과** (캐시 DB→CACHE · 생성 201 ·
+  fresh 재검색 재고 차감 · 확정 · 취소 복원 · 판매 전 · 인원 초과 · 호텔 목록 100곳 ·
+  user_id 목록/결제 완료 필터 · 확장 호텔 객실 왕복)
 
 ## 데이터 초기화 (재시드)
 
@@ -48,7 +49,7 @@ cd frontend && nohup npm run dev > /tmp/pms-web.log 2>&1 &
 
 ```bash
 docker compose down -v && docker compose up -d   # 볼륨까지 삭제
-.venv/bin/alembic upgrade head                    # 스키마+시드 재적용 (450행)
+.venv/bin/alembic upgrade head                    # 스키마+시드 재적용 (재고 26,910행)
 ```
 
 시드 날짜가 고정(2026-08-01~10-29)이라 몇 번을 돌려도 같은 상태가 나온다.
