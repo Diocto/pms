@@ -36,7 +36,7 @@
 // 실행 전: ./reset.sh s4b
 
 import exec from 'k6/execution';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';
 import { PLAN, STATUS, RESPONSE_FIELDS, idField } from './config.js';
 import { installResponseCallback, createReservation, confirm, triggerExpire } from './lib/api.js';
@@ -59,21 +59,36 @@ const expiredReported = new Counter('expired_reported');
 // 확정에 성공한(200 + CONFIRMED) 예약 수. 최종 CONFIRMED 수와 대조한다.
 const confirmedOk = new Counter('confirm_succeeded');
 
+// 두 축 모두 startTime 으로 만료 경계에 맞춘다 (2026-08-16 첫 실행에서 배운 것).
+//
+// 처음에는 생성 직후 바로 확정을 쐈는데, hold 1분짜리 예약을 8초 만에 전부
+// 확정해 버려 **만료 창에 아무도 없었다** — expired 0건, 경합 0건으로 초록불.
+// 스크립트가 setup 에서 스스로 경고까지 찍었는데("아니면 만료가 0건으로
+// 끝난다") 판정으로는 안 잡혔다. expired_reported 는 배경 스캐너 때문에
+// 하한을 못 거는 지표라서다. 그래서 대조를 결과 문서의 존재 확인(EXPIRED >
+// 0)으로 두고, 시간축을 이렇게 맞춘다:
+//   setup 에서 생성(0~수 초) → expires_at = 생성 +60초 → 확정은 54초부터
+//   요청당 30ms 시차로 12초에 걸쳐 발사(54~66초) + 만료 트리거 52~72초 연사.
+// 45초 일괄 발사(2차 시도)는 폭주가 1초 만에 끝나 전원이 만료 전에 확정됐다.
+// 창이 아니라 **점**인 경계는 펼쳐서 관통해야 한다. 이러면 앞쪽은 만료 전에
+// 확정되고(정상), 뒤쪽은 EXPIRED 뒤 확정 시도가 409로 거절되고(경합 증거),
+// 배경 스캐너(30초 주기)도 반드시 이 창에 든다.
 export const options = {
     scenarios: {
         confirms: {
             executor: 'shared-iterations',
             vus: COUNT,
             iterations: COUNT,
+            startTime: '54s',
             maxDuration: '120s',
             exec: 'confirmAxis',
         },
         expires: {
-            // 배치가 도는 구간을 넓힌다. 200ms 간격 15회.
             executor: 'constant-arrival-rate',
             rate: 5,
             timeUnit: '1s',
-            duration: '3s',
+            startTime: '52s',
+            duration: '20s',
             preAllocatedVUs: 2,
             maxVUs: 4,
             exec: 'expireAxis',
@@ -115,6 +130,9 @@ export function confirmAxis(data) {
     const n = exec.scenario.iterationInTest;
     const target = data.targets[n];
     if (!target) return;
+
+    // 발사를 12초에 걸쳐 펼친다 — 일괄 발사는 만료 경계를 스치기만 한다
+    sleep((n % COUNT) * 0.03);
 
     const { res, outcome } = confirm(target.ref, { userId: target.owner });
     if (outcome.kind === 'ok' && outcome.status === STATUS.CONFIRMED) {
