@@ -154,6 +154,19 @@ body {
 
 .stars { color: var(--brass); letter-spacing: 2px; font-size: 13px; }
 
+/* 기본 이미지(플레이스홀더) — 외부 이미지 없이 시안 1 무드의 그라디언트 블록.
+   실제 사진이 생기면 background-image로 교체하면 된다. */
+.ph {
+  flex: none; border: 1px solid var(--line); position: relative; overflow: hidden;
+  display: flex; align-items: flex-end; padding: 8px 10px;
+}
+.ph i {
+  font-style: normal; color: #f2efe6; font-size: 10px; letter-spacing: 0.22em;
+  text-transform: uppercase; opacity: 0.9;
+}
+.ph-hotel { width: 128px; height: 92px; }
+.ph-room { width: 148px; height: 104px; }
+
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .two-col { display: grid; grid-template-columns: 1fr 300px; gap: 20px; }
 @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
