@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시안 2 — 트래블 플랫폼</title>
+<style>
+/* 시안 2: 모던 OTA — Airbnb·Booking 계열. 흰 바탕, 코랄 액센트, 큰 라운드,
+   칩 필터, 지도 스플릿 뷰. 친근하고 데이터가 잘 읽히는 소비자 플랫폼 무드.
+   단일 테마(라이트) — 모든 색 명시. */
+:root{
+  --bg:#FFFFFF; --sub:#F7F7F8; --ink:#1E2126; --soft:#5D646E; --faint:#9AA1AB;
+  --line:#E7E8EB; --coral:#E8555A; --coral-soft:#FDEEEE; --navy:#1C3A5A;
+  --ok:#178A5B; --ok-soft:#E4F5EC; --warn:#C77714; --warn-soft:#FBF0DE; --danger:#C6423B;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;
+  font-size:14.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1140px;margin:0 auto;padding:0 28px 90px}
+
+.spec{margin:56px 0 16px;padding-top:22px;border-top:1px dashed var(--line)}
+.spec .tag{display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:var(--navy);color:#fff}
+.spec .tag.new{background:var(--coral)}
+.spec h2{font-size:19px;margin:8px 0 3px}
+.spec p{margin:0;color:var(--soft);font-size:13px;max-width:72ch}
+
+.nav{display:flex;align-items:center;gap:26px;padding:16px 0}
+.logo{font-size:21px;font-weight:900;color:var(--coral);letter-spacing:-.02em}
+.nav a{font-size:13.5px;color:var(--soft);text-decoration:none;font-weight:600}
+.nav a.on{color:var(--ink)}
+.user{margin-left:auto;font-size:12px;color:var(--soft);border:1.5px solid var(--line);border-radius:999px;padding:7px 14px}
+.btn{display:inline-flex;align-items:center;gap:6px;background:var(--coral);color:#fff;border:0;border-radius:12px;
+  padding:12px 20px;font-size:14px;font-weight:700;font-family:inherit;cursor:default}
+.btn.ghost{background:var(--sub);color:var(--ink)}
+.btn.navy{background:var(--navy)}
+.btn.sm{padding:8px 14px;font-size:13px;border-radius:9px}
+.card{background:var(--bg);border:1.5px solid var(--line);border-radius:18px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;padding:4px 11px;border-radius:999px}
+.p-ok{background:var(--ok-soft);color:var(--ok)} .p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-coral{background:var(--coral-soft);color:var(--coral)} .p-mute{background:var(--sub);color:var(--faint)}
+.note{font-size:12px;color:var(--faint)}
+
+/* 검색바 + 칩 */
+.searchbar{display:flex;align-items:center;border:2px solid var(--ink);border-radius:999px;padding:8px 8px 8px 26px;gap:22px;box-shadow:0 8px 28px -18px rgba(30,33,38,.4)}
+.searchbar div{font-size:13px}
+.searchbar label{display:block;font-size:10.5px;font-weight:800;color:var(--ink)}
+.searchbar span{color:var(--soft)}
+.searchbar .go{margin-left:auto;background:var(--coral);color:#fff;border-radius:999px;padding:13px 26px;font-weight:800}
+.chips{display:flex;gap:8px;margin:16px 0 0;flex-wrap:wrap}
+.chip{font-size:12.5px;font-weight:700;padding:7px 14px;border-radius:999px;border:1.5px solid var(--line);color:var(--soft)}
+.chip.on{border-color:var(--ink);color:var(--ink);background:var(--sub)}
+
+/* 지도 스플릿 */
+.split{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:18px}
+.map{border-radius:18px;min-height:420px;position:relative;overflow:hidden;
+  background:
+   radial-gradient(circle at 68% 32%, #D7E6DC 0 14%, transparent 15%),
+   radial-gradient(circle at 30% 70%, #D9E4EE 0 18%, transparent 19%),
+   linear-gradient(#EFF3F0,#E6EDF2);
+  border:1.5px solid var(--line)}
+.pin{position:absolute;background:#fff;border:1.5px solid var(--ink);border-radius:999px;padding:6px 12px;font-weight:800;font-size:13px;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}
+.pin.on{background:var(--ink);color:#fff}
+.hcard{display:flex;gap:14px;padding:14px;border-radius:16px;border:1.5px solid var(--line);margin-bottom:12px;background:#fff}
+.hph{width:118px;height:96px;border-radius:12px;flex:none;background:linear-gradient(135deg,#F0B27A,#E8555A)}
+.hph.b{background:linear-gradient(135deg,#7FB6D9,#1C3A5A)}
+.stars{color:#F5A623;font-size:12px}
+.heart{margin-left:auto;font-size:18px;color:var(--coral)}
+
+/* 유연 날짜 */
+.flex7{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.flex7 div{border:1.5px solid var(--line);border-radius:12px;padding:10px 6px;text-align:center}
+.flex7 .best{border-color:var(--ok);background:var(--ok-soft)}
+.flex7 .d{font-size:11px;color:var(--faint);font-weight:700}
+.flex7 .p{font-size:13.5px;font-weight:800;margin-top:2px}
+.flex7 .best .p{color:var(--ok)}
+
+.row{display:flex;justify-content:space-between;font-size:13.5px;color:var(--soft);padding:3px 0}
+.row b{color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:860px){.split,.two{grid-template-columns:1fr}.searchbar{flex-wrap:wrap;border-radius:20px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="spec" style="border-top:0;margin-top:24px">
+  <span class="tag">시안 2 / 5</span>
+  <h2>트래블 플랫폼 — 모던 OTA</h2>
+  <p>Airbnb·Booking 계열의 소비자 플랫폼 무드. 흰 바탕 + 코랄, 큰 라운드, 알약 검색바, 칩 필터, 지도 스플릿 뷰. 포함 신규 기능: <b>지도 검색 · 필터 칩 · 유연 날짜(±3일) · 위시리스트</b>.</p>
+</div>
+
+<!-- 현재: 검색 + 신규: 필터/지도 -->
+<div class="spec"><span class="tag">현재 기능</span><h2>검색 + 결과</h2><p>알약 검색바(업계 관습). 결과는 지도 스플릿 — 지도·필터는 추가 제안이지만 화면에 함께 그렸다.</p></div>
+
+<nav class="nav">
+  <span class="logo">여정</span>
+  <a class="on" href="#">숙소</a><a href="#">내 예약</a>
+  <span class="user">👤 user-1001 · 로그인 아님</span>
+</nav>
+
+<div class="searchbar">
+  <div><label>어디로</label><span>서울 · 부산 전체</span></div>
+  <div><label>날짜</label><span class="mono">9.1 – 9.4 (3박)</span></div>
+  <div><label>인원</label><span>성인 2 · 객실 1</span></div>
+  <button class="go">🔍 검색</button>
+</div>
+<div class="chips">
+  <span class="chip on">전체</span><span class="chip">₩20만 이하 <b style="color:var(--coral)">·제안</b></span>
+  <span class="chip">오션 뷰 <b style="color:var(--coral)">·제안</b></span><span class="chip">4인 이상 <b style="color:var(--coral)">·제안</b></span>
+  <span class="chip">평점 4.5+ <b style="color:var(--coral)">·제안</b></span>
+</div>
+
+<div class="split">
+  <div>
+    <div class="note" style="margin-bottom:10px"><span class="mono">14:03:22</span> 기준 · 잔여는 최대 10초 전 정보 — 예약 시점에 서버가 다시 확인합니다</div>
+    <div class="hcard">
+      <div class="hph"></div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px"><b style="font-size:16px">서울 그랜드 호텔</b><span class="stars">★ 4.8 (214)</span><span class="heart">♡</span></div>
+        <div class="note">중구 을지로 · 지하철 2분 · 객실 3종 예약 가능</div>
+        <div style="display:flex;gap:6px;margin-top:8px"><span class="pill p-ok">여유</span><span class="pill p-warn">스위트 2실 남음</span></div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin-top:8px"><b style="font-size:18px">₩450,000</b><span class="note">3박 총액 · 스탠다드 기준</span><button class="btn sm" style="margin-left:auto">객실 보기</button></div>
+      </div>
+    </div>
+    <div class="hcard">
+      <div class="hph b"></div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px"><b style="font-size:16px">부산 오션뷰 호텔</b><span class="stars">★ 4.6 (167)</span><span class="heart">♥</span></div>
+        <div class="note">해운대 해변 앞 · 객실 2종 예약 가능</div>
+        <div style="display:flex;gap:6px;margin-top:8px"><span class="pill p-ok">여유</span></div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin-top:8px"><b style="font-size:18px">₩540,000</b><span class="note">3박 총액 · 오션뷰 스탠다드 기준</span><button class="btn sm" style="margin-left:auto">객실 보기</button></div>
+      </div>
+    </div>
+    <div class="note">지도 뷰·필터·평점은 <b style="color:var(--coral)">추가 제안 기능</b> — 조사 근거: 지도는 위치 이해의 핵심, 필터는 랜딩 필수 관습.</div>
+  </div>
+  <div class="map">
+    <span class="pin on" style="left:26%;top:30%">₩45만</span>
+    <span class="pin" style="left:62%;top:64%">₩54만</span>
+    <span class="pin" style="right:14px;top:14px;font-size:11px">지도 — 추가 제안</span>
+  </div>
+</div>
+
+<!-- 신규: 유연 날짜 -->
+<div class="spec"><span class="tag new">추가 제안 기능</span><h2>유연 날짜 — 앞뒤 3일 총액 비교</h2><p>일별 재고·고정 단가라 총액 비교가 정확하게 나온다. 매진일은 비활성. 조사 근거: 유연 날짜 검색은 가격 민감 사용자용 표준 기능.</p></div>
+<div class="card" style="padding:20px 22px">
+  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px"><b>9월 1일 체크인 앞뒤로, 3박 총액</b><span class="note">스위트 · 서울 그랜드</span></div>
+  <div class="flex7">
+    <div><div class="d">8.29 (토)</div><div class="p mono">180만</div></div>
+    <div><div class="d">8.30 (일)</div><div class="p mono">180만</div></div>
+    <div><div class="d">8.31 (월)</div><div class="p mono">180만</div></div>
+    <div class="best"><div class="d">9.1 (화) 선택</div><div class="p mono">180만</div><div class="note" style="color:var(--ok)">잔여 최다</div></div>
+    <div><div class="d">9.2 (수)</div><div class="p mono">180만</div></div>
+    <div style="opacity:.45"><div class="d">9.3 (목)</div><div class="p mono">매진</div></div>
+    <div><div class="d">9.4 (금)</div><div class="p mono">180만</div></div>
+  </div>
+</div>
+
+<!-- 현재: 주문서/상세 -->
+<div class="spec"><span class="tag">현재 기능</span><h2>예약 주문서 → 결제 대기</h2><p>멱등 안내는 체크아이콘 리스트로 친근하게. 카운트다운은 진행바와 함께.</p></div>
+<div class="two">
+  <div class="card" style="padding:24px 26px">
+    <b style="font-size:17px">예약 확인</b>
+    <div class="note mono" style="margin-bottom:12px">스위트 · 서울 그랜드 · 9.1–9.4 · 3박 · 성인 2</div>
+    <div class="row"><span>₩600,000 × 3박 × 1실</span><b class="mono">₩1,800,000</b></div>
+    <div class="row"><span>세금·봉사료</span><b>포함</b></div>
+    <div style="border-top:1.5px solid var(--line);margin:10px 0;padding-top:10px" class="row"><b>총 결제 금액</b><b style="font-size:19px" class="mono">₩1,800,000</b></div>
+    <button class="btn" style="width:100%;justify-content:center;margin-top:8px">예약하기</button>
+    <div class="note" style="margin-top:12px">✓ 여러 번 눌러도 예약은 1건 &nbsp; ✓ 10분간 객실 확보 &nbsp; ✓ 미결제 시 자동 해제</div>
+  </div>
+  <div class="card" style="padding:24px 26px">
+    <div style="display:flex;align-items:center;gap:8px"><span class="pill p-warn">결제 대기</span><span class="note mono">260901-H1R3-K7M2XQ4R</span></div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin:16px 0 6px"><span class="mono" style="font-size:40px;font-weight:800">09:47</span><span class="note">남음</span></div>
+    <div style="height:8px;border-radius:99px;background:var(--sub);overflow:hidden"><span style="display:block;width:97%;height:100%;background:var(--coral)"></span></div>
+    <div style="display:flex;gap:8px;margin-top:16px"><button class="btn" style="flex:1;justify-content:center">₩1,800,000 결제</button><button class="btn ghost">취소</button></div>
+    <div class="note" style="margin-top:10px">시간이 지나면 자동 취소되고 방은 다시 판매됩니다.</div>
+  </div>
+</div>
+
+<!-- 현재: 내 예약 + 신규: 리뷰/알림 -->
+<div class="spec"><span class="tag">현재 기능</span><h2>내 예약</h2><p>탭 필터(전체/결제 완료/지난 예약) — 관리자 지시의 "결제 완료 건 조회"를 탭으로 노출.</p></div>
+<div class="card" style="padding:20px 24px">
+  <div class="chips" style="margin:0 0 14px"><span class="chip on">전체 4</span><span class="chip">결제 완료 2</span><span class="chip">지난 예약 1</span></div>
+  <div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1.5px solid var(--line)">
+    <span class="pill p-warn">결제 대기</span><div><b>스위트 · 서울 그랜드</b><div class="note mono">9.1–9.4 · ₩1,800,000</div></div>
+    <span class="mono" style="margin-left:auto;color:var(--warn);font-weight:800">09:47</span><button class="btn sm">결제</button>
+  </div>
+  <div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1.5px solid var(--line)">
+    <span class="pill p-ok">결제 완료</span><div><b>오션뷰 스위트 · 부산</b><div class="note mono">10.3–10.5 · ₩900,000 · 10.2까지 무료 취소</div></div>
+    <button class="btn ghost sm" style="margin-left:auto">영수증 <b style="color:var(--coral)">·제안</b></button><button class="btn ghost sm">상세</button>
+  </div>
+  <div style="display:flex;gap:14px;align-items:center;padding:12px 0">
+    <span class="pill p-mute">숙박 완료</span><div><b>디럭스 · 서울 그랜드</b><div class="note mono">7.11–7.13 · ₩500,000</div></div>
+    <button class="btn navy sm" style="margin-left:auto">리뷰 쓰기 <b>·제안</b></button>
+  </div>
+</div>
+
+<div class="spec"><span class="tag new">추가 제안 기능</span><h2>찜 알림 · 영수증 · 리뷰</h2><p>♥ 찜한 조건의 잔여 임박 알림(가격 고정 시스템이라 가격 알림 대신 재고 알림), 결제 완료 건의 영수증(예약 확인서) 다운로드, 숙박 완료 후 리뷰 작성 — 셋 다 위 화면에 버튼으로 자리를 그렸다.</p></div>
+
+</div>
+</body>
+</html>
