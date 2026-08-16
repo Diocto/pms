@@ -62,7 +62,7 @@ esac
 
 SCENARIO="${1:-}"
 if [ -z "$SCENARIO" ]; then
-    echo "사용법: ./reset.sh <시나리오>   (s1 s1c s2 s3 s4 s4b s5on s5off s6 s8 all)" >&2
+    echo "사용법: ./reset.sh <시나리오>   (s1 s1c s2 s3 s4 s4b s5on s5off s6 s8 s8on s8off all)" >&2
     exit 1
 fi
 
@@ -82,7 +82,10 @@ case "$SCENARIO" in
     # 다른 시나리오를 옮겨 붙이지 않는다 — 날짜를 옮기면 config.js PLAN 과
     # 어긋나 초기화와 부하가 다른 날짜를 보게 된다.
     s6)    FROM=2026-09-21; TO=2026-09-30 ;;
-    s8)    FROM=2026-10-01; TO=2026-10-10 ;;
+    # S8 은 캐시 ON/OFF 두 회차가 **같은 대역**을 쓴다. S5 처럼 날짜를 나누지
+    # 않는 이유: 캐시 히트율은 재고 상태에 따라 달라지므로 두 회차의 출발
+    # 재고가 같아야 한다. 대신 회차마다 이 초기화를 다시 돌려 대역을 되돌린다.
+    s8|s8on|s8off) FROM=2026-10-01; TO=2026-10-10 ;;
     all)   FROM=2026-08-01; TO=2026-10-29 ;;
     *) echo "알 수 없는 시나리오: $SCENARIO" >&2; exit 1 ;;
 esac
@@ -232,11 +235,17 @@ check_switch() {
 # 실제 키 이름을 그 자리에서 눈으로 확인할 수 있다.
 LOCK_KEY="${LOCK_KEY:-PMS_LOCK_ENABLED}"
 HOLD_KEY="${HOLD_KEY:-PMS_RESERVATION_HOLD_MINUTES}"
+CACHE_KEY="${CACHE_KEY:-PMS_SEARCH_CACHE_ENABLED}"
 
 case "$SCENARIO" in
     s5on)  check_switch "$LOCK_KEY" "true"  || exit 1 ;;
     s5off) check_switch "$LOCK_KEY" "false" || exit 1 ;;
     s4b)   check_switch "$HOLD_KEY" "1"     || exit 1 ;;
+    # S8 캐시 대조. 락 대조와 같은 이유로 스위치를 실물 확인한다 —
+    # 껐다고 생각했는데 켜져 있으면 두 회차가 같은 조건이 되고,
+    # "캐시는 차이가 없더라"는 거짓 결론이 리포트에 실린다.
+    s8on)  check_switch "$CACHE_KEY" "true"  || exit 1 ;;
+    s8off) check_switch "$CACHE_KEY" "false" || exit 1 ;;
 esac
 
 # --------------------------------------------------------------------------
