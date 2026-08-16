@@ -285,6 +285,14 @@ export default function ReservationDetailPage({
               </span>
             </p>
           )}
+          {r.status === "CONFIRMED" && (
+            <p className="note" style={{ marginTop: 11 }}>
+              <span>ⓘ</span>
+              <span>
+                확정된 예약을 취소하면 <b>결제도 함께 취소</b>되고 방은 다시 판매됩니다.
+              </span>
+            </p>
+          )}
         </div>
       </div>
     </>

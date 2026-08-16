@@ -25,6 +25,8 @@ export interface ReservationView {
 interface ViewInput {
   status: ReservationStatus;
   failureReason?: string;
+  /** 확정된 적이 있는가 — CANCELLED을 "결제 취소"로 구분하는 근거 */
+  confirmedAt?: string;
 }
 
 export function viewOf(r: ViewInput): ReservationView {
@@ -59,6 +61,21 @@ export function viewOf(r: ViewInput): ReservationView {
           showCountdown: false,
           rebookLabel: "같은 조건으로 다시 예약",
           rebookWithDates: true,
+        };
+      }
+      if (r.confirmedAt) {
+        // 확정(결제 완료) 후 취소 — 결제 취소임을 구분해 말한다 (관리자 지시 2026-08-16).
+        // 백엔드 응답에 환불 필드는 없다(모의 결제) — 있는 사실만 쓴다.
+        return {
+          badgeLabel: "결제 취소",
+          tone: "mute",
+          title: "예약과 결제가 취소되었습니다",
+          description:
+            "확정됐던 예약이 취소 처리되었습니다. 방은 다시 판매됩니다. (모의 결제 데모라 실제 환불 절차는 없습니다)",
+          actions: ["rebook"],
+          showCountdown: false,
+          rebookLabel: "다른 날짜 검색",
+          rebookWithDates: false,
         };
       }
       return {
