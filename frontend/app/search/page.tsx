@@ -11,6 +11,8 @@ import { api } from "@/lib/backend";
 import { addDays, todayLocal } from "@/lib/dates";
 import { messageForError } from "@/lib/error-messages";
 import { validateSearchForm, type SearchFormErrors } from "@/lib/search-form";
+import { createWishlist, type WishItem } from "@/lib/wishlist";
+import { useUserId } from "@/components/user-context";
 import type { AvailabilityResponse, HotelInfo } from "@/lib/contracts";
 
 function won(n: number): string {
@@ -41,6 +43,21 @@ function SearchScreen() {
   const [avail, setAvail] = useState<AvailState>({ kind: "idle" });
   const [nameFilter, setNameFilter] = useState("");
   const checkInRef = useRef<HTMLInputElement>(null);
+
+  // 위시리스트(찜) — 관리자 컨펌 기능. localStorage는 마운트 후에만 읽는다(하이드레이션)
+  const { userId } = useUserId();
+  const [wished, setWished] = useState<WishItem[]>([]);
+  const [wishSeq, setWishSeq] = useState(0);
+  useEffect(() => {
+    setWished(createWishlist(window.localStorage).list(userId));
+  }, [userId, wishSeq]);
+  const toggleWish = useCallback(
+    (item: WishItem) => {
+      createWishlist(window.localStorage).toggle(userId, item);
+      setWishSeq((v) => v + 1);
+    },
+    [userId],
+  );
 
   const urlQuery = params.toString();
   const selectedHotelId = params.get("hotelId") ? Number(params.get("hotelId")) : null;
@@ -220,6 +237,32 @@ function SearchScreen() {
         </p>
       )}
 
+      {hasDates && !selectedHotel && wished.length > 0 && (
+        <div className="card card-pad" style={{ marginBottom: 14 }}>
+          <p className="label">찜한 객실</p>
+          <div className="stack" style={{ gap: 8 }}>
+            {wished.map((w) => (
+              <div className="between" key={w.roomTypeId}>
+                <div className="inline" style={{ gap: 8 }}>
+                  <button
+                    aria-label="찜 해제"
+                    onClick={() => toggleWish(w)}
+                    style={{ background: "none", border: 0, cursor: "pointer", fontSize: 16, color: "var(--brass)" }}
+                  >
+                    ♥
+                  </button>
+                  <b>{w.roomTypeName}</b>
+                  <span className="note">{w.hotelName}</span>
+                </div>
+                <button className="btn ghost sm" onClick={() => selectHotel(w.hotelId)}>
+                  잔여 조회
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {hasDates && !selectedHotel && (
         <HotelList
           state={hotels}
@@ -234,6 +277,8 @@ function SearchScreen() {
         <SelectedHotel
           hotel={selectedHotel}
           avail={avail}
+          wishedIds={new Set(wished.map((w) => w.roomTypeId))}
+          onToggleWish={toggleWish}
           onBackToList={() => selectHotel(null)}
           onChangeDates={() => checkInRef.current?.focus()}
           onBackInRange={(until) => {
@@ -363,6 +408,8 @@ function HotelList({
 function SelectedHotel({
   hotel,
   avail,
+  wishedIds,
+  onToggleWish,
   onBackToList,
   onChangeDates,
   onBackInRange,
@@ -371,6 +418,8 @@ function SelectedHotel({
 }: {
   hotel: HotelInfo;
   avail: AvailState;
+  wishedIds: Set<number>;
+  onToggleWish: (item: WishItem) => void;
   onBackToList: () => void;
   onChangeDates: () => void;
   onBackInRange: (until: string) => void;
@@ -505,12 +554,26 @@ function SelectedHotel({
             >
               <div className="grow">
                 <div className="inline" style={{ gap: 8 }}>
-                  <b style={{ fontSize: 15.5 }}>{it.roomTypeName}</b>
+                  <b style={{ fontSize: 15.5 }} className="serif">{it.roomTypeName}</b>
                   {low ? (
                     <span className="badge warn tnum">{it.minRemaining}실 남음</span>
                   ) : (
                     <span className="badge ok">여유</span>
                   )}
+                  <button
+                    aria-label={wishedIds.has(it.roomTypeId) ? "찜 해제" : "찜"}
+                    onClick={() =>
+                      onToggleWish({
+                        hotelId: hotel.hotelId,
+                        hotelName: hotel.name,
+                        roomTypeId: it.roomTypeId,
+                        roomTypeName: it.roomTypeName,
+                      })
+                    }
+                    style={{ background: "none", border: 0, cursor: "pointer", fontSize: 17, color: "var(--brass)" }}
+                  >
+                    {wishedIds.has(it.roomTypeId) ? "♥" : "♡"}
+                  </button>
                 </div>
                 <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
                   1실 정원 {it.capacity}명 · 가장 적은 날 기준 <b className="tnum">{it.minRemaining}실</b>

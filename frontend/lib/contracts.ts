@@ -128,6 +128,18 @@ export interface HotelInfo {
   roomTypes: RoomTypeInfo[];
 }
 
+// [더미 API] 투숙 리뷰 — 관리자 컨펌 기능 (2026-08-16, "더미 API로 붙여서").
+// 실 백엔드에는 없는 계약이며 모든 모드에서 가짜 백엔드가 응답한다 (backend.ts 라우팅).
+// 실 API가 생기면 이 형태를 제안 계약으로 쓴다.
+export interface ReviewInfo {
+  reviewId: number;
+  roomTypeId: number;
+  userId: string;
+  rating: number; // 1~5
+  comment: string;
+  createdAt: string;
+}
+
 export interface ErrorBody {
   code: string; // 계약 7종 + 방어용 "UNKNOWN"
   message?: string;
@@ -274,6 +286,21 @@ export function parseHotelsResponse(raw: unknown): HotelInfo[] {
           basePrice: num(rt, "basePrice"),
         };
       }),
+    };
+  });
+}
+
+export function parseReviews(raw: unknown): ReviewInfo[] {
+  if (!Array.isArray(raw)) throw new ContractViolation("리뷰 본문이 배열이 아님");
+  return raw.map((r, i) => {
+    if (!isRecord(r)) throw new ContractViolation(`reviews[${i}]가 객체가 아님`);
+    return {
+      reviewId: num(r, "reviewId"),
+      roomTypeId: num(r, "roomTypeId"),
+      userId: str(r, "userId"),
+      rating: num(r, "rating"),
+      comment: str(r, "comment"),
+      createdAt: str(r, "createdAt"),
     };
   });
 }

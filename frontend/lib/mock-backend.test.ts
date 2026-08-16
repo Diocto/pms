@@ -196,6 +196,33 @@ describe("호텔 목록 · 예약 목록 (PR #38)", () => {
   });
 });
 
+// 투숙 리뷰 — 더미 API (관리자 컨펌)
+describe("투숙 리뷰 (더미 API)", () => {
+  it("시드 리뷰가 객실타입별로 조회된다", async () => {
+    const rv = await api.listReviews(3);
+    expect(rv.length).toBeGreaterThanOrEqual(2);
+    expect(rv.every((r) => r.roomTypeId === 3)).toBe(true);
+  });
+
+  it("작성하면 목록 맨 앞에 실린다", async () => {
+    const before = (await api.listReviews(1)).length;
+    await api.createReview({ roomTypeId: 1, rating: 4, comment: "좋았어요" }, "u-review");
+    const after = await api.listReviews(1);
+    expect(after).toHaveLength(before + 1);
+    expect(after[0].comment).toBe("좋았어요");
+    expect(after[0].userId).toBe("u-review");
+  });
+
+  it("별점 범위 밖·빈 코멘트는 400", async () => {
+    await expect(
+      api.createReview({ roomTypeId: 1, rating: 6, comment: "x" }, "u"),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    await expect(
+      api.createReview({ roomTypeId: 1, rating: 5, comment: "  " }, "u"),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  });
+});
+
 // 라운드1 중요-7 — 예약 생성의 날짜 창
 describe("날짜 창 (F01 D21·시드 범위)", () => {
   it("이미 끝난 숙박(checkOut <= today)은 400 — 실 백엔드와 같은 거절", async () => {

@@ -351,12 +351,50 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     return error(404, C.RESOURCE_NOT_FOUND, "없는 동작");
   }
 
+  // 투숙 리뷰 (더미 API — 실 백엔드에 없음, 관리자 컨펌 2026-08-16).
+  // 시드 리뷰 몇 건 + POST로 추가. 별점 1~5, 한 줄 코멘트.
+  interface MockReview { reviewId: number; roomTypeId: number; userId: string; rating: number; comment: string; createdAtMs: number }
+  let reviewSeq = 1;
+  const reviews: MockReview[] = [
+    { reviewId: reviewSeq++, roomTypeId: 3, userId: "guest-kim", rating: 5, comment: "파크 뷰가 사진보다 좋았습니다. 조용했던 것이 무엇보다.", createdAtMs: now() - 12 * 86400_000 },
+    { reviewId: reviewSeq++, roomTypeId: 3, userId: "guest-lee", rating: 4, comment: "체크인이 빨랐고 방이 넓어요.", createdAtMs: now() - 30 * 86400_000 },
+    { reviewId: reviewSeq++, roomTypeId: 1, userId: "guest-park", rating: 5, comment: "가격 대비 최고. 다음에도 여기로.", createdAtMs: now() - 5 * 86400_000 },
+  ];
+  const reviewBody = (r: MockReview) => ({
+    reviewId: r.reviewId, roomTypeId: r.roomTypeId, userId: r.userId,
+    rating: r.rating, comment: r.comment, createdAt: isoLocal(r.createdAtMs),
+  });
+
+  function handleReviews(url: URL, method: string, headers: Headers, bodyRaw: unknown): Response {
+    if (method === "GET") {
+      const rt = Number(url.searchParams.get("roomTypeId"));
+      return json(200, reviews.filter((r) => r.roomTypeId === rt).map(reviewBody));
+    }
+    // POST — 입력 검증만 한다. "숙박 완료(CHECKED_OUT)에서만 작성"은 UI가 서버의 실제
+    // 예약 상태로 게이트한다 — 이 더미는 real 모드에서 실제 예약을 볼 수 없기 때문.
+    const userId = headers.get("X-User-Id") ?? "";
+    const b = isRecord(bodyRaw) ? bodyRaw : {};
+    const roomTypeId = Number(b.roomTypeId);
+    const rating = Number(b.rating);
+    const comment = String(b.comment ?? "").trim();
+    if (!userId || !roomTypeId || rating < 1 || rating > 5 || !comment)
+      return error(400, C.INVALID_REQUEST, "별점(1~5)과 한 줄 후기가 필요합니다");
+    const created: MockReview = { reviewId: reviewSeq++, roomTypeId, userId, rating, comment, createdAtMs: now() };
+    reviews.unshift(created);
+    return json(201, reviewBody(created));
+  }
+
   const fetchLike: typeof fetch = async (input, init) => {
     if (latencyMs > 0) await new Promise((r) => setTimeout(r, latencyMs));
     const url = new URL(String(input), "http://mock.local");
     const path = url.pathname;
 
     if (path === "/api/availability") return handleSearch(url);
+
+    if (path === "/api/reviews") {
+      const h = new Headers(init?.headers);
+      return handleReviews(url, init?.method ?? "GET", h, init?.body ? JSON.parse(String(init.body)) : {});
+    }
 
     if (path === "/api/hotels") {
       // PR #38 계약: id 오름차순, 잔여 없음

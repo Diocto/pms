@@ -17,6 +17,7 @@ import { clampStayFrom, todayLocal } from "@/lib/dates";
 import { messageFor, messageForError } from "@/lib/error-messages";
 import { hotelIdOfRoomType } from "@/lib/hotels";
 import { viewOf } from "@/lib/reservation-view";
+import { ReviewSection } from "@/components/review-section";
 import { useUserId } from "@/components/user-context";
 
 function won(n: number | undefined): string {
@@ -295,6 +296,17 @@ export default function ReservationDetailPage({
           )}
         </div>
       </div>
+
+      {r.roomTypeId !== undefined && (
+        // 투숙 리뷰 (더미 API) — 작성은 숙박 완료(CHECKED_OUT)에서만: 서버가 준 상태로 게이트
+        <div style={{ marginTop: 18 }}>
+          <ReviewSection
+            roomTypeId={r.roomTypeId}
+            canWrite={r.status === "CHECKED_OUT"}
+            userId={userId}
+          />
+        </div>
+      )}
     </>
   );
 }
