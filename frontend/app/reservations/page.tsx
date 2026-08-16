@@ -1,56 +1,71 @@
 "use client";
 
-// 예약 확인 — 확인번호 직접 입력 + "내 예약" 목록 (관리자 지시 2026-08-16).
-//
-// F01에 목록 API가 없으므로(백엔드에 요구하지 않는다 — 시안 D7) 목록의 원천은
-// 이 브라우저에 남긴 확인번호뿐이다. 상태·일정은 행마다 서버를 조회해 그린다 —
-// 서버가 404를 주는 행(다른 식별값으로 만든 예약 등)은 숨긴다.
+// 내 예약 — 서버가 진실 (관리자 지시: user_id로 DB에서 조회 / PR #38 목록 API).
+// 상단의 사용자 식별값(X-User-Id)으로 GET /api/reservations를 호출해 목록을 그린다.
+// 탭: 전체 / 결제 완료(CONFIRMED — 서버 status 필터) / 결제 대기 / 지난 내역(클라이언트 구분).
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/backend";
-import { createMyReservations } from "@/lib/my-reservations";
+import { messageForError } from "@/lib/error-messages";
 import { viewOf } from "@/lib/reservation-view";
 import { useUserId } from "@/components/user-context";
-import type { ReservationResponse } from "@/lib/contracts";
+import type { ReservationResponse, ReservationStatus } from "@/lib/contracts";
 
 function won(n: number | undefined): string {
   return (n ?? 0).toLocaleString("ko-KR");
 }
 
-type MineState =
-  | { kind: "loading" }
-  | { kind: "loaded"; rows: ReservationResponse[] };
+type Tab = "all" | "confirmed" | "pending" | "past";
+const PAST: ReservationStatus[] = ["CHECKED_OUT", "CANCELLED", "EXPIRED"];
 
-export default function ReservationLookupPage() {
+type ListState =
+  | { kind: "loading" }
+  | { kind: "loaded"; rows: ReservationResponse[] }
+  | { kind: "error"; body: string };
+
+export default function ReservationListPage() {
   const router = useRouter();
   const { userId } = useUserId();
   const [code, setCode] = useState("");
-  const [mine, setMine] = useState<MineState>({ kind: "loading" });
+  const [tab, setTab] = useState<Tab>("all");
+  const [list, setList] = useState<ListState>({ kind: "loading" });
+  const reqSeqRef = useRef(0);
+
+  const load = useCallback(async () => {
+    const seq = ++reqSeqRef.current;
+    setList({ kind: "loading" });
+    try {
+      // 결제 완료 탭만 서버 필터를 쓴다 — 관리자 지시의 "결제 완료 건 조회"가 이 경로다
+      const rows =
+        tab === "confirmed"
+          ? await api.listReservations(userId, "CONFIRMED")
+          : await api.listReservations(userId);
+      if (seq !== reqSeqRef.current) return;
+      const filtered =
+        tab === "pending"
+          ? rows.filter((r) => r.status === "PENDING")
+          : tab === "past"
+            ? rows.filter((r) => PAST.includes(r.status))
+            : rows;
+      setList({ kind: "loaded", rows: filtered });
+    } catch (e) {
+      if (seq !== reqSeqRef.current) return;
+      setList({ kind: "error", body: messageForError(e).body });
+    }
+  }, [userId, tab]);
 
   useEffect(() => {
-    let cancelled = false;
-    setMine({ kind: "loading" });
-    const codes = createMyReservations(window.localStorage).list(userId);
-    if (codes.length === 0) {
-      setMine({ kind: "loaded", rows: [] });
-      return;
-    }
-    Promise.all(
-      codes.map((c) => api.getReservation(c, userId).catch(() => null)), // 404 등은 숨긴다
-    ).then((rows) => {
-      if (!cancelled)
-        setMine({ kind: "loaded", rows: rows.filter((r): r is ReservationResponse => r !== null) });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+    void load();
+  }, [load]);
 
   return (
     <>
       <h1 className="h1">내 예약</h1>
-      <p className="sub">이 브라우저에서 만든 예약을 바로 열거나, 확인번호로 조회하세요.</p>
+      <p className="sub">
+        사용자 식별값 <b className="mono">{userId}</b>(으)로 서버에서 조회합니다 — 상단에서
+        식별값을 바꾸면 그 사용자의 예약이 보입니다. 로그인이 아닙니다.
+      </p>
 
       <form
         className="card card-pad inline"
@@ -64,7 +79,7 @@ export default function ReservationLookupPage() {
         <input
           className="field mono grow"
           style={{ maxWidth: 320 }}
-          placeholder="예: 260901-H1R3-K7M2XQ4R"
+          placeholder="확인번호로 직접 조회"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           aria-label="확인번호"
@@ -74,29 +89,58 @@ export default function ReservationLookupPage() {
         </button>
       </form>
 
-      <p className="label" style={{ marginBottom: 8 }}>내 예약 — 이 브라우저에서 만든 것</p>
+      <div className="inline" style={{ gap: 6, marginBottom: 12 }}>
+        {(
+          [
+            ["all", "전체"],
+            ["confirmed", "결제 완료"],
+            ["pending", "결제 대기"],
+            ["past", "지난 내역"],
+          ] as [Tab, string][]
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            className={`btn sm ${tab === key ? "" : "ghost"}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {mine.kind === "loading" && (
+      {list.kind === "loading" && (
         <div className="card card-pad" role="status" aria-label="불러오는 중">
           <div className="skel" style={{ width: 260, height: 14 }} />
         </div>
       )}
 
-      {mine.kind === "loaded" && mine.rows.length === 0 && (
+      {list.kind === "error" && (
+        <div className="card" role="alert">
+          <div className="empty">
+            <div className="big">목록을 불러오지 못했습니다</div>
+            <p className="why">{list.body}</p>
+            <div className="actions">
+              <button className="btn sm" onClick={() => void load()}>다시 불러오기</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {list.kind === "loaded" && list.rows.length === 0 && (
         <div className="card card-pad">
           <p className="note">
             <span>·</span>
             <span>
-              아직 없습니다. 예약을 만들면 여기 쌓입니다. 다른 브라우저·기기에서 만든 예약은
-              보이지 않으니 확인번호로 조회해 주세요.
+              이 식별값으로 만든 예약이 {tab === "all" ? "아직 없습니다" : "이 상태에는 없습니다"}.
+              객실을 검색해 예약해 보세요.
             </span>
           </p>
         </div>
       )}
 
-      {mine.kind === "loaded" && mine.rows.length > 0 && (
+      {list.kind === "loaded" && list.rows.length > 0 && (
         <div className="stack" style={{ gap: 10 }}>
-          {mine.rows.map((r) => {
+          {list.rows.map((r) => {
             const view = viewOf(r);
             return (
               <div className="card card-pad between" key={r.confirmationCode} style={{ padding: "13px 18px" }}>
