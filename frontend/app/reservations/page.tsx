@@ -49,8 +49,8 @@ export default function ReservationLookupPage() {
 
   return (
     <>
-      <h1 className="h1">예약 확인</h1>
-      <p className="sub">확인번호를 입력하거나, 이 브라우저에서 만든 예약을 바로 여세요.</p>
+      <h1 className="h1">내 예약</h1>
+      <p className="sub">이 브라우저에서 만든 예약을 바로 열거나, 확인번호로 조회하세요.</p>
 
       <form
         className="card card-pad inline"
