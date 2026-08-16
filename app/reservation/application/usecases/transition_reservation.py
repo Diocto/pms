@@ -290,3 +290,24 @@ class GetReservationUseCase(_TransitionBase):
             if reservation.user_id != user_id:
                 raise ReservationNotFoundError("예약을 찾을 수 없습니다")
             return ReservationResult.model_validate(reservation)
+
+
+class ListReservationsUseCase(_TransitionBase):
+    """목록 조회 — 자기 예약만 최신순 (F05 요청, 관리자 지시 2026-08-16).
+
+    단건 조회의 404 존재 은닉과 충돌하지 않는다 — 소유자 필터가 조회
+    조건에 박혀 있어 남의 예약은 애초에 결과에 없고, 없는 사용자는
+    빈 배열이라 존재 여부를 새로 알려주는 것이 없다.
+    """
+
+    def execute(
+        self, *, user_id: str, status: ReservationStatus | None = None
+    ) -> list[ReservationResult]:
+        with self._tx.read() as session:
+            reservations = self._reservations.find_by_user(
+                session, user_id=user_id, status=status
+            )
+            return [
+                ReservationResult.model_validate(reservation)
+                for reservation in reservations
+            ]
