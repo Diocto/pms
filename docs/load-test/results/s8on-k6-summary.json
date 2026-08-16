@@ -1,0 +1,238 @@
+{
+    "metrics": {
+        "http_req_sending": {
+            "avg": 0.009908864707051985,
+            "min": 0.002,
+            "med": 0.008,
+            "max": 4.908,
+            "p(90)": 0.012,
+            "p(95)": 0.015
+        },
+        "http_req_duration{op:create}": {
+            "max": 25.474,
+            "p(90)": 21.9752,
+            "p(95)": 24.69795,
+            "avg": 12.836833333333335,
+            "min": 6.304,
+            "med": 11.3,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_req_tls_handshaking": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0
+        },
+        "data_received": {
+            "count": 16987616,
+            "rate": 283096.9722371049
+        },
+        "search_to_reserve_409_rate": {
+            "passes": 3,
+            "fails": 15,
+            "value": 0.16666666666666666
+        },
+        "rej_inventory": {
+            "count": 3,
+            "rate": 0.049994708893308794
+        },
+        "http_req_duration{op:search}": {
+            "avg": 3.0432317421325537,
+            "min": 0.633,
+            "med": 1.989,
+            "max": 81.243,
+            "p(90)": 5.831100000000002,
+            "p(95)": 8.643,
+            "thresholds": {
+                "p(95)<200": false
+            }
+        },
+        "iteration_duration": {
+            "avg": 3.2186969467481403,
+            "min": 0.721333,
+            "med": 2.150333,
+            "max": 81.384209,
+            "p(90)": 6.053375,
+            "p(95)": 8.929459
+        },
+        "http_req_duration": {
+            "p(95)": 8.663949999999998,
+            "avg": 3.0490802202906564,
+            "min": 0.633,
+            "med": 1.99,
+            "max": 81.243,
+            "p(90)": 5.8509
+        },
+        "http_req_waiting": {
+            "avg": 3.0199906774600223,
+            "min": 0.62,
+            "med": 1.961,
+            "max": 81.205,
+            "p(90)": 5.796,
+            "p(95)": 8.628949999999998
+        },
+        "iterations": {
+            "rate": 501.9635421917847,
+            "count": 30121
+        },
+        "checks": {
+            "fails": 0,
+            "passes": 27240,
+            "value": 1
+        },
+        "rsv_created": {
+            "count": 15,
+            "rate": 0.24997354446654396
+        },
+        "search_ok": {
+            "count": 30124,
+            "rate": 502.01353690067805,
+            "thresholds": {
+                "count>0": false
+            }
+        },
+        "forbidden_transition_passed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "response_staleness_ms": {
+            "avg": 4973.955882352941,
+            "min": 0,
+            "med": 4974,
+            "max": 10000,
+            "p(90)": 8972,
+            "p(95)": 9474,
+            "thresholds": {
+                "p(100)<=12000": false
+            }
+        },
+        "unknown_rejection": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "server_error": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "bad_request": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "vus_max": {
+            "value": 202,
+            "min": 202,
+            "max": 202
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 5
+        },
+        "data_sent": {
+            "count": 5126502,
+            "rate": 85432.65837698845
+        },
+        "http_req_duration{expected_response:true}": {
+            "min": 0.633,
+            "med": 1.99,
+            "max": 81.243,
+            "p(90)": 5.848,
+            "p(95)": 8.664299999999995,
+            "avg": 3.048700321842164
+        },
+        "http_req_failed": {
+            "passes": 3,
+            "fails": 30139,
+            "value": 0.00009952889655630017
+        },
+        "not_found": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_connecting": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.0016136951761661468,
+            "min": 0,
+            "med": 0,
+            "max": 1.407
+        },
+        "cache_hit_rate": {
+            "passes": 30069,
+            "fails": 55,
+            "thresholds": {
+                "rate>0": false
+            },
+            "value": 0.9981742132518922
+        },
+        "http_reqs": {
+            "count": 30142,
+            "rate": 502.3135051540379
+        },
+        "http_req_blocked": {
+            "avg": 0.0044702076836300895,
+            "min": 0,
+            "med": 0.002,
+            "max": 1.8,
+            "p(90)": 0.004,
+            "p(95)": 0.005
+        },
+        "http_req_receiving": {
+            "min": 0.005,
+            "med": 0.016,
+            "max": 1.23,
+            "p(90)": 0.026,
+            "p(95)": 0.041,
+            "avg": 0.01918067812354761
+        }
+    },
+    "setup_data": {},
+    "root_group": {
+            "name": "",
+            "path": "",
+            "id": "d41d8cd98f00b204e9800998ecf8427e",
+            "groups": {},
+            "checks": {
+                    "검색: 200": {
+                        "passes": 27000,
+                        "fails": 0,
+                        "name": "검색: 200",
+                        "path": "::검색: 200",
+                        "id": "f1855aa4b1ee20122c5442494455cda2"
+                    },
+                    "프로브: 200": {
+                        "name": "프로브: 200",
+                        "path": "::프로브: 200",
+                        "id": "73eccc9ea0bad91b421e7872202f28b7",
+                        "passes": 120,
+                        "fails": 0
+                    },
+                    "프로브: 음수 잔여를 노출하지 않는다": {
+                        "name": "프로브: 음수 잔여를 노출하지 않는다",
+                        "path": "::프로브: 음수 잔여를 노출하지 않는다",
+                        "id": "df2142995295ab8a86731a92adac4fcf",
+                        "passes": 120,
+                        "fails": 0
+                    }
+                }
+        }
+}
