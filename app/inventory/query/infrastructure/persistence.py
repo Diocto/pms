@@ -129,7 +129,8 @@ class MySqlAvailabilityQueryAdapter:
                 capacity=row["capacity"],
                 min_remaining=row["min_remaining"],
                 price_per_night=row["price_per_night"],
-                total_price=row["price_per_night"] * nights,
+                # 총액 = 단가 × 박수 × 객실 수 (스펙 8절) — F01 예약 청구액과 같은 식
+                total_price=row["price_per_night"] * nights * query.room_count,
             )
             for row in rows
         ]

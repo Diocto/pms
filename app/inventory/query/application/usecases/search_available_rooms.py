@@ -9,6 +9,7 @@ Redis 왕복은 세션 `with` 블록 밖에 있다 (D12) — 들여쓰기가 곧
 import logging
 
 from app.common.clock import Clock
+from app.common.db import TransactionManager
 from app.inventory.query.application.commands import (
     AvailableRoomsResult,
     EmptyReason,
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 class SearchAvailableRoomsUseCase:
     def __init__(
         self,
-        transaction_manager,
+        transaction_manager: TransactionManager,
         query_adapter: AvailabilityQueryPort,
         cache: AvailabilityCachePort,
         clock: Clock,
