@@ -12,11 +12,6 @@ from pydantic import BaseModel, ConfigDict
 
 from app.common.errors import InvalidRequestError, NotFoundError
 
-# 상한을 두는 이유: 기간이 길수록 집계 쿼리가 만지는 행 수가 늘어나는데,
-# 상한이 없으면 요청 하나가 쿼리 비용을 마음대로 키울 수 있다
-MAX_NIGHTS = 30
-
-
 class StayRange(BaseModel):
     """투숙 기간. 체크아웃 당일은 점유하지 않는다.
 
@@ -34,8 +29,10 @@ class StayRange(BaseModel):
         # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (F01 D27)
         if self.check_out <= self.check_in:
             raise InvalidRequestError("체크아웃은 체크인보다 뒤여야 합니다")
-        if self.nights() > MAX_NIGHTS:
-            raise InvalidRequestError(f"투숙은 {MAX_NIGHTS}박을 넘을 수 없습니다")
+        # 박수 상한은 두지 않는다 — 예약과 같은 규칙이다 (F01 D29, 관리자 8/16).
+        # 긴 기간은 막지 않아도 판정이 거른다: 재고 행이 없는 날짜가 끼면 그
+        # 객실타입이 집계에서 빠지고(D9), 빈 결과는 NOT_YET_OPEN으로 나간다.
+        # 쿼리 비용도 늘지 않는다 — 범위 스캔은 실재하는 행만 훑는다
 
     def nights(self) -> int:
         return (self.check_out - self.check_in).days
