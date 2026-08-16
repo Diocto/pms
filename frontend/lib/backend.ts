@@ -19,12 +19,19 @@ export const isHybridMode = mode === "hybrid";
 
 function buildFetch(): typeof fetch | undefined {
   if (mode === "mock") return createMockBackend({ latencyMs: 250 }).fetchLike;
+  // 투숙 리뷰는 실 백엔드에 없는 더미 API다 (관리자: "더미 API로 붙여서") —
+  // real 모드에서도 /api/reviews만 가짜 백엔드로 라우팅한다.
+  const dummy = createMockBackend({ latencyMs: 150 }).fetchLike;
   if (mode === "hybrid") {
-    const mock = createMockBackend({ latencyMs: 150 }).fetchLike;
-    return (input, init) =>
-      String(input).includes("/api/availability") ? mock(input, init) : fetch(input, init);
+    return (input, init) => {
+      const url = String(input);
+      return url.includes("/api/availability") || url.includes("/api/reviews")
+        ? dummy(input, init)
+        : fetch(input, init);
+    };
   }
-  return undefined; // real — 전역 fetch 그대로
+  return (input, init) =>
+    String(input).includes("/api/reviews") ? dummy(input, init) : fetch(input, init);
 }
 
 const fetchLike = buildFetch();
