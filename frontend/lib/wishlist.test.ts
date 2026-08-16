@@ -30,7 +30,7 @@ describe("createWishlist", () => {
     s.setItem("pms.wishlist", "broken");
     const w = createWishlist(s);
     w.toggle("u1", item);
-    w.toggle("u1", { ...item, roomTypeId: 50003, roomTypeName: "스위트", hotelId: 50, hotelName: "호텔 050" });
+    w.toggle("u1", { ...item, roomTypeId: 50003, roomTypeName: "스위트", hotelId: 50, hotelName: "제주 호텔 050" });
     expect(w.list("u1")[0].roomTypeId).toBe(50003);
   });
 });
