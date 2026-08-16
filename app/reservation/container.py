@@ -87,7 +87,7 @@ class ReservationContainer(containers.DeclarativeContainer):
     transaction_manager = providers.Dependency()
     clock = providers.Dependency()
 
-    # 잠금 없는 Singleton 금지 (D34, T90) — 냉시동 동시 접근에 여럿 만들어진다
+    # 잠금 없는 Singleton 금지 (D37, T90) — 냉시동 동시 접근에 여럿 만들어진다
     lock = providers.ThreadSafeSingleton(_build_lock, settings, redis_client)
     lock_wait_s = providers.Callable(_lock_wait_seconds, settings)
     idempotency = providers.ThreadSafeSingleton(RedisIdempotencyAdapter, redis_client)

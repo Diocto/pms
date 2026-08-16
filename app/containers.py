@@ -29,7 +29,7 @@ def _build_engine(settings: Settings):
 
 
 class AppContainer(containers.DeclarativeContainer):
-    # 전부 ThreadSafeSingleton이다 (D34). 잠금 없는 Singleton은 냉시동 상태에서
+    # 전부 ThreadSafeSingleton이다 (D37). 잠금 없는 Singleton은 냉시동 상태에서
     # 스레드풀 스레드 수만큼 엔진을 만들어 MySQL 커넥션 한도를 넘겼다 (F04 실측, T90)
     settings = providers.ThreadSafeSingleton(Settings)
 
