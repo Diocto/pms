@@ -29,6 +29,21 @@ def _scalar(engine, sql: str):
         return conn.execute(text(sql)).scalar_one()
 
 
+# 리비전 054의 지역 대역. (시작 id, 끝 id, 이름 접두, 주소 접두)
+_REGION_BANDS: list[tuple[int, int, str, str]] = [
+    (3, 23, "서울", "서울특별시 중구 세종대로"),
+    (24, 36, "부산", "부산광역시 해운대구 해운대해변로"),
+    (37, 52, "제주", "제주특별자치도 제주시 중앙로"),
+    (53, 64, "강원", "강원특별자치도 속초시 중앙로"),
+    (65, 72, "경기", "경기도 고양시 일산동구 중앙로"),
+    (73, 78, "인천", "인천광역시 연수구 컨벤시아대로"),
+    (79, 84, "경주", "경상북도 경주시 첨성로"),
+    (85, 89, "전주", "전라북도 전주시 완산구 어진길"),
+    (90, 95, "여수", "전라남도 여수시 돌산로"),
+    (96, 100, "대구", "대구광역시 중구 동성로"),
+]
+
+
 def test_T27_F01_마이그레이션이_전부_적용됐다(engine):
     """현재 리비전의 조상에 052가 있는지 본다.
 
@@ -118,14 +133,46 @@ class Test_T29_시드_계약:
         ]
 
     def test_확장_호텔은_이름과_주소가_id에서_유도된다(self, engine):
-        # 규칙: 호텔 h(3~100)의 이름은 '호텔 003' 형식이다. 규칙에서 벗어난
-        # 행이 하나라도 있으면 F05의 상수 생성이 조용히 어긋난다
-        mismatch = _scalar(
-            engine,
-            "SELECT COUNT(*) FROM hotel WHERE id BETWEEN 3 AND 100"
-            " AND name != CONCAT('호텔 ', LPAD(id, 3, '0'))",
+        # 규칙(리비전 054): 호텔 h(3~100)의 이름과 주소는 h가 속한 지역 대역에서
+        # 유도된다. 규칙에서 벗어난 행이 하나라도 있으면 F05의 상수 생성이
+        # 조용히 어긋난다.
+        #
+        # 대역 값을 마이그레이션에서 읽어오지 않고 여기 따로 적는다 —
+        # 읽어오면 마이그레이션이 잘못돼도 테스트가 같이 잘못된다.
+        for lo, hi, name_prefix, address_prefix in _REGION_BANDS:
+            mismatch = _scalar(
+                engine,
+                f"SELECT COUNT(*) FROM hotel WHERE id BETWEEN {lo} AND {hi}"
+                f" AND (name != CONCAT('{name_prefix} 호텔 ', LPAD(id, 3, '0'))"
+                f"   OR address != CONCAT('{address_prefix} ', id))",
+            )
+            assert mismatch == 0, f"{name_prefix} 대역({lo}~{hi})에 규칙 밖 행이 있다"
+
+    def test_지역_분포가_기획한_곳수와_일치한다(self, engine):
+        # 대역을 옮기면 곳수가 조용히 바뀐다. 곳수를 따로 박아 그걸 잡는다.
+        # 합계 98곳(3~100) + 호텔 1·2 = 100곳.
+        expected = {
+            "서울": 21, "부산": 13, "제주": 16, "강원": 12, "경기": 8,
+            "인천": 6, "경주": 6, "전주": 5, "여수": 6, "대구": 5,
+        }
+        assert sum(expected.values()) == 98
+        for lo, hi, name_prefix, _ in _REGION_BANDS:
+            count = _scalar(
+                engine,
+                f"SELECT COUNT(*) FROM hotel WHERE id BETWEEN {lo} AND {hi}",
+            )
+            assert count == expected[name_prefix], f"{name_prefix} 곳수가 바뀌었다"
+
+    def test_호텔_1과_2의_주소는_건드리지_않았다(self, engine):
+        # 리비전 051이 넣은 값이다. 054는 3~100만 손대야 한다.
+        assert (
+            _scalar(engine, "SELECT address FROM hotel WHERE id = 1")
+            == "서울특별시 중구 을지로 100"
         )
-        assert mismatch == 0
+        assert (
+            _scalar(engine, "SELECT address FROM hotel WHERE id = 2")
+            == "부산광역시 해운대구 해운대해변로 200"
+        )
 
     def test_확장_객실타입_id는_호텔id_곱_1000_더하기_1_2_3이다(self, engine):
         # 규칙 밖 id가 0개이고, 규칙이 만드는 id가 전부 있다 — 양방향으로 본다

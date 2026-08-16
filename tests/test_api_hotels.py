@@ -29,6 +29,31 @@ def hotels(client) -> list[dict]:
     return response.json()["hotels"]
 
 
+# 리비전 054의 지역 대역. (끝 id, 이름 접두, 주소 접두)
+# 여기 값을 마이그레이션에서 읽어오지 않고 따로 적는 것이 이 테스트의 요점이다 —
+# 읽어오면 마이그레이션이 잘못돼도 테스트가 같이 잘못된다.
+REGIONS: list[tuple[int, str, str]] = [
+    (23, "서울", "서울특별시 중구 세종대로"),
+    (36, "부산", "부산광역시 해운대구 해운대해변로"),
+    (52, "제주", "제주특별자치도 제주시 중앙로"),
+    (64, "강원", "강원특별자치도 속초시 중앙로"),
+    (72, "경기", "경기도 고양시 일산동구 중앙로"),
+    (78, "인천", "인천광역시 연수구 컨벤시아대로"),
+    (84, "경주", "경상북도 경주시 첨성로"),
+    (89, "전주", "전라북도 전주시 완산구 어진길"),
+    (95, "여수", "전라남도 여수시 돌산로"),
+    (100, "대구", "대구광역시 중구 동성로"),
+]
+
+
+def expected_name_and_address(hotel_id: int) -> tuple[str, str]:
+    """확장 호텔(3~100)의 이름·주소는 id 하나에서 유도된다."""
+    name_prefix, address_prefix = next(
+        (name, address) for last, name, address in REGIONS if hotel_id <= last
+    )
+    return f"{name_prefix} 호텔 {hotel_id:03d}", f"{address_prefix} {hotel_id}"
+
+
 def test_호텔_100곳이_id_오름차순으로_나온다(hotels):
     assert len(hotels) == 100
     assert [hotel["hotelId"] for hotel in hotels] == list(range(1, 101))
@@ -56,7 +81,8 @@ def test_확장_호텔은_규칙적인_이름과_객실타입_id를_갖는다(ho
     # 매핑 상수를 생성할 수 있어야 한다
     hotel_50 = hotels[49]
     assert hotel_50["hotelId"] == 50
-    assert hotel_50["name"] == "호텔 050"
+    assert hotel_50["name"] == "제주 호텔 050"
+    assert hotel_50["address"] == "제주특별자치도 제주시 중앙로 50"
     assert [room_type["roomTypeId"] for room_type in hotel_50["roomTypes"]] == [
         50001,
         50002,
@@ -81,7 +107,9 @@ def test_모든_확장_호텔이_같은_객실타입_구성을_갖는다(hotels)
     # 한 호텔만 찍어 보면 나머지 97곳이 무방비다 — 전 호텔을 규칙으로 순회한다
     for hotel in hotels[2:]:
         hotel_id = hotel["hotelId"]
-        assert hotel["name"] == f"호텔 {hotel_id:03d}"
+        expected_name, expected_address = expected_name_and_address(hotel_id)
+        assert hotel["name"] == expected_name
+        assert hotel["address"] == expected_address
         assert [room_type["roomTypeId"] for room_type in hotel["roomTypes"]] == [
             hotel_id * 1000 + 1,
             hotel_id * 1000 + 2,

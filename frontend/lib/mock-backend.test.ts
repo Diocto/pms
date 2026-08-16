@@ -166,8 +166,14 @@ describe("호텔 목록 · 예약 목록 (PR #38)", () => {
     expect(hotels).toHaveLength(100);
     expect(hotels[0].name).toBe("서울 그랜드 호텔");
     const h50 = hotels.find((h) => h.hotelId === 50)!;
-    expect(h50.name).toBe("호텔 050");
+    // 리비전 054 — 이름·주소가 id 대역별 지역에서 유도된다 (실 백엔드와 같은 규칙)
+    expect(h50.name).toBe("제주 호텔 050");
+    expect(h50.address).toBe("제주특별자치도 제주시 중앙로 50");
     expect(h50.roomTypes.map((r) => r.roomTypeId)).toEqual([50001, 50002, 50003]);
+    // 대역 경계 — 여기가 어긋나면 지역이 통째로 밀린다
+    expect(hotels.find((h) => h.hotelId === 36)!.name).toBe("부산 호텔 036");
+    expect(hotels.find((h) => h.hotelId === 37)!.name).toBe("제주 호텔 037");
+    expect(hotels.find((h) => h.hotelId === 100)!.name).toBe("대구 호텔 100");
   });
 
   it("목록은 사용자 자신의 예약만 최신순으로, 없으면 빈 배열", async () => {

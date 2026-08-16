@@ -7,7 +7,7 @@ Docker와 Python 3.12+, Node 20+가 필요합니다. 저장소 루트에서:
 docker compose up -d                   # MySQL 8.4, Redis 7.4
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-.venv/bin/alembic upgrade head         # 스키마 + 시드 (호텔 2곳·객실 5종·재고 450행)
+.venv/bin/alembic upgrade head         # 스키마 + 시드 (호텔 100곳·객실타입 299종)
 .venv/bin/uvicorn app.main:app --port 8000
 
 # 2) 프론트엔드 (새 터미널)

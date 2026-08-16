@@ -218,13 +218,14 @@ export default function Landing() {
         ))}
       </section>
 
-      {/* ② 평점 좋은 숙소 — 실데이터, 기준 명시 */}
+      {/* ② 평점 좋은 숙소 — 평점·리뷰는 시연용 예시(백엔드에 리뷰 기능 없음), 잔여는 실제 값.
+          출처를 화면에 밝힌다: 없는 기능을 있는 것처럼 보이게 하지 않는다. */}
       <section style={{ padding: "44px 0 8px" }}>
         <div className="between" style={{ marginBottom: 14 }}>
           <h2 className="serif" style={{ fontSize: 22, fontWeight: 400, margin: 0 }}>
             평점 좋은 숙소
           </h2>
-          <span className="note">투숙 리뷰 평점순 · 잔여는 오늘 1박 실제 값</span>
+          <span className="note">평점순 · <b>평점은 시연용 예시</b> · 잔여는 오늘 1박 실제 값</span>
         </div>
 
         {top === null && (
@@ -317,6 +318,8 @@ export default function Landing() {
           <p className="label">데모 안내</p>
           <p style={{ fontSize: 13.5, color: "var(--ink-soft)", margin: 0 }}>
             상단의 사용자 전환은 <b>로그인이 아니며</b>(ADR-0006), 결제는 내부 모의 결제입니다.
+            위 <b>평점과 리뷰는 화면 시연용 예시 데이터</b>로, 실제 투숙 기록이 아닙니다
+            (검색 결과와 잔여 수량은 실제 값입니다).
             동시성·멱등성 과제의 시연용 서비스입니다.
           </p>
         </div>
