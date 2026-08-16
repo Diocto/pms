@@ -74,6 +74,17 @@ def test_T15_적재하면_TTL이_설정값으로_걸린다(adapter, redis_client
     assert 0 < ttl <= TTL_SECONDS, f"TTL이 {ttl}이다 — 만료 없는 적재는 회복 불가다"
 
 
+def test_T15_조회는_TTL을_연장하지_않는다(adapter, redis_client):
+    key = _query().cache_key()
+    adapter.put(key, RESULT)
+    ttl_before = redis_client.ttl(key)
+    for _ in range(5):
+        assert adapter.get(key) is not None
+    # 히트가 만료를 되돌리면(GETEX류) 인기 키일수록 낡음의 상한(I5의 목적)이
+    # 사라진다 — 초당 수십 회 조회되는 키는 사실상 영영 안 걷힌다
+    assert redis_client.ttl(key) <= ttl_before
+
+
 def test_적재_후_조회하면_같은_값이_나온다(adapter):
     key = _query().cache_key()
     adapter.put(key, RESULT)

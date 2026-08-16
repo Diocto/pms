@@ -3,7 +3,7 @@
 
 예외를 여기서 잡지 않는다 — StayRange의 400도 진단의 404도 그대로 올라가
 전역 핸들러가 HTTP로 바꾼다. 세션도 리포지토리도 여기 없다.
-`X-User-Id`를 받지 않는다 — 검색은 익명 호출이다 (D17).
+`X-User-Id`를 받지 않는다 — 검색은 익명 호출이다 (D11).
 """
 
 from datetime import date
@@ -33,8 +33,8 @@ def search_availability(
     hotel_id: int = Query(alias="hotelId"),
     check_in: date = Query(alias="checkIn"),
     check_out: date = Query(alias="checkOut"),
-    guest_count: int = Query(alias="guestCount", ge=1),
-    room_count: int = Query(alias="roomCount", ge=1),
+    guest_count: int = Query(alias="guestCount", ge=1, le=20),
+    room_count: int = Query(default=1, alias="roomCount", ge=1, le=10),
     fresh: bool = Query(default=False),
 ) -> AvailabilitySearchResponse:
     # 요청 → Query. StayRange 불변식(역전·0박·31박)이 여기서 터지면 400이다
