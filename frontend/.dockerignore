@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+
+# 배포 이미지에 들어갈 이유가 없다
+lib/*.test.ts
+e2e-check.py
+demo-seed.py
+README.md
+tsconfig.tsbuildinfo
