@@ -40,20 +40,25 @@ SESSIONS = [
     ("F01", "예약 코어", ["worktree-F01"],
      "예약 생명주기 · 재고 차감 · 동시성 · 멱등성", "매우 급함", "완료"),
     ("F03", "객실 검색", ["worktree-F03"],
-     "UC-1 검색 · Redis 캐시", "중요", "가동"),
+     "UC-1 검색 · Redis 캐시", "중요", "완료"),
     ("F05", "프론트엔드", ["worktree-F05"],
-     "검색 · 예약 · 상세 3화면", "중요", "가동"),
+     "히어로 · 내 예약 · 결제 취소 추가 작업", "중요", "가동"),
     ("F04", "부하테스트", ["worktree-F04"],
-     "k6 시나리오 · 실행 · 리포트", "중요", "정지"),
+     "S5 락 대조 실험 (재개)", "중요", "가동"),
     ("F02", "선착순 특가", ["worktree-f02-promotion-rebased", "worktree-f02-promotion"],
      "UC-7 한정 수량 특가", "폐기", "폐기"),
 ]
 
 # 멈춰 있는 이유. 화면에 그대로 뜬다 — 이유 없는 정지는 방치와 구분되지 않는다.
+# 세션별 이유가 상태별 이유보다 우선한다.
 HALT_REASON = {
-    "정지": "F03·F05 병합 후 실행 (2026-08-16)",
+    "정지": "관리자 결정 대기",
     "폐기": "범위에서 제외 (2026-08-16, ADR-0058)",
-    "완료": "T1~T24 완료 · 215 passed",
+    "완료": "작업 종료",
+}
+HALT_BY_CODE = {
+    "F01": "T1~T24 완료 · 215 passed",
+    "F03": "검색·캐시 병합 완료, 세션 종료 (2026-08-16)",
 }
 
 ARTIFACTS = {
@@ -181,7 +186,7 @@ def collect() -> dict:
     for code, name, candidates, role, prio, live in SESSIONS:
         branch = next((c for c in candidates if c in remote), None)
         s = {"code": code, "name": name, "role": role, "priority": prio,
-             "live": live, "halt": HALT_REASON.get(live),
+             "live": live, "halt": HALT_BY_CODE.get(code) or HALT_REASON.get(live),
              "branch": branch,
              "tasks": [], "current": None, "phase": "미착수", "blocked": []}
 
