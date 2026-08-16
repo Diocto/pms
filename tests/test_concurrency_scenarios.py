@@ -182,12 +182,18 @@ def _oversell_scenario(container, engine):
 
 
 def test_K1_잔여_10에_100명이_동시_예약하면_성공은_정확히_10이다(container, engine):
+    """예약 생성 동시성(K1) — 서로 다른 100명이 잔여 10인 같은 날짜에 동시에
+    예약을 만들면 성공 정확히 10, 실패 90(재고 부족 또는 락 획득 실패)이다.
+    잔여는 0이 되고 DB 예약 행도 정확히 10건 — 3층 방어 전체가 켜진 기본형."""
     _oversell_scenario(container, engine)
 
 
 def test_K2_분산락을_꺼도_결과가_같다__2층_방어_단독_성립_증명(
     database_url, redis_url, engine
 ):
+    """예약 생성 동시성(K2) — 분산락을 끄고(NoOpLockAdapter) 잔여 10에 100요청을
+    동시에 쏴도 성공이 정확히 10이다. 조건부 UPDATE(2층 방어)만으로 초과 판매를
+    막는 증명 — 락은 정확성이 아니라 비용 절감 장치라는 서사의 근거다."""
     _reset(engine, redis_url)
     container = _make_container(database_url, redis_url, engine, lock_enabled=False)
     assert type(container.reservation.lock()).__name__ == "NoOpLockAdapter"  # 전제 확인
@@ -197,6 +203,10 @@ def test_K2_분산락을_꺼도_결과가_같다__2층_방어_단독_성립_증�
 # ── K3·K4: 멱등성 ───────────────────────────────────────────────────
 
 def test_K3_같은_멱등_키_50_동시_요청은_예약_1건이다(container, engine):
+    """멱등성 동시성(K3) — 같은 사용자가 같은 멱등 키로 50요청을 동시에 보내면
+    최초 처리는 정확히 1건, 겹친 요청은 처리 중 409(RequestInProgressError)를
+    받는다. 예약은 1건, 재고는 한 번만 깎여 잔여 9다. 실패 0건이면 요청이
+    안 겹친 것이므로 경합 증거(실패 1건 이상)도 함께 단언한다."""
     usecase = container.reservation.create_reservation()
     successes, failures, unexpected = _run(
         50, lambda index: usecase.execute(_command("same-user", "same-key"))
@@ -212,6 +222,9 @@ def test_K3_같은_멱등_키_50_동시_요청은_예약_1건이다(container, e
 
 
 def test_K4_Redis_멱등을_무력화해도_DB_UK가_1건을_지킨다(container, engine):
+    """멱등성 최후 방어(K4) — Redis 멱등을 무력화해 같은 키 50요청이 전부 최초로
+    통과해도 DB 유니크 제약이 예약을 1건으로 지킨다(D9). 뚫린 49건은 500이
+    아니라 기존 예약 재생(replayed)으로 응답받고(T54), 잔여는 9 그대로다."""
     class DisabledIdempotency:
         """Redis 장애의 재현 — 전부 최초 요청으로 통과시킨다."""
 
@@ -250,6 +263,10 @@ def _create_pending(container, *, nights=3, key="pending-1") -> str:
 
 
 def test_K5_확정과_취소가_동시에_오면_최종_상태는_하나다(container, engine):
+    """전이 경합(확정 vs 취소, K5) — 같은 PENDING 예약에 확정 25·취소 25가
+    동시에 오면 최종 상태는 CONFIRMED나 CANCELLED 중 하나다. 확정 승리 후
+    취소가 뒤따르는 순서도 합법이므로 불변식은 "복원 동반 전이 최대 1회"로
+    단언하고, 잔여도 상태와 정합해야 한다(3박 전체가 확정이면 9, 취소면 10)."""
     code = _create_pending(container)
     confirm = container.reservation.confirm_reservation()
     cancel = container.reservation.cancel_reservation()
@@ -294,6 +311,9 @@ def test_K5_확정과_취소가_동시에_오면_최종_상태는_하나다(cont
 
 
 def test_K6_취소와_만료가_겹쳐도_복원은_정확히_한_번이다(container, engine):
+    """전이 경합(취소 vs 만료, K6) — 만료 시각이 지난 PENDING 하나에 취소 50과
+    만료 배치 10이 동시에 달려들어도 재고 복원은 정확히 한 번이다. 3박 전체의
+    잔여가 10으로 돌아오고(이중 복원이면 11), 복원 전이 이력도 정확히 1줄이다."""
     code = _create_pending(container, key="expired-1")
     with engine.begin() as conn:
         conn.execute(
@@ -330,6 +350,9 @@ def test_K6_취소와_만료가_겹쳐도_복원은_정확히_한_번이다(cont
 
 
 def test_K10_취소_이력은_정확히_한_줄이다(container, engine):
+    """전이 경합(취소 vs 취소, K10) — 확정된 예약 하나에 취소 50이 동시에 와도
+    CANCELLED 전이 이력은 정확히 1줄이다. 두 번 취소하고 두 번 복원하는 회귀는
+    잔여만 보면 통과하므로 이력 줄 수를 직접 센다."""
     code = _create_pending(container, key="confirmed-1")
     container.reservation.confirm_reservation().execute(confirmation_code=code, user_id="transition-user")
     cancel = container.reservation.cancel_reservation()
@@ -354,6 +377,9 @@ def test_K10_취소_이력은_정확히_한_줄이다(container, engine):
 def test_K7_가운데_날짜만_잔여_1이면_성공은_정확히_1이고_부분_차감이_없다(
     container, engine
 ):
+    """다일 예약 동시성(K7) — 3박 요청 100건이 경합하는데 가운데 날짜만 잔여
+    1이면 성공은 정확히 1이다. 실패한 99건이 1·3일차를 깎아두지 않아야 한다 —
+    1·3일차 잔여 99, 2일차 0. 유령 점유(부분 차감) 없음의 증명."""
     with engine.begin() as conn:
         conn.execute(
             text("UPDATE room_daily_inventory SET remaining = 100 WHERE room_type_id = :id"),
@@ -378,6 +404,9 @@ def test_K7_가운데_날짜만_잔여_1이면_성공은_정확히_1이고_부�
 def test_K9_잔여_10에_3실씩_요청하면_성공은_정확히_3이고_잔여_1이_남는다(
     container, engine
 ):
+    """다실 예약 동시성(K9) — 잔여 10에 3실짜리 요청 100건이 경합하면 성공은
+    정확히 3건(3실 × 3건 = 9실)이고 잔여 1이 남는다. room_count 곱셈이 차감
+    조건에 정확히 반영되는지, 부분 소진이 깔끔히 남는지를 본다."""
     usecase = container.reservation.create_reservation()
     successes, failures, unexpected = _run(
         100,
@@ -393,6 +422,9 @@ def test_K9_잔여_10에_3실씩_요청하면_성공은_정확히_3이고_잔여
 # ── K8: 데드락 ──────────────────────────────────────────────────────
 
 def test_K8_겹치는_기간을_반대_순서로_요청해도_데드락이_없다(container, engine):
+    """데드락(K8) — 절반은 9/20~23, 절반은 9/22~25로 9/22 행이 겹치는 100요청을
+    동시에 보낸다. 재고가 넉넉하므로(잔여 100) 전원 성공(100)이어야 하고,
+    데드락(1213)은 unexpected로 잡혀 0건이어야 한다. 날짜 정렬 접근의 증명."""
     with engine.begin() as conn:
         conn.execute(
             text("UPDATE room_daily_inventory SET remaining = 100 WHERE room_type_id = :id"),
@@ -414,8 +446,10 @@ def test_K8_겹치는_기간을_반대_순서로_요청해도_데드락이_없�
 def test_K2b_락을_꺼도_K8_데드락이_없다__행_접근_순서_증명(
     database_url, redis_url, engine
 ):
-    """락을 끄면 방어선이 InnoDB 행 락뿐이다 — deduct의 정렬이 실제 방어선임을
-    유스케이스 경로 전체로 증명한다 (D10의 두 번째 조건)."""
+    """데드락(K2b, 락 없이 K8) — 분산락을 끄면 방어선이 InnoDB 행 락뿐이다.
+    겹치는 기간 60요청을 동시에 보내 데드락 0, 전원 성공(60)을 확인해
+    deduct의 정렬이 실제 방어선임을 유스케이스 경로 전체로 증명한다
+    (D10의 두 번째 조건)."""
     _reset(engine, redis_url, remaining=100)
     container = _make_container(database_url, redis_url, engine, lock_enabled=False)
     usecase = container.reservation.create_reservation()

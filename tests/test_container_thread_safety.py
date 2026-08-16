@@ -20,6 +20,9 @@ _THREADS = 16
 
 
 def test_T90_동시_첫_접근에도_엔진은_하나만_만들어진다(monkeypatch):
+    """컨테이너 조립(냉시동 경합) — 재기동 직후 16스레드가 engine()에 동시에
+    첫 접근해도 엔진은 정확히 1개만 만들어지고 전원이 같은 객체를 받는다.
+    ThreadSafeSingleton이 없으면 스레드 수만큼 엔진이 생기는 폭주를 잡는다."""
     # 실제 create_engine 대신 느린 가짜를 꽂아 냉시동 창을 재현한다.
     # sleep이 없으면 첫 스레드가 창이 열리기 전에 만들기를 끝내 경합이 안 보인다
     created = []
@@ -53,6 +56,8 @@ def test_T90_동시_첫_접근에도_엔진은_하나만_만들어진다(monkeyp
 
 
 def test_T90b_컨테이너의_싱글턴은_전부_스레드_안전_판이다():
+    """컨테이너 조립(구조 검사) — AppContainer·ReservationContainer의 프로바이더
+    중 잠금 없는 providers.Singleton이 0개다. 새 부품 추가 때의 재발 방지선."""
     # 개별 재발을 막는 구조 검사 — 잠금 없는 Singleton이 하나라도 남으면 빨간불.
     # ThreadSafeSingleton은 별도 클래스라 type 비교로 가려진다
     unsafe = [
