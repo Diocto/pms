@@ -13,10 +13,24 @@ import { messageForError } from "@/lib/error-messages";
 import { validateSearchForm, type SearchFormErrors } from "@/lib/search-form";
 import { createWishlist, type WishItem } from "@/lib/wishlist";
 import { useUserId } from "@/components/user-context";
-import type { AvailabilityResponse, HotelInfo } from "@/lib/contracts";
+import type { AvailabilityResponse, HotelInfo, ReviewInfo } from "@/lib/contracts";
 
 function won(n: number): string {
   return n.toLocaleString("ko-KR");
+}
+
+// 기본 이미지 — id 기반 결정적 그라디언트 (시안 1의 사진 대체 블록과 같은 방식)
+const PHOTO_PALETTES = [
+  ["#2E4A3A", "#7A8F6B", "#C9BD9A"],
+  ["#1F3B2C", "#4E6B50", "#A9B594"],
+  ["#3A4A55", "#6B8290", "#BFCDD2"],
+  ["#4A3A2E", "#8F7A5B", "#D2C4A6"],
+  ["#33566B", "#6B93A9", "#CFE0E6"],
+] as const;
+
+function photoStyle(id: number): React.CSSProperties {
+  const [a, b, c] = PHOTO_PALETTES[id % PHOTO_PALETTES.length];
+  return { background: `linear-gradient(135deg, ${a}, ${b} 55%, ${c})` };
 }
 
 type HotelsState =
@@ -374,19 +388,22 @@ function HotelList({
         {filtered.slice(0, 30).map((h) => {
           const minPrice = Math.min(...h.roomTypes.map((r) => r.basePrice));
           return (
-            <div className="card card-pad between" key={h.hotelId} style={{ padding: "13px 18px" }}>
+            <div className="card between" key={h.hotelId} style={{ padding: 12, gap: 16 }}>
+              <div className="ph ph-hotel" style={photoStyle(h.hotelId)} aria-hidden="true">
+                <i>Hotel</i>
+              </div>
               <div className="grow">
-                <b style={{ fontSize: 15 }}>{h.name}</b>
+                <b className="serif" style={{ fontSize: 16.5 }}>{h.name}</b>
                 <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
                   {h.address} · 객실 {h.roomTypes.length}종
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right", paddingRight: 8 }}>
                 <div style={{ fontSize: 13 }} className="tnum">
                   1박 <b>{won(minPrice)}원~</b> <span className="note">(정가 기준)</span>
                 </div>
                 <button className="btn brass sm" style={{ marginTop: 6 }} onClick={() => onSelect(h.hotelId)}>
-                  잔여 조회
+                  지금 예약하기
                 </button>
               </div>
             </div>
@@ -426,6 +443,25 @@ function SelectedHotel({
   onMoreRooms: () => void;
   onBook: (roomTypeId: number, extra: Record<string, string>) => void;
 }) {
+  // 객실별 투숙 리뷰 (더미 API) — 관리자 지시: 호텔 상세에서 리뷰가 보이게 + 더보기
+  const [reviewsByRoom, setReviewsByRoom] = useState<Record<number, ReviewInfo[]>>({});
+  const [expandedRoom, setExpandedRoom] = useState<number | null>(null);
+  useEffect(() => {
+    if (avail.kind !== "loaded" || avail.data.items.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      avail.data.items.map(
+        async (it) =>
+          [it.roomTypeId, await api.listReviews(it.roomTypeId).catch(() => [])] as const,
+      ),
+    ).then((pairs) => {
+      if (!cancelled) setReviewsByRoom(Object.fromEntries(pairs));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [avail]);
+
   const head = (
     <div className="between" style={{ marginBottom: 10 }}>
       <div className="inline" style={{ gap: 10 }}>
@@ -546,12 +582,20 @@ function SelectedHotel({
       <div className="stack">
         {data.items.map((it) => {
           const low = it.minRemaining <= 5;
+          const reviews = reviewsByRoom[it.roomTypeId] ?? [];
+          const avg =
+            reviews.length > 0
+              ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
+              : null;
           return (
+            <div key={it.roomTypeId} className="stack" style={{ gap: 6 }}>
             <div
-              className="card card-pad between"
-              key={it.roomTypeId}
-              style={low ? { borderColor: "var(--warn)" } : undefined}
+              className="card between"
+              style={{ padding: 12, gap: 16, ...(low ? { borderColor: "var(--warn)" } : {}) }}
             >
+              <div className="ph ph-room" style={photoStyle(it.roomTypeId)} aria-hidden="true">
+                <i>{it.roomTypeName}</i>
+              </div>
               <div className="grow">
                 <div className="inline" style={{ gap: 8 }}>
                   <b style={{ fontSize: 15.5 }} className="serif">{it.roomTypeName}</b>
@@ -579,8 +623,28 @@ function SelectedHotel({
                   1실 정원 {it.capacity}명 · 가장 적은 날 기준 <b className="tnum">{it.minRemaining}실</b>
                   {low && " — 조회 후 바뀌었을 수 있습니다"}
                 </div>
+                {avg !== null && (
+                  <div style={{ marginTop: 6 }}>
+                    <span className="stars">{"★".repeat(Math.round(avg))}</span>{" "}
+                    <b className="tnum" style={{ fontSize: 12.5 }}>{avg.toFixed(1)}</b>
+                    <span className="note" style={{ display: "inline" }}> · 리뷰 {reviews.length}건</span>
+                    <div className="serif" style={{ fontSize: 13.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                      “{reviews[0].comment}”
+                    </div>
+                    <button
+                      className="btn ghost sm"
+                      style={{ marginTop: 6, padding: "4px 10px", fontSize: 11 }}
+                      aria-expanded={expandedRoom === it.roomTypeId}
+                      onClick={() =>
+                        setExpandedRoom(expandedRoom === it.roomTypeId ? null : it.roomTypeId)
+                      }
+                    >
+                      {expandedRoom === it.roomTypeId ? "리뷰 접기" : `리뷰 ${reviews.length}건 모두 보기`}
+                    </button>
+                  </div>
+                )}
               </div>
-              <div style={{ textAlign: "right", minWidth: 170 }}>
+              <div style={{ textAlign: "right", minWidth: 170, paddingRight: 8 }}>
                 <div className="money tnum">{won(it.totalPrice)}<small>원</small></div>
                 <div style={{ fontSize: 12, color: "var(--ink-faint)" }} className="tnum">
                   {data.nights}박 합계 · 1박 {won(it.pricePerNight)}원
@@ -599,6 +663,29 @@ function SelectedHotel({
                   이 객실로 예약
                 </button>
               </div>
+            </div>
+
+            {expandedRoom === it.roomTypeId && avg !== null && (
+              <div className="card card-pad" role="region" aria-label={`${it.roomTypeName} 리뷰 전체`}>
+                <div className="inline" style={{ gap: 18, alignItems: "baseline", marginBottom: 6 }}>
+                  <span className="serif" style={{ fontSize: 38 }}>{avg.toFixed(1)}</span>
+                  <div>
+                    <div className="stars" style={{ fontSize: 15 }}>{"★".repeat(Math.round(avg))}</div>
+                    <div className="note">{it.roomTypeName} · 리뷰 {reviews.length}건 · 실제 투숙 완료 고객만</div>
+                  </div>
+                </div>
+                <hr className="divide" />
+                {reviews.map((rv) => (
+                  <div key={rv.reviewId} style={{ padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div className="serif" style={{ fontSize: 15, lineHeight: 1.6 }}>“{rv.comment}”</div>
+                    <div className="note" style={{ marginTop: 2 }}>
+                      <span className="stars">{"★".repeat(rv.rating)}</span>
+                      <span>{rv.userId} · {rv.createdAt.slice(0, 10)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             </div>
           );
         })}
