@@ -355,10 +355,25 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
   // 시드 리뷰 몇 건 + POST로 추가. 별점 1~5, 한 줄 코멘트.
   interface MockReview { reviewId: number; roomTypeId: number; userId: string; rating: number; comment: string; createdAtMs: number }
   let reviewSeq = 1;
+  const seedReview = (roomTypeId: number, userId: string, rating: number, comment: string, daysAgo: number): MockReview => ({
+    reviewId: reviewSeq++, roomTypeId, userId, rating, comment, createdAtMs: now() - daysAgo * 86400_000,
+  });
   const reviews: MockReview[] = [
-    { reviewId: reviewSeq++, roomTypeId: 3, userId: "guest-kim", rating: 5, comment: "파크 뷰가 사진보다 좋았습니다. 조용했던 것이 무엇보다.", createdAtMs: now() - 12 * 86400_000 },
-    { reviewId: reviewSeq++, roomTypeId: 3, userId: "guest-lee", rating: 4, comment: "체크인이 빨랐고 방이 넓어요.", createdAtMs: now() - 30 * 86400_000 },
-    { reviewId: reviewSeq++, roomTypeId: 1, userId: "guest-park", rating: 5, comment: "가격 대비 최고. 다음에도 여기로.", createdAtMs: now() - 5 * 86400_000 },
+    // 스위트(3) — "더보기"가 보이도록 6건
+    seedReview(3, "guest-kim", 5, "파크 뷰가 사진보다 좋았습니다. 조용했던 것이 무엇보다.", 12),
+    seedReview(3, "guest-lee", 4, "체크인이 빨랐고 방이 넓어요.", 30),
+    seedReview(3, "guest-choi", 5, "기념일에 묵었는데 침구가 훌륭했습니다.", 41),
+    seedReview(3, "guest-jung", 4, "욕조에서 보이는 야경이 좋아요. 방음도 만족.", 55),
+    seedReview(3, "guest-han", 5, "직원 응대가 차분하고 정확했습니다.", 63),
+    seedReview(3, "guest-yoon", 3, "좋았지만 체크아웃 대기가 조금 길었어요.", 78),
+    // 스탠다드(1) — 4건
+    seedReview(1, "guest-park", 5, "가격 대비 최고. 다음에도 여기로.", 5),
+    seedReview(1, "guest-seo", 4, "출장 숙소로 무난합니다. 침대가 편해요.", 18),
+    seedReview(1, "guest-oh", 4, "역에서 가까워서 이동이 편했습니다.", 26),
+    seedReview(1, "guest-lim", 5, "깔끔하고 조용한 방. 재방문 의사 있음.", 40),
+    // 디럭스(2)·오션뷰 스위트(5)
+    seedReview(2, "guest-kang", 5, "셋이 묵기 딱 좋은 크기였습니다.", 9),
+    seedReview(5, "guest-moon", 5, "해운대 뷰가 전부입니다. 그걸로 충분해요.", 15),
   ];
   const reviewBody = (r: MockReview) => ({
     reviewId: r.reviewId, roomTypeId: r.roomTypeId, userId: r.userId,

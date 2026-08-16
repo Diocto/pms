@@ -28,6 +28,7 @@ export function ReviewSection({
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(5);
 
   const load = useCallback(async () => {
     try {
@@ -90,7 +91,7 @@ export function ReviewSection({
       )}
 
       {state.kind === "loaded" &&
-        state.reviews.slice(0, 5).map((rv) => (
+        state.reviews.slice(0, visibleCount).map((rv) => (
           <div key={rv.reviewId} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
             <div className="serif" style={{ fontSize: 15.5, lineHeight: 1.6 }}>
               “{rv.comment}”
@@ -101,6 +102,16 @@ export function ReviewSection({
             </div>
           </div>
         ))}
+
+      {state.kind === "loaded" && state.reviews.length > visibleCount && (
+        <button
+          className="btn ghost sm"
+          style={{ marginTop: 10 }}
+          onClick={() => setVisibleCount((v) => v + 5)}
+        >
+          리뷰 더보기 ({state.reviews.length - visibleCount}건 남음)
+        </button>
+      )}
 
       {canWrite ? (
         <div style={{ marginTop: 14 }}>

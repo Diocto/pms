@@ -443,8 +443,9 @@ function SelectedHotel({
   onMoreRooms: () => void;
   onBook: (roomTypeId: number, extra: Record<string, string>) => void;
 }) {
-  // 객실별 투숙 리뷰 (더미 API) — 관리자 지시: 호텔 상세에서 리뷰가 보이게
+  // 객실별 투숙 리뷰 (더미 API) — 관리자 지시: 호텔 상세에서 리뷰가 보이게 + 더보기
   const [reviewsByRoom, setReviewsByRoom] = useState<Record<number, ReviewInfo[]>>({});
+  const [expandedRoom, setExpandedRoom] = useState<number | null>(null);
   useEffect(() => {
     if (avail.kind !== "loaded" || avail.data.items.length === 0) return;
     let cancelled = false;
@@ -587,9 +588,9 @@ function SelectedHotel({
               ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
               : null;
           return (
+            <div key={it.roomTypeId} className="stack" style={{ gap: 6 }}>
             <div
               className="card between"
-              key={it.roomTypeId}
               style={{ padding: 12, gap: 16, ...(low ? { borderColor: "var(--warn)" } : {}) }}
             >
               <div className="ph ph-room" style={photoStyle(it.roomTypeId)} aria-hidden="true">
@@ -630,6 +631,16 @@ function SelectedHotel({
                     <div className="serif" style={{ fontSize: 13.5, color: "var(--ink-soft)", marginTop: 2 }}>
                       “{reviews[0].comment}”
                     </div>
+                    <button
+                      className="btn ghost sm"
+                      style={{ marginTop: 6, padding: "4px 10px", fontSize: 11 }}
+                      aria-expanded={expandedRoom === it.roomTypeId}
+                      onClick={() =>
+                        setExpandedRoom(expandedRoom === it.roomTypeId ? null : it.roomTypeId)
+                      }
+                    >
+                      {expandedRoom === it.roomTypeId ? "리뷰 접기" : `리뷰 ${reviews.length}건 모두 보기`}
+                    </button>
                   </div>
                 )}
               </div>
@@ -652,6 +663,29 @@ function SelectedHotel({
                   이 객실로 예약
                 </button>
               </div>
+            </div>
+
+            {expandedRoom === it.roomTypeId && avg !== null && (
+              <div className="card card-pad" role="region" aria-label={`${it.roomTypeName} 리뷰 전체`}>
+                <div className="inline" style={{ gap: 18, alignItems: "baseline", marginBottom: 6 }}>
+                  <span className="serif" style={{ fontSize: 38 }}>{avg.toFixed(1)}</span>
+                  <div>
+                    <div className="stars" style={{ fontSize: 15 }}>{"★".repeat(Math.round(avg))}</div>
+                    <div className="note">{it.roomTypeName} · 리뷰 {reviews.length}건 · 실제 투숙 완료 고객만</div>
+                  </div>
+                </div>
+                <hr className="divide" />
+                {reviews.map((rv) => (
+                  <div key={rv.reviewId} style={{ padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div className="serif" style={{ fontSize: 15, lineHeight: 1.6 }}>“{rv.comment}”</div>
+                    <div className="note" style={{ marginTop: 2 }}>
+                      <span className="stars">{"★".repeat(rv.rating)}</span>
+                      <span>{rv.userId} · {rv.createdAt.slice(0, 10)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             </div>
           );
         })}
