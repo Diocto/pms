@@ -42,6 +42,20 @@ class ReservationRepository(Protocol):
         self, session: Session, *, user_id: str, idempotency_key: str
     ) -> Reservation | None: ...
 
+    def find_by_user(
+        self,
+        session: Session,
+        *,
+        user_id: str,
+        status: ReservationStatus | None = None,
+    ) -> list[Reservation]:
+        """그 사용자의 예약을 **최신순**으로 준다. `status`가 오면 그 상태만.
+
+        목록 API의 공급원이다 — 소유자 필터가 여기 박혀 있어 남의 예약이
+        섞일 코드 경로가 없다.
+        """
+        ...
+
     def find_due_ids(
         self, session: Session, *, now: datetime, limit: int
     ) -> list[int]: ...
