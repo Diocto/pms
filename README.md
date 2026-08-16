@@ -16,7 +16,19 @@ python3 -m venv .venv
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-앱이 떴는지는 `curl localhost:8000/health`로 확인합니다.
+앱이 떴는지는 `curl localhost:8000/health`로 확인합니다. API 문서는 http://localhost:8000/docs 입니다.
+
+### 화면까지 띄우려면
+
+Node 20 이상이 추가로 필요합니다. 백엔드를 띄운 채로 새 터미널에서:
+
+```bash
+cd frontend
+npm install
+npm run dev                           # http://localhost:3000
+```
+
+자세한 것은 [frontend/README.md](frontend/README.md)에 있습니다 — 백엔드 없이 화면만 보는 방법(가짜 응답 모드)도 거기 있습니다.
 
 ## 테스트
 
@@ -38,9 +50,11 @@ Java/Spring에서 전환한 이유는 [ADR-0050](docs/decisions/ADR-0050-기술-
 
 ## 문서
 
+**[docs/submission/](docs/submission/)부터 읽으시면 됩니다.** 그 디렉터리만 읽어도 전체가 파악되도록 썼고, 나머지는 근거를 확인하고 싶을 때 들어가는 원천 자료입니다.
+
 | 문서 | 내용 |
 |---|---|
-| `docs/submission/` | 제출용 최종 문서 |
+| `docs/submission/` | **제출용 최종 문서 — 여기서 시작** |
 | `docs/spec/` | 문제 정의와 feature별 스펙 |
 | `docs/decisions/` | 의사결정 이력 (ADR) |
 | `docs/architecture/` | 아키텍처·코딩 규칙 |
