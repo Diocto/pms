@@ -24,6 +24,7 @@ from app.reservation.application.usecases.transition_reservation import (
     ConfirmReservationUseCase,
     ExpireReservationsUseCase,
     GetReservationUseCase,
+    ListReservationsUseCase,
 )
 from app.reservation.infrastructure.idempotency import RedisIdempotencyAdapter
 from app.reservation.infrastructure.lock import NoOpLockAdapter, RedisLockAdapter
@@ -143,3 +144,4 @@ class ReservationContainer(containers.DeclarativeContainer):
     )
     check_in_out = providers.Factory(CheckInOutUseCase, **_transition_deps)
     get_reservation = providers.Factory(GetReservationUseCase, **_transition_deps)
+    list_reservations = providers.Factory(ListReservationsUseCase, **_transition_deps)

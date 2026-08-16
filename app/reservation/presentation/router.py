@@ -7,13 +7,14 @@ HTTP로 바꾼다. 세션도 리포지토리도 여기 없다.
 경로 식별자는 내부 id가 아니라 confirmationCode다 (D7).
 """
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Header, Query, Request, Response
 
 from app.reservation.application.commands import (
     CreateReservationCommand,
     OrderLine,
     ReservationResult,
 )
+from app.reservation.domain.enums import ReservationStatus
 from app.reservation.domain.models import GuestCount, StayPeriod
 from app.reservation.presentation.schemas import (
     CreateReservationRequest,
@@ -54,6 +55,19 @@ def create_reservation(
     if result.replayed:
         response.status_code = 200  # 재요청 — 최초(201)와 상태 코드로 구분한다 (D18)
     return _to_response(result)
+
+
+@router.get("/reservations", response_model=list[ReservationResponse])
+def list_reservations(
+    request: Request,
+    user_id: str = Header(alias="X-User-Id"),
+    status: ReservationStatus | None = Query(default=None),
+) -> list[ReservationResponse]:
+    """내 예약 목록 — 최신순. `status`가 enum 밖이면 검증 계층이 400을 낸다."""
+    results = request.app.state.container.reservation.list_reservations().execute(
+        user_id=user_id, status=status
+    )
+    return [_to_response(result) for result in results]
 
 
 @router.get("/reservations/{confirmation_code}", response_model=ReservationResponse)

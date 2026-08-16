@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시안 5 — 에디토리얼 티켓</title>
+<style>
+/* 시안 5: 에디토리얼 티켓 — 부티크 호스텔·여행 잡지 무드.
+   오프화이트 + 인터내셔널 오렌지/코발트 컬러 블록, 아주 큰 타이포, 굵은 보더,
+   탑승권(보딩패스) 모티프의 예약 확인서. 다섯 중 가장 개성이 강한 방향.
+   단일 테마(라이트) — 모든 색 명시. */
+:root{
+  --bg:#F5F1E8; --card:#FFFDF7; --ink:#17150F; --soft:#57534A; --faint:#8F8A7E;
+  --line:#17150F; --orange:#E84E1B; --cobalt:#1D46C4; --mint:#BFE3C0;
+  --ok:#1E7A44; --warn:#B36A00; --danger:#C03428;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1020px;margin:0 auto;padding:0 28px 100px}
+
+.spec{margin:60px 0 18px;padding-top:22px;border-top:2px dashed #C9C2B2}
+.spec .tag{display:inline-block;font-size:11px;font-weight:900;padding:3px 10px;background:var(--ink);color:var(--bg);letter-spacing:.1em}
+.spec .tag.new{background:var(--orange)}
+.spec h2{font-size:20px;margin:8px 0 3px;font-weight:900}
+.spec p{margin:0;color:var(--soft);font-size:13.5px;max-width:70ch}
+
+.nav{display:flex;align-items:center;gap:24px;padding:22px 0;border-bottom:3px solid var(--line)}
+.logo{font-size:24px;font-weight:900;letter-spacing:-.03em}
+.logo i{font-style:normal;color:var(--orange)}
+.nav a{font-size:13px;font-weight:800;color:var(--ink);text-decoration:none;text-transform:uppercase;letter-spacing:.08em}
+.nav a.on{background:var(--ink);color:var(--bg);padding:5px 12px}
+.user{margin-left:auto;font-size:11px;font-weight:700;border:2px solid var(--line);padding:5px 12px;transform:rotate(-1deg);background:var(--card)}
+.btn{display:inline-block;background:var(--ink);color:var(--bg);border:2px solid var(--line);padding:13px 26px;
+  font-size:13.5px;font-weight:900;letter-spacing:.06em;font-family:inherit;cursor:default;box-shadow:4px 4px 0 var(--orange)}
+.btn.co{box-shadow:4px 4px 0 var(--cobalt)}
+.btn.inv{background:var(--card);color:var(--ink)}
+.btn.sm{padding:9px 16px;font-size:12px;box-shadow:3px 3px 0 var(--orange)}
+.card{background:var(--card);border:2px solid var(--line)}
+.stamp{display:inline-block;font-size:11px;font-weight:900;letter-spacing:.14em;padding:4px 10px;border:2px solid currentColor;transform:rotate(-2deg);text-transform:uppercase}
+.s-ok{color:var(--ok)} .s-warn{color:var(--warn)} .s-danger{color:var(--danger)} .s-mute{color:var(--faint)}
+.note{font-size:12px;color:var(--faint)}
+
+.hero{padding:56px 0 30px}
+.hero h1{font-size:clamp(44px,8vw,84px);line-height:.98;letter-spacing:-.04em;margin:0 0 18px;font-weight:900;text-transform:uppercase}
+.hero h1 span{color:var(--orange)}
+.hero h1 em{font-style:normal;color:var(--cobalt)}
+.searchstrip{display:grid;grid-template-columns:1fr 1fr .7fr auto;border:3px solid var(--line);background:var(--card)}
+.searchstrip>div{padding:16px 20px;border-right:3px solid var(--line)}
+.searchstrip label{display:block;font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:var(--orange)}
+.searchstrip b{font-size:17px;font-weight:800}
+.searchstrip .go{border-right:0;background:var(--cobalt);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;letter-spacing:.14em;font-size:14px}
+
+.room{display:grid;grid-template-columns:1fr 2fr auto;border:2px solid var(--line);background:var(--card);margin-bottom:-2px}
+.swatch{border-right:2px solid var(--line);min-height:150px;display:flex;align-items:flex-end;padding:12px;font-weight:900;color:var(--bg);font-size:20px;letter-spacing:-.02em}
+.room .body{padding:20px 24px}
+.room h3{margin:0 0 2px;font-size:22px;font-weight:900}
+.room .side{border-left:2px solid var(--line);padding:20px 24px;text-align:right;min-width:210px;display:flex;flex-direction:column;justify-content:space-between}
+.big{font-size:24px;font-weight:900}
+.krow{display:flex;justify-content:space-between;font-size:13.5px;color:var(--soft);padding:3px 0}
+.krow b{color:var(--ink);font-weight:800}
+
+/* 보딩패스 */
+.pass{display:grid;grid-template-columns:2fr 1fr;border:3px solid var(--line);background:var(--card);position:relative}
+.pass:before{content:"";position:absolute;top:-3px;bottom:-3px;right:33.3%;border-left:3px dashed var(--line)}
+.pass .main{padding:26px 30px}
+.pass .stub{padding:26px 24px;background:var(--mint)}
+.pass .route{display:flex;align-items:center;gap:14px;font-size:30px;font-weight:900;letter-spacing:-.02em}
+.pass .route i{font-style:normal;color:var(--orange);font-size:20px}
+.barcode{height:44px;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 5px,var(--ink) 5px 6px,transparent 6px 10px)}
+
+.cal{display:grid;grid-template-columns:repeat(7,1fr);border:2px solid var(--line);background:var(--line);gap:2px}
+.cal div{background:var(--card);padding:10px 6px;text-align:center}
+.cal .d{font-size:10px;font-weight:900;color:var(--faint)}
+.cal .p{font-size:14px;font-weight:900;margin-top:2px}
+.cal .r{font-size:10px;color:var(--soft)}
+.cal .sel{background:var(--cobalt)} .cal .sel *{color:#fff!important}
+.cal .zero{background:#EAE4D6} .cal .zero .p{text-decoration:line-through;color:var(--faint)}
+.count{font-size:64px;font-weight:900;letter-spacing:-.03em}
+.two{display:grid;grid-template-columns:1.3fr 1fr;gap:22px}
+q{display:block;font-size:20px;font-weight:800;line-height:1.5;margin:0 0 6px;quotes:"“" "”"}
+@media(max-width:860px){.searchstrip{grid-template-columns:1fr 1fr}.room{grid-template-columns:1fr}.room .side,.swatch{border:0;border-top:2px solid var(--line)}.two,.pass{grid-template-columns:1fr}.pass:before{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="spec" style="border-top:0;margin-top:24px">
+  <span class="tag">시안 5 / 5</span>
+  <h2>에디토리얼 티켓 — 여행 잡지 · 보딩패스</h2>
+  <p>부티크 호스텔·여행 매거진 무드. 오프화이트 + 오렌지/코발트 컬러 블록, 극단적으로 큰 타이포, 굵은 보더와 스탬프, 예약 확인서를 <b>보딩패스(티켓)</b>로 은유. 다섯 중 개성 최강 — 브랜드가 확실히 기억된다. 포함 신규 기능: <b>잔여·요금 캘린더 · 리뷰(인용형) · 예약 확인서(티켓) 다운로드</b>.</p>
+</div>
+
+<div class="spec"><span class="tag">현재 기능</span><h2>검색 — 표지</h2><p>잡지 표지 같은 헤드라인 + 두꺼운 검색 스트립.</p></div>
+
+<nav class="nav">
+  <span class="logo">여정<i>.</i></span>
+  <a class="on" href="#">객실</a><a href="#">내 티켓</a>
+  <span class="user">USER-1001 — 로그인 아님</span>
+</nav>
+
+<section class="hero">
+  <h1>남은 방은<br><span>정직</span>하게,<br>예약은 <em>한 번</em>만.</h1>
+  <div class="searchstrip">
+    <div><label>Nights</label><b class="mono">9.1 – 9.4</b></div>
+    <div><label>Guests</label><b>성인 2 · 객실 1</b></div>
+    <div><label>City</label><b>전체</b></div>
+    <div class="go">FIND →</div>
+  </div>
+</section>
+
+<div class="spec"><span class="tag">현재 기능</span><h2>객실 선택 — 컬러 블록 카드</h2><p>사진 대신 객실별 컬러 블록. 잔여는 스탬프로.</p></div>
+
+<div class="room">
+  <div class="swatch" style="background:var(--cobalt)">STD</div>
+  <div class="body">
+    <h3>스탠다드 <span class="note" style="font-weight:400">서울 그랜드</span></h3>
+    <div class="note">정원 2 · 24㎡ · ★4.7 (188)</div>
+    <p style="margin:10px 0 0;font-size:13.5px;color:var(--soft)">가장 적은 날 기준 <b style="color:var(--ink)">96실</b>. 전 기간 여유.</p>
+  </div>
+  <div class="side">
+    <span class="stamp s-ok">Available</span>
+    <div><div class="big mono">45만<span class="note" style="font-size:11px"> /3박</span></div><button class="btn sm" style="margin-top:8px">RESERVE</button></div>
+  </div>
+</div>
+<div class="room">
+  <div class="swatch" style="background:var(--orange)">SUI</div>
+  <div class="body">
+    <h3>스위트 <span class="note" style="font-weight:400">서울 그랜드</span></h3>
+    <div class="note">정원 4 · 52㎡ · ★4.9 (96)</div>
+    <p style="margin:10px 0 0;font-size:13.5px;color:var(--warn)">가장 적은 날 기준 <b>2실</b> — 조회 후 바뀌었을 수 있음.</p>
+  </div>
+  <div class="side">
+    <span class="stamp s-warn">2 Left</span>
+    <div><div class="big mono">180만<span class="note" style="font-size:11px"> /3박</span></div><button class="btn sm co" style="margin-top:8px">RESERVE</button></div>
+  </div>
+</div>
+
+<div class="spec"><span class="tag new">추가 제안 기능</span><h2>잔여 · 요금 캘린더</h2><p>일별 재고를 만화경처럼 — 매진일은 종이색으로 빠진다.</p></div>
+<div class="cal">
+  <div><div class="d">9.1 화</div><div class="p mono">60만</div><div class="r">4실</div></div>
+  <div class="sel"><div class="d">9.2 수</div><div class="p mono">60만</div><div class="r">2실</div></div>
+  <div class="sel"><div class="d">9.3 목</div><div class="p mono">60만</div><div class="r">3실</div></div>
+  <div><div class="d">9.4 금</div><div class="p mono">60만</div><div class="r">1실</div></div>
+  <div class="zero"><div class="d">9.5 토</div><div class="p mono">60만</div><div class="r">매진</div></div>
+  <div class="zero"><div class="d">9.6 일</div><div class="p mono">60만</div><div class="r">매진</div></div>
+  <div><div class="d">9.7 월</div><div class="p mono">60만</div><div class="r">6실</div></div>
+</div>
+
+<div class="spec"><span class="tag">현재 기능</span><h2>결제 대기 — 카운트다운 포스터</h2></div>
+<div class="two">
+  <div class="card" style="padding:28px 32px;text-align:center;background:var(--ink);color:var(--bg);border-color:var(--ink)">
+    <span class="stamp" style="color:var(--orange)">Pending</span>
+    <div class="count mono" style="color:var(--orange);margin:14px 0 0">09:47</div>
+    <div style="font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:#B8B2A4">결제까지 — 지나면 방이 풀립니다</div>
+    <div style="display:flex;gap:10px;margin-top:22px">
+      <button class="btn" style="flex:1;background:var(--orange);border-color:var(--orange);box-shadow:4px 4px 0 var(--bg)">180만원 결제</button>
+      <button class="btn inv" style="box-shadow:none">취소</button>
+    </div>
+  </div>
+  <div class="card" style="padding:26px 30px">
+    <div class="krow"><span>객실</span><b>스위트 · 서울 그랜드</b></div>
+    <div class="krow"><span>일정</span><b class="mono">9.1 → 9.4 · 3박</b></div>
+    <div class="krow"><span>결제 예정</span><b class="mono">1,800,000원</b></div>
+    <hr style="border:0;border-top:2px solid var(--line);margin:12px 0">
+    <div class="note">버튼을 몇 번을 눌러도 예약은 <b style="color:var(--ink)">한 장</b>. 같은 요청은 같은 티켓으로 접습니다.</div>
+  </div>
+</div>
+
+<div class="spec"><span class="tag new">추가 제안 기능</span><h2>예약 확인서 = 보딩패스</h2><p>확정된 예약을 티켓으로 — 인쇄·이미지 저장(다운로드) 제공. 조사 근거의 '영수증·예약 관리 편의'를 이 스타일의 언어로 번역한 것. 데이터는 전부 기존 응답 필드로 충분하다.</p></div>
+<div class="pass">
+  <div class="main">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <span class="note" style="letter-spacing:.2em;text-transform:uppercase">Yeojeong Boarding — Stay Ticket</span>
+      <span class="stamp s-ok">Confirmed</span>
+    </div>
+    <div class="route" style="margin:14px 0 4px">CHECK-IN <i>→</i> CHECK-OUT</div>
+    <div class="mono" style="font-size:17px;font-weight:800">2026.10.03 15:00 → 2026.10.05 11:00</div>
+    <div style="display:flex;gap:34px;margin-top:16px">
+      <div><div class="note">GUEST</div><b>USER-1001 · 2인</b></div>
+      <div><div class="note">ROOM</div><b>오션뷰 스위트 · 부산</b></div>
+      <div><div class="note">PAID</div><b class="mono">900,000원</b></div>
+    </div>
+  </div>
+  <div class="stub">
+    <div class="note" style="letter-spacing:.14em">CONF. CODE</div>
+    <div class="mono" style="font-weight:800;font-size:15px;margin:2px 0 14px">261003-H2R5-QW83KD21</div>
+    <div class="barcode"></div>
+    <button class="btn sm" style="margin-top:14px;width:100%">티켓 저장 ↓</button>
+  </div>
+</div>
+
+<div class="spec"><span class="tag">현재 기능</span><h2>내 티켓 (내 예약)</h2><p>상태 스탬프가 티켓마다 찍힌다 — 6개 상태가 전부 다른 도장.</p></div>
+<div class="card" style="padding:6px 28px">
+  <div style="display:flex;gap:18px;align-items:center;padding:16px 0;border-bottom:2px solid var(--line)">
+    <span class="stamp s-warn">Pending</span><b>스위트 · 서울</b><span class="note mono">9.1–9.4</span>
+    <span class="mono" style="margin-left:auto;font-weight:900;color:var(--warn)">09:47</span><button class="btn sm">결제</button>
+  </div>
+  <div style="display:flex;gap:18px;align-items:center;padding:16px 0;border-bottom:2px solid var(--line)">
+    <span class="stamp s-ok">Confirmed</span><b>오션뷰 스위트 · 부산</b><span class="note mono">10.3–10.5 · 90만</span>
+    <button class="btn sm inv" style="margin-left:auto;box-shadow:none">티켓 보기</button>
+  </div>
+  <div style="display:flex;gap:18px;align-items:center;padding:16px 0">
+    <span class="stamp s-mute">Checked-out</span><b>디럭스 · 서울</b><span class="note mono">7.11–7.13</span>
+    <button class="btn sm co" style="margin-left:auto">리뷰 남기기</button>
+  </div>
+</div>
+
+<div class="spec"><span class="tag new">추가 제안 기능</span><h2>리뷰 — 인용형</h2><p>숙박 완료(CHECKED_OUT) 상태의 티켓에서만 작성 — 상태머신과 연결.</p></div>
+<div class="card" style="padding:26px 30px;border-left:10px solid var(--orange)">
+  <q>“체크아웃 도장이 아쉬울 만큼 좋았다.”</q>
+  <div class="note">★★★★★ · 김서연 · 스위트 2박 · 2026.08</div>
+</div>
+
+</div>
+</body>
+</html>

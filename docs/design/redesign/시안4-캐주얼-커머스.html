@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시안 4 — 캐주얼 커머스</title>
+<style>
+/* 시안 4: 캐주얼 커머스 — 야놀자·여기어때 계열 국내 모바일 커머스 무드.
+   쨍한 퍼플 + 옐로 딜 배지, 높은 정보 밀도, 좁은 모바일 폭(420px) 중심.
+   할인·딜·타이머 등 커머스 장치가 전면에. 단일 테마(라이트) — 모든 색 명시. */
+:root{
+  --bg:#F4F4F8; --card:#FFFFFF; --ink:#221A33; --soft:#6B6480; --faint:#A49EB3;
+  --line:#E6E3EE; --purple:#6D3BF5; --purple-soft:#F0EAFE; --yellow:#FFD233;
+  --ok:#12A05C; --warn:#F07C00; --danger:#E5484D; --danger-soft:#FDEBEC;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif;
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.frame{max-width:420px;margin:0 auto;padding:0 0 80px}
+.spec{max-width:420px;margin:40px auto 14px;padding:18px 16px 0;border-top:1px dashed #CFC9DD}
+.spec .tag{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:6px;background:var(--ink);color:#fff}
+.spec .tag.new{background:var(--purple)}
+.spec h2{font-size:17px;margin:8px 0 3px}
+.spec p{margin:0;color:var(--soft);font-size:12.5px}
+
+.appbar{position:sticky;top:0;background:var(--purple);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
+.appbar b{font-size:17px;letter-spacing:-.02em}
+.appbar .user{margin-left:auto;font-size:10.5px;background:rgba(255,255,255,.18);border-radius:99px;padding:4px 10px}
+.card{background:var(--card);border-radius:14px;margin:10px 12px;box-shadow:0 2px 10px -6px rgba(34,26,51,.25)}
+.pad{padding:14px 16px}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--purple);color:#fff;border:0;border-radius:10px;
+  padding:13px;font-size:14.5px;font-weight:800;font-family:inherit;width:100%;cursor:default}
+.btn.y{background:var(--yellow);color:var(--ink)}
+.btn.line{background:#fff;color:var(--purple);border:1.5px solid var(--purple)}
+.btn.half{width:auto;flex:1;padding:11px}
+.badge{display:inline-block;font-size:10.5px;font-weight:800;padding:2.5px 8px;border-radius:6px}
+.b-deal{background:var(--yellow);color:var(--ink)} .b-ok{background:#E2F6EC;color:var(--ok)}
+.b-warn{background:#FDEEDC;color:var(--warn)} .b-danger{background:var(--danger-soft);color:var(--danger)}
+.b-mute{background:#EEECF4;color:var(--faint)} .b-pp{background:var(--purple-soft);color:var(--purple)}
+.note{font-size:11.5px;color:var(--faint)}
+.hr{height:8px;background:var(--bg);margin:14px 0 0}
+
+.search{background:var(--purple);padding:0 12px 16px}
+.sbox{background:#fff;border-radius:12px;padding:4px}
+.srow{display:flex;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13.5px;align-items:center}
+.srow:last-child{border-bottom:0}
+.srow .l{color:var(--faint);width:52px;font-size:12px;font-weight:700}
+.tabs{display:flex;gap:6px;padding:12px 12px 4px;overflow-x:auto}
+.tab{flex:none;font-size:12.5px;font-weight:800;padding:7px 13px;border-radius:99px;background:#fff;color:var(--soft);border:1.5px solid var(--line)}
+.tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+.item{display:flex;gap:12px;padding:12px}
+.ph{width:104px;height:104px;border-radius:12px;flex:none;background:linear-gradient(140deg,#9E7CF7,#6D3BF5)}
+.ph.o{background:linear-gradient(140deg,#7CC7F7,#3B7CF5)}
+.price-old{font-size:11.5px;color:var(--faint);text-decoration:line-through}
+.price{font-size:18px;font-weight:900}
+.price small{font-size:11px;font-weight:600;color:var(--faint)}
+.timer{display:flex;align-items:center;gap:8px;background:var(--ink);color:#fff;border-radius:12px;padding:12px 16px;margin:10px 12px}
+.timer .mono{font-size:24px;font-weight:800;color:var(--yellow)}
+.krow{display:flex;justify-content:space-between;font-size:13px;color:var(--soft);padding:3px 0}
+.krow b{color:var(--ink)}
+.stars{color:#FFB400;font-size:12px;font-weight:800}
+.coupon{border:1.5px dashed var(--purple);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;background:var(--purple-soft)}
+</style>
+</head>
+<body>
+
+<div class="spec" style="border-top:0;margin-top:20px">
+  <span class="tag">시안 4 / 5</span>
+  <h2>캐주얼 커머스 — 모바일 우선</h2>
+  <p>야놀자·여기어때 계열 국내 커머스 무드. 쨍한 퍼플+옐로 딜 배지, 높은 밀도, 420px 모바일 프레임. 조사 근거: 여행 트래픽 대부분이 모바일 — 모바일 우선이 표준. 포함 신규 기능: <b>오늘의 딜(잔여 임박 특가 노출) · 유연 날짜 · 리뷰 별점 · 찜 · 최근 본 객실</b>.</p>
+</div>
+
+<div class="frame">
+  <div class="appbar"><b>여정</b><span style="font-size:11px;opacity:.8">국내숙소</span><span class="user">user-1001 · 로그인 아님</span></div>
+
+  <!-- 현재: 검색 -->
+  <div class="search">
+    <div class="sbox">
+      <div class="srow"><span class="l">날짜</span><b class="mono">9.1 화 – 9.4 금 · 3박</b></div>
+      <div class="srow"><span class="l">인원</span><b>성인 2 · 객실 1</b></div>
+      <div class="srow" style="padding:8px"><button class="btn y">숙소 검색</button></div>
+    </div>
+  </div>
+
+  <div class="tabs"><span class="tab on">전체</span><span class="tab">서울</span><span class="tab">부산</span><span class="tab">오션뷰 <b style="color:var(--purple)">·제안</b></span><span class="tab">4인+ <b style="color:var(--purple)">·제안</b></span></div>
+
+  <!-- 신규: 딜 섹션 -->
+  <div class="card">
+    <div class="pad" style="display:flex;align-items:center;gap:8px;padding-bottom:6px">
+      <span class="badge b-deal">⚡ 오늘의 임박 딜</span><span class="note">잔여 3실 이하만 모음 · 추가 제안 기능</span>
+    </div>
+    <div class="item" style="padding-top:2px">
+      <div class="ph"></div>
+      <div style="flex:1">
+        <div style="display:flex;gap:6px;align-items:center"><b style="font-size:15px">서울 그랜드 스위트</b><span style="margin-left:auto;color:var(--danger);font-size:16px">♥</span></div>
+        <div class="stars">★ 4.9 <span class="note">(96)</span> · <span class="badge b-danger">2실 남음</span></div>
+        <div style="margin-top:6px"><span class="price mono">1,800,000<small>원/3박</small></span></div>
+        <div class="note">9/1–9/4 · 정원 4인 · 무료취소</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 현재: 목록 -->
+  <div class="card">
+    <div class="item">
+      <div class="ph o"></div>
+      <div style="flex:1">
+        <div style="display:flex;gap:6px;align-items:center"><b style="font-size:15px">부산 오션뷰 스탠다드</b><span style="margin-left:auto;color:var(--faint);font-size:16px">♡</span></div>
+        <div class="stars">★ 4.6 <span class="note">(167)</span> · <span class="badge b-ok">여유 · 78실</span></div>
+        <div style="margin-top:6px"><span class="price mono">540,000<small>원/3박</small></span></div>
+        <div class="note">해운대 해변 앞 · 정원 2인</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 신규: 유연 날짜 -->
+  <div class="spec"><span class="tag new">추가 제안</span><h2>±1일 딜 비교</h2><p>하루 밀면 싸지나? 매진이면 못 밀게. 일별 재고라 정확하게 계산된다.</p></div>
+  <div class="card pad" style="display:flex;gap:8px;text-align:center">
+    <div style="flex:1;border:1.5px solid var(--line);border-radius:10px;padding:8px"><div class="note">8.31 시작</div><b class="mono">180만</b></div>
+    <div style="flex:1;border:2px solid var(--purple);border-radius:10px;padding:8px;background:var(--purple-soft)"><div class="note" style="color:var(--purple);font-weight:800">선택 9.1</div><b class="mono">180만</b></div>
+    <div style="flex:1;border:1.5px solid var(--line);border-radius:10px;padding:8px;opacity:.5"><div class="note">9.2 시작</div><b class="mono">매진</b></div>
+  </div>
+
+  <div class="hr"></div>
+
+  <!-- 현재: 주문서 + 결제대기 -->
+  <div class="spec"><span class="tag">현재 기능</span><h2>주문서 → 결제 대기</h2><p>타이머를 상단 고정 바로 — 커머스의 '품절 임박' 장치를 유예 시간에 그대로 쓴다.</p></div>
+  <div class="timer"><span style="font-size:12px">⏰ 방을 잡아뒀어요! 결제까지</span><span class="mono">09:47</span><span class="note" style="color:#CFC6E8">지나면 자동취소</span></div>
+  <div class="card pad">
+    <b style="font-size:15px">서울 그랜드 스위트</b>
+    <div class="note mono">9.1(화) 15:00 ~ 9.4(금) 11:00 · 3박 · 성인 2</div>
+    <div style="border-top:1px solid var(--line);margin:10px 0;padding-top:8px">
+      <div class="krow"><span>객실 60만 × 3박</span><b class="mono">1,800,000원</b></div>
+      <div class="krow"><span>쿠폰 <span class="badge b-pp">추가 제안</span></span><b style="color:var(--faint)">적용 안 함</b></div>
+      <div class="krow" style="font-size:15px;margin-top:4px"><b>결제금액</b><b class="mono" style="color:var(--purple);font-size:17px">1,800,000원</b></div>
+    </div>
+    <button class="btn">1,800,000원 결제하기</button>
+    <div class="note" style="margin-top:8px;text-align:center">여러 번 눌러도 1건만 예약돼요 · 결제 전 취소 무료</div>
+  </div>
+
+  <div class="hr"></div>
+
+  <!-- 현재: 내 예약 -->
+  <div class="spec"><span class="tag">현재 기능</span><h2>내 예약</h2><p>결제 완료 탭이 기본 — 관리자 지시(결제 완료 건 조회)를 첫 탭으로.</p></div>
+  <div class="tabs" style="padding-top:0"><span class="tab on">결제완료 2</span><span class="tab">결제대기 1</span><span class="tab">지난내역 2</span></div>
+  <div class="card pad">
+    <div style="display:flex;gap:10px;align-items:center">
+      <span class="badge b-ok">결제완료</span><b>오션뷰 스위트 · 부산</b>
+      <span class="note mono" style="margin-left:auto">10.3–10.5</span>
+    </div>
+    <div class="krow" style="margin-top:6px"><span>결제금액</span><b class="mono">900,000원</b></div>
+    <div class="krow"><span>취소기한</span><b>체크인 전 무료</b></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn line half">예약취소</button><button class="btn half" style="background:var(--ink)">영수증 <span class="badge b-deal" style="font-size:9px">제안</span></button>
+    </div>
+  </div>
+  <div class="card pad">
+    <div style="display:flex;gap:10px;align-items:center">
+      <span class="badge b-mute">숙박완료</span><b>디럭스 · 서울 그랜드</b><span class="note mono" style="margin-left:auto">7.11–7.13</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn y half">리뷰 쓰고 포인트 받기 <span class="badge" style="background:#fff;font-size:9px">제안</span></button>
+    </div>
+  </div>
+
+  <!-- 신규: 최근 본 + 쿠폰 -->
+  <div class="spec"><span class="tag new">추가 제안</span><h2>최근 본 객실 · 쿠폰함</h2><p>최근 본 객실은 브라우저 보관으로 백엔드 없이 가능. 쿠폰은 백엔드 주문서에 확장 지점(discounts)이 이미 있어 연결만 하면 되는 구조 (00 문서 D5).</p></div>
+  <div class="card pad">
+    <div class="note" style="margin-bottom:8px">최근 본 객실</div>
+    <div style="display:flex;gap:8px;overflow-x:auto">
+      <div style="flex:none;width:120px"><div class="ph" style="width:120px;height:76px"></div><div style="font-size:12px;font-weight:700;margin-top:4px">스위트</div><div class="note mono">180만/3박</div></div>
+      <div style="flex:none;width:120px"><div class="ph o" style="width:120px;height:76px"></div><div style="font-size:12px;font-weight:700;margin-top:4px">오션뷰 스탠다드</div><div class="note mono">54만/3박</div></div>
+    </div>
+  </div>
+  <div class="card pad"><div class="coupon"><span style="font-size:20px">🎟️</span><div><b>첫 예약 5% 쿠폰</b><div class="note">주문서 할인 자리(discounts)에 연결 — 백엔드 확장 지점 기존재</div></div></div></div>
+</div>
+</body>
+</html>

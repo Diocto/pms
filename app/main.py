@@ -15,6 +15,7 @@ from fastapi import FastAPI
 
 from app.common.error_handlers import register_error_handlers
 from app.containers import AppContainer
+from app.inventory.query.presentation.router import router as availability_router
 from app.reservation.presentation.actuator import router as actuator_router
 from app.reservation.presentation.router import router as reservation_router
 from app.reservation.presentation.scheduler import ExpireScheduler
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(actuator_router)
     app.include_router(reservation_router)
+    app.include_router(availability_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

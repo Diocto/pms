@@ -1,0 +1,7 @@
+Com_insert	5018
+Com_update	52298
+Innodb_row_lock_current_waits	0
+Innodb_row_lock_time	49898
+Innodb_row_lock_waits	2206
+Max_used_connections	152
+Threads_connected	22
