@@ -7,6 +7,7 @@
 from dependency_injector import containers, providers
 
 from app.common.config import Settings
+from app.inventory.query.application.usecases.list_hotels import ListHotelsUseCase
 from app.inventory.query.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
@@ -16,6 +17,7 @@ from app.inventory.query.infrastructure.cache import (
 )
 from app.inventory.query.infrastructure.persistence import (
     MySqlAvailabilityQueryAdapter,
+    MySqlHotelCatalogAdapter,
 )
 from app.inventory.query.presentation.actuator import SearchRuntimeContributor
 
@@ -40,6 +42,7 @@ class InventoryQueryContainer(containers.DeclarativeContainer):
     clock = providers.Dependency()
 
     query_adapter = providers.Singleton(MySqlAvailabilityQueryAdapter)
+    hotel_catalog = providers.Singleton(MySqlHotelCatalogAdapter)
     search_cache = providers.Singleton(_select_cache, settings, redis_client)
     stale_tolerance_seconds = providers.Factory(_stale_tolerance, settings)
 
@@ -50,6 +53,12 @@ class InventoryQueryContainer(containers.DeclarativeContainer):
         cache=search_cache,
         clock=clock,
         stale_tolerance_seconds=stale_tolerance_seconds,
+    )
+
+    list_hotels = providers.Factory(
+        ListHotelsUseCase,
+        transaction_manager=transaction_manager,
+        catalog=hotel_catalog,
     )
 
     runtime_contributor = providers.Singleton(

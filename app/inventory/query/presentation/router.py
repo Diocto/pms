@@ -18,9 +18,20 @@ from app.inventory.query.application.commands import (
 from app.inventory.query.presentation.schemas import (
     AvailabilitySearchResponse,
     AvailableRoomTypeResponse,
+    HotelListResponse,
+    HotelResponse,
 )
 
 router = APIRouter(prefix="/api")
+
+
+@router.get("/hotels", response_model=HotelListResponse)
+def list_hotels(request: Request) -> HotelListResponse:
+    """호텔 목록과 객실타입 매핑 — F05 검색 화면용. 검색과 같은 익명 경로다."""
+    hotels = request.app.state.container.inventory_query.list_hotels().execute()
+    return HotelListResponse(
+        hotels=[HotelResponse.model_validate(hotel) for hotel in hotels]
+    )
 
 
 @router.get(
