@@ -47,6 +47,23 @@ class MySqlReservationRepository:
             )
         ).scalar_one_or_none()
 
+    def find_by_user(
+        self,
+        session: Session,
+        *,
+        user_id: str,
+        status: ReservationStatus | None = None,
+    ) -> list[Reservation]:
+        """최신순 = created_at 내림차순. 같은 시각이면 id 내림차순으로
+        순서를 고정한다 — 정렬이 비결정적이면 목록이 요청마다 흔들린다."""
+        statement = select(Reservation).where(Reservation.user_id == user_id)
+        if status is not None:
+            statement = statement.where(Reservation.status == status.value)
+        statement = statement.order_by(
+            Reservation.created_at.desc(), Reservation.id.desc()
+        )
+        return list(session.execute(statement).scalars())
+
     def find_due_ids(
         self, session: Session, *, now: datetime, limit: int
     ) -> list[int]:

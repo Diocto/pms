@@ -12,6 +12,7 @@ from app.inventory.query.application.commands import (
     AvailabilityDiagnosis,
     AvailableRoomsResult,
     AvailableRoomTypeView,
+    HotelView,
     SearchAvailableRoomsQuery,
 )
 
@@ -27,6 +28,15 @@ class AvailabilityQueryPort(Protocol):
     def diagnose(
         self, session: Session, query: SearchAvailableRoomsQuery
     ) -> AvailabilityDiagnosis: ...
+
+
+class HotelCatalogPort(Protocol):
+    """호텔·객실타입 마스터 목록. 세션은 유스케이스가 열어서 준다 —
+    구현이 스스로 열면 트랜잭션이 둘로 갈라진다."""
+
+    def list_hotels(self, session: Session) -> list[HotelView]:
+        """전체 호텔을 id 오름차순으로, 객실타입은 그 안에서 id 오름차순으로."""
+        ...
 
 
 class AvailabilityCachePort(Protocol):

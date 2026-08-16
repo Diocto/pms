@@ -10,9 +10,15 @@ import {
   ERROR_CODES,
   parseAvailabilityResponse,
   parseErrorBody,
+  parseHotelsResponse,
+  parseReservationList,
   parseReservationResponse,
+  parseReviews,
   type AvailabilityResponse,
+  type HotelInfo,
   type ReservationResponse,
+  type ReservationStatus,
+  type ReviewInfo,
 } from "./contracts";
 
 export class ApiError extends Error {
@@ -130,9 +136,50 @@ export function createApi(deps: ApiDeps = {}) {
     return parseReservationResponse(await res.json());
   }
 
+  async function fetchHotels(): Promise<HotelInfo[]> {
+    const res = await fetchLike(`${base}/api/hotels`);
+    if (!res.ok) await throwApiError(res);
+    return parseHotelsResponse(await res.json());
+  }
+
+  async function listReservations(
+    userId: string,
+    status?: ReservationStatus,
+  ): Promise<ReservationResponse[]> {
+    const q = status ? `?status=${status}` : "";
+    const res = await fetchLike(`${base}/api/reservations${q}`, {
+      headers: { "X-User-Id": userId },
+    });
+    if (!res.ok) await throwApiError(res);
+    return parseReservationList(await res.json());
+  }
+
+  // 투숙 리뷰 — 더미 API (실 백엔드에 없음, backend.ts가 모든 모드에서 가짜로 라우팅)
+  async function listReviews(roomTypeId: number): Promise<ReviewInfo[]> {
+    const res = await fetchLike(`${base}/api/reviews?roomTypeId=${roomTypeId}`);
+    if (!res.ok) await throwApiError(res);
+    return parseReviews(await res.json());
+  }
+
+  async function createReview(
+    body: { roomTypeId: number; rating: number; comment: string },
+    userId: string,
+  ): Promise<void> {
+    const res = await fetchLike(`${base}/api/reviews`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-User-Id": userId },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) await throwApiError(res);
+  }
+
   return {
     searchAvailability,
     createReservation,
+    fetchHotels,
+    listReservations,
+    listReviews,
+    createReview,
     getReservation: (code: string, userId: string) => reservationAction(code, userId),
     confirmReservation: (code: string, userId: string) => reservationAction(code, userId, "confirm"),
     cancelReservation: (code: string, userId: string) => reservationAction(code, userId, "cancel"),

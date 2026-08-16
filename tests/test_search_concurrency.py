@@ -10,6 +10,7 @@ C2의 관측 형태 하나를 적어둔다: 집계 쿼리는 `HAVING MIN(remaini
 """
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
@@ -233,14 +234,22 @@ def test_C2_읽기_쓰기_경합에서_중간값이_없다(engine, inventory):
         )
 
     usecase = _usecase(engine, NoOpAvailabilityCacheAdapter())  # 캐시 off
-    first_wave, second_wave = 25, 25
-    completed = threading.Event()
+
+    # 갱신 스레드가 검색 50과 **같은 배리어**에서 출발한다 — 갱신이 물결
+    # 사이에서 단독으로 도는 순간 겹침이 0이 되고, 이 시나리오는 헛통과가
+    # 된다 (1차 리뷰 지적). 결정성은 물결 분리가 아니라 두 신호로 만든다:
+    # ① 갱신은 최소 한 검색이 완료된 뒤에만 커밋한다 → "1 관측"이 보장되고,
+    #    그 시점에 나머지 검색들이 한창 돌고 있으므로 겹침이 실재한다.
+    # ② 각 검색 스레드는 0을 볼 때까지 반복 조회한다 → "0 관측"이 보장된다.
+    observers = 50
+    barrier = threading.Barrier(observers + 1)
+    first_read_done = threading.Event()
     update_done_at: list[float] = []
+    observations: list[tuple[float, int]] = []
+    errors: list[Exception] = []
+    lock = threading.Lock()
 
-    import time
-
-    def observe():
-        started_at = time.monotonic()
+    def read_once() -> int:
         result = usecase.execute(_query())
         contested = [
             i for i in result.items if i.room_type_id == CONTESTED_TYPE
@@ -249,31 +258,58 @@ def test_C2_읽기_쓰기_경합에서_중간값이_없다(engine, inventory):
         # 타입째 사라지는 것이 이 쿼리의 0 관측 형태다)
         if contested:
             assert contested[0].min_remaining == 1
-            return (started_at, 1)
-        return (started_at, 0)
+            return 1
+        return 0
 
-    results_1, errors_1 = _run_threads(first_wave, observe)
+    def observe():
+        try:
+            barrier.wait()
+            deadline = time.monotonic() + 10
+            while True:
+                started_at = time.monotonic()
+                value = read_once()
+                with lock:
+                    observations.append((started_at, value))
+                first_read_done.set()
+                if value == 0 or time.monotonic() > deadline:
+                    return
+        except Exception as error:  # noqa: BLE001 — 예상 못 한 것을 세는 자리다
+            with lock:
+                errors.append(error)
 
-    # 1차 물결이 전부 잔여 1을 본 뒤 갱신한다 — "1 관측"을 결정적으로 만든다
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE room_daily_inventory SET remaining = 0"
-                " WHERE room_type_id = :id AND stay_date = :d"
-            ),
-            {"id": CONTESTED_TYPE, "d": contested_date},
-        )
-    update_done_at.append(time.monotonic())
-    completed.set()
+    def update_to_zero():
+        try:
+            barrier.wait()
+            assert first_read_done.wait(timeout=10)
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE room_daily_inventory SET remaining = 0"
+                        " WHERE room_type_id = :id AND stay_date = :d"
+                    ),
+                    {"id": CONTESTED_TYPE, "d": contested_date},
+                )
+            update_done_at.append(time.monotonic())
+        except Exception as error:  # noqa: BLE001
+            with lock:
+                errors.append(error)
 
-    results_2, errors_2 = _run_threads(second_wave, observe)
+    with ThreadPoolExecutor(max_workers=observers + 1) as pool:
+        futures = [pool.submit(observe) for _ in range(observers)]
+        futures.append(pool.submit(update_to_zero))
+    for future in futures:
+        future.result()
 
-    assert errors_1 == [] and errors_2 == []
-    observed = [v for _, v in results_1 + results_2]
-    # 헛통과 방지 — 1과 0이 모두 나타나야 한다. 한 값만 나오면 실패다
-    assert set(observed) == {1, 0}, f"관찰값: {set(observed)}"
-    # 갱신 완료 이후 시작된 요청은 전부 0 (사라짐)이다
-    late = [v for started, v in results_2 if started > update_done_at[0]]
+    assert errors == []
+    assert update_done_at, "갱신 스레드가 커밋하지 못했다"
+    values = [value for _, value in observations]
+    # 헛통과 방지 — 1과 0이 모두 나타나야 한다. 한 값만 나오면 경합 미발생이다
+    assert set(values) == {1, 0}, f"관찰값: {set(values)}"
+    # 겹침의 실증 — 갱신 커밋 시각이 검색 시작 시각들 사이에 떨어졌다
+    started_ats = [started for started, _ in observations]
+    assert min(started_ats) < update_done_at[0] < max(started_ats)
+    # 갱신 완료 이후 시작된 검색은 전부 0 (사라짐)이다
+    late = [v for started, v in observations if started > update_done_at[0]]
     assert late and all(v == 0 for v in late)
 
 

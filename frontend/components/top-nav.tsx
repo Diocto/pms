@@ -36,7 +36,7 @@ export function TopNav() {
 
   return (
     <header className="nav">
-      <Link href="/search" className="nav-mark">
+      <Link href="/" className="nav-mark">
         <span className="ko">여정</span>
         <span className="en">PMS demo</span>
       </Link>
@@ -45,7 +45,7 @@ export function TopNav() {
           객실 검색
         </Link>
         <Link href="/reservations" className={pathname.startsWith("/reservations") ? "on" : ""}>
-          예약 확인
+          내 예약
         </Link>
       </nav>
       <div

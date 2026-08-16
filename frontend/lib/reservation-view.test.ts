@@ -28,6 +28,13 @@ describe("viewOf — 상태 6종 + 결제 거절 변형", () => {
     expect(v.rebookWithDates).toBe(false); // 날짜를 싣지 않는다 — 자동 검색 미발화
   });
 
+  it("CANCELLED + confirmedAt: 확정 후 취소는 '결제 취소'로 구분한다 (관리자 지시)", () => {
+    const v = viewOf({ ...base, status: "CANCELLED", confirmedAt: "2026-09-01T14:27:11" });
+    expect(v.badgeLabel).toBe("결제 취소");
+    expect(v.title).toContain("결제가 취소");
+    expect(v.actions).toEqual(["rebook"]);
+  });
+
   it("CANCELLED + failureReason: 결제 거절로 구분해 말한다 — 같은 상태여도 다른 사건", () => {
     const v = viewOf({ ...base, status: "CANCELLED", failureReason: "PAYMENT_DECLINED" });
     expect(v.badgeLabel).toBe("결제 거절");

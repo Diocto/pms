@@ -159,6 +159,70 @@ describe("확정·취소·만료", () => {
   });
 });
 
+// PR #38 — 호텔 목록·예약 목록 API
+describe("호텔 목록 · 예약 목록 (PR #38)", () => {
+  it("호텔 100곳, 확장 객실타입 id는 ×1000 규칙", async () => {
+    const hotels = await api.fetchHotels();
+    expect(hotels).toHaveLength(100);
+    expect(hotels[0].name).toBe("서울 그랜드 호텔");
+    const h50 = hotels.find((h) => h.hotelId === 50)!;
+    expect(h50.name).toBe("호텔 050");
+    expect(h50.roomTypes.map((r) => r.roomTypeId)).toEqual([50001, 50002, 50003]);
+  });
+
+  it("목록은 사용자 자신의 예약만 최신순으로, 없으면 빈 배열", async () => {
+    expect(await api.listReservations("user-empty")).toEqual([]);
+    await api.createReservation(book, { userId: "u-list", idempotencyKey: "L-1" });
+    const second = await api.createReservation(
+      { ...book, checkIn: "2026-09-10", checkOut: "2026-09-11" },
+      { userId: "u-list", idempotencyKey: "L-2" },
+    );
+    await api.createReservation(book, { userId: "u-other", idempotencyKey: "L-3" });
+    const rows = await api.listReservations("u-list");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].confirmationCode).toBe(second.confirmationCode); // 최신 먼저
+  });
+
+  it("status 필터가 서버에서 걸린다 — 결제 완료(CONFIRMED)만", async () => {
+    const a = await api.createReservation(book, { userId: "u-f", idempotencyKey: "F-1" });
+    await api.confirmReservation(a.confirmationCode, "u-f");
+    await api.createReservation(
+      { ...book, checkIn: "2026-09-10", checkOut: "2026-09-11" },
+      { userId: "u-f", idempotencyKey: "F-2" },
+    );
+    const confirmed = await api.listReservations("u-f", "CONFIRMED");
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0].status).toBe("CONFIRMED");
+  });
+});
+
+// 투숙 리뷰 — 더미 API (관리자 컨펌)
+describe("투숙 리뷰 (더미 API)", () => {
+  it("시드 리뷰가 객실타입별로 조회된다", async () => {
+    const rv = await api.listReviews(3);
+    expect(rv.length).toBeGreaterThanOrEqual(2);
+    expect(rv.every((r) => r.roomTypeId === 3)).toBe(true);
+  });
+
+  it("작성하면 목록 맨 앞에 실린다", async () => {
+    const before = (await api.listReviews(1)).length;
+    await api.createReview({ roomTypeId: 1, rating: 4, comment: "좋았어요" }, "u-review");
+    const after = await api.listReviews(1);
+    expect(after).toHaveLength(before + 1);
+    expect(after[0].comment).toBe("좋았어요");
+    expect(after[0].userId).toBe("u-review");
+  });
+
+  it("별점 범위 밖·빈 코멘트는 400", async () => {
+    await expect(
+      api.createReview({ roomTypeId: 1, rating: 6, comment: "x" }, "u"),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    await expect(
+      api.createReview({ roomTypeId: 1, rating: 5, comment: "  " }, "u"),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  });
+});
+
 // 라운드1 중요-7 — 예약 생성의 날짜 창
 describe("날짜 창 (F01 D21·시드 범위)", () => {
   it("이미 끝난 숙박(checkOut <= today)은 400 — 실 백엔드와 같은 거절", async () => {

@@ -31,7 +31,7 @@ class StayRange(BaseModel):
     check_out: date
 
     def model_post_init(self, _context: Any) -> None:
-        # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (D27)
+        # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (F01 D27)
         if self.check_out <= self.check_in:
             raise InvalidRequestError("체크아웃은 체크인보다 뒤여야 합니다")
         if self.nights() > MAX_NIGHTS:
@@ -149,3 +149,26 @@ class AvailableRoomsResult(BaseModel):
     items: list[AvailableRoomTypeView]
     empty_reason: EmptyReason | None = None
     sales_open_until: date | None = None
+
+
+class HotelRoomTypeView(BaseModel):
+    """호텔 목록의 객실타입 한 줄 — 정적 마스터 정보만. 잔여는 검색이 답한다."""
+
+    model_config = ConfigDict(frozen=True)
+
+    room_type_id: int
+    name: str
+    capacity: int
+    total_quantity: int
+    base_price: int
+
+
+class HotelView(BaseModel):
+    """호텔 한 곳과 그 객실타입 매핑 (관리자 지시 2026-08-16, F05 검색 화면용)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    hotel_id: int
+    name: str
+    address: str
+    room_types: list[HotelRoomTypeView]
