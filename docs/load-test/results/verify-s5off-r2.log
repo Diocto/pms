@@ -1,0 +1,55 @@
+[verify] 시나리오=s5off  이력 기대=0
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[verify] 이력 행 수 = 928
+mysql: [Warning] Using a password on the command line interface can be insecure.
+mysql: [Warning] Using a password on the command line interface can be insecure.
+[verify] 전제 통과. 검증을 진행한다.
+mysql: [Warning] Using a password on the command line interface can be insecure.
+check_name
+=== (0-a) 이력에 행이 있는가 (0이면 아래 검증은 전부 무의미) ===
+history_rows
+928
+check_name
+=== (0-b) 실제로 저장된 표기 — 기대: 전부 대문자 ENUM 이름 ===
+kind	value	cnt
+event	CANCEL	304
+event	CONFIRM	251
+event	EXPIRE	373
+to_status	CANCELLED	304
+to_status	CONFIRMED	251
+to_status	EXPIRED	373
+check_name
+=== (1) 이중 복원: 예약당 재고 복원이 두 번 이상 (기대: 0행) ===
+check_name
+=== (2) 종료 상태에 두 번 도달 (기대: 0행) ===
+check_name
+=== (3) 실제로 일어난 전이 목록 — 허용 7행의 부분집합이어야 한다 ===
+from_status	event	to_status	occurrences
+CONFIRMED	CANCEL	CANCELLED	110
+PENDING	CANCEL	CANCELLED	194
+PENDING	CONFIRM	CONFIRMED	251
+PENDING	EXPIRE	EXPIRED	373
+check_name
+=== (3-b) 표 밖 전이만 골라내기 (기대: 0행) ===
+check_name
+=== (4) 참고: 총 전이 건수 (리포트 문장에 쓸 숫자) ===
+total_transitions
+928
+check_name
+=== (5) 전 구간 재고 이상 (기대: 0행) ===
+mysql: [Warning] Using a password on the command line interface can be insecure.
+check_name
+--- I1/I2. 활성 예약 행 수 (기대: 100) ---
+active_reservations
+100
+check_name
+--- I3. 재고 음수 행 (기대: 0행) ---
+check_name
+--- I4. 해당 날짜 잔여 (기대: 0) ---
+remaining
+0
+check_name
+--- I5. 보존식 (기대: diff=0) ---
+remaining	held	total_quantity	diff
+0	100	100	0
+[verify] 끝. **결과가 비어 있는지 눈으로 확인하는 것은 여전히 사람 몫이다.**
