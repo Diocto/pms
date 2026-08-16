@@ -128,8 +128,8 @@ describe("parseHotelsResponse (PR #38)", () => {
     hotels: [
       {
         hotelId: 50,
-        name: "호텔 050",
-        address: "서울특별시 테스트구 예약로 50",
+        name: "제주 호텔 050",
+        address: "제주특별자치도 제주시 중앙로 50",
         roomTypes: [
           { roomTypeId: 50001, name: "스탠다드", capacity: 2, totalQuantity: 50, basePrice: 150000 },
         ],
