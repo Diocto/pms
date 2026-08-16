@@ -44,7 +44,8 @@ export const options = {
         ...BASE_THRESHOLDS,
         http_req_duration: ['p(95)<1000'],
         // 팔린 방이 재고를 넘으면 초과 판매다. 이게 주 표적이다.
-        rooms_sold: [`value<=${STOCK}`],
+        // Counter의 count는 add()로 쌓인 합계다 (호출 횟수가 아니다).
+        rooms_sold: [`count<=${STOCK}`],
     },
 };
 
