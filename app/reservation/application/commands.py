@@ -22,9 +22,13 @@ class DiscountType(str, Enum):
 class DiscountRef(BaseModel):
     """어떤 할인을 적용할지 가리키는 참조. 예약 코어는 할인의 내용을 모른다."""
 
+    # 요청 필드가 아니라 pydantic의 클래스 설정이다 — frozen이라 생성 후 못 바꾼다
     model_config = ConfigDict(frozen=True)
 
     type: DiscountType
+    # 할인 대상을 가리키는 불투명한 식별자 (프로모션 코드·쿠폰 번호 등).
+    # 무슨 뜻인지는 그 타입을 소유한 해석기만 안다 — 예약 코어가 이 문자열을
+    # 해석하기 시작하면 할인의 내용이 코어로 새 들어온다 (D22)
     reference: str
 
 

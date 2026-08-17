@@ -40,6 +40,11 @@ class MySqlInventoryRepository:
                     RoomDailyInventory.stay_date == stay_date,
                     RoomDailyInventory.remaining >= room_count,  # ← 이 조건이 방어선이다
                 )
+                # 행 잠금의 기준은 remaining 조건이 아니라 **기본키 탐색**이다.
+                # InnoDB는 (room_type_id, stay_date) PK로 찾은 행에 X 락을 걸고
+                # 나서 remaining 조건을 평가한다 — 조건이 틀리면 rowcount 0으로
+                # 끝날 뿐, 잠기지 않는 게 아니다. 락 대조 실측에서 분산락을 끄자
+                # 이 행 락 대기가 434회 잡힌 것이 그 증거다 (S5)
                 .values(
                     remaining=RoomDailyInventory.remaining - room_count,
                     updated_at=now,

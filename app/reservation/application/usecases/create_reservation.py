@@ -21,8 +21,6 @@
 
 import logging
 
-from sqlalchemy.exc import IntegrityError
-
 from app.common.clock import Clock
 from app.common.db import TransactionManager
 from app.common.errors import ConflictError, InvalidRequestError, NotFoundError
@@ -34,6 +32,8 @@ from app.reservation.application.commands import (
     ReservationResult,
 )
 from app.reservation.application.errors import (
+    DuplicateConfirmationCodeError,
+    DuplicateIdempotencyKeyError,
     LockAcquisitionError,
     RequestInProgressError,
 )
@@ -67,19 +67,14 @@ class CreateReservationUseCase:
     ) -> None:
         # 파라미터는 종류별 묶음으로 받는다 (ADR-0064) — 락의 사용법은
         # LockPolicy가, 확장 지점 셋은 ReservationExtensions가 든다.
-        # 안에서는 풀어서 든다 — 본문의 호출부는 묶기 전과 같다.
         self._tx = tx
-        self._lock = lock_policy.lock
+        self._lock_policy = lock_policy
         self._idempotency = idempotency
         self._inventory = inventory_repository
         self._reservations = reservation_repository
         self._clock = clock
         self._hold_minutes = hold_minutes
-        self._lock_wait_s = lock_policy.wait_s
-        self._lock_ttl_s = lock_policy.ttl_s
-        self._pre_check_hooks = extensions.pre_check
-        self._creation_hooks = extensions.creation
-        self._discount_resolvers = extensions.discount_resolvers
+        self._extensions = extensions
 
     def execute(self, command: CreateReservationCommand) -> ReservationResult:
         ttl_seconds = self._hold_minutes * 60
@@ -99,21 +94,18 @@ class CreateReservationUseCase:
 
         try:
             # ── 사전 검사 훅 — 락보다 앞이다 (D23). 세션도 락도 아직 없다 ──
-            for hook in self._pre_check_hooks:
-                hook.check(command)
+            self._run_pre_checks(command)
 
             period = command.line.stay_period
-            keys = [
-                f"lock:inventory:{command.line.room_type_id}:{stay_date}"
-                for stay_date in period.occupied_dates()
-            ]
             now = self._clock.now().replace(tzinfo=None)  # DATETIME은 naive KST다
             today = self._clock.today()
 
             # ── 락 (밖) → 트랜잭션 (안) — 순서가 뒤집히면 커밋 전에 풀린다 ──
+            # 키 규약·대기·수명은 LockPolicy 안에 있다. 해제는 with가 한다
             idempotency_conflict = False
-            with self._lock.acquire_all(
-                keys, wait_s=self._lock_wait_s, ttl_s=self._lock_ttl_s
+            with self._lock_policy.hold_inventory(
+                room_type_id=command.line.room_type_id,
+                stay_dates=period.occupied_dates(),
             ):
                 for attempt in range(_CODE_RETRY):
                     try:
@@ -121,20 +113,17 @@ class CreateReservationUseCase:
                             command, now=now, today=today
                         )
                         break
-                    except IntegrityError as error:
-                        message = str(error.orig)
-                        if "uk_reservation_code" in message:
-                            # 무작위 8자 충돌 — 새 코드로 재생성 (D7)
-                            if attempt == _CODE_RETRY - 1:
-                                raise
-                            continue
-                        if "uk_reservation_idempotency" in message:
-                            # Redis가 뚫린 상황 — DB UK가 정답이다 (D9).
-                            # 재생 조회·저장은 락 밖에서 한다 — 락을 쥔 채
-                            # Redis·재조회를 하면 장애 국면에 락 보유가 늘어난다
-                            idempotency_conflict = True
-                            break
-                        raise
+                    except DuplicateConfirmationCodeError:
+                        # 무작위 8자 충돌 — 새 코드로 재생성 (D7)
+                        if attempt == _CODE_RETRY - 1:
+                            raise
+                        continue
+                    except DuplicateIdempotencyKeyError:
+                        # Redis가 뚫린 상황 — DB UK가 정답이다 (D9).
+                        # 재생 조회·저장은 락 밖에서 한다 — 락을 쥔 채
+                        # Redis·재조회를 하면 장애 국면에 락 보유가 늘어난다
+                        idempotency_conflict = True
+                        break
             if idempotency_conflict:
                 logger.warning(
                     "멱등 UK 충돌 — Redis 우회 감지. 500이 아니라 기존 예약으로 "
@@ -188,6 +177,9 @@ class CreateReservationUseCase:
     ) -> ReservationResult:
         line = command.line
         with self._tx.write() as session:
+            # 이 조회는 잠그지 않는다 — FOR UPDATE 없는 단순 SELECT라 객실타입
+            # 전체는 물론 이 행조차 잠기지 않는다. 잠금은 아래 deduct의 날짜별
+            # 재고 행 UPDATE에서만 생긴다 (행 단위, 날짜 오름차순)
             room_type = session.get(RoomType, line.room_type_id)
             if room_type is None:
                 raise NotFoundError(f"객실타입 {line.room_type_id}이 없습니다")
@@ -219,10 +211,25 @@ class CreateReservationUseCase:
                 now=now,
             )
             self._reservations.insert(session, reservation)
-            for hook in self._creation_hooks:
-                hook.on_created(session, reservation.id, command)
+            self._run_creation_hooks(session, reservation.id, command)
 
             return ReservationResult.model_validate(reservation)
+
+    # ── 확장 지점 실행 (3.6절) ─────────────────────────────────────────
+    # 훅의 계약(언제 불리고, 세션을 받는가)은 ports.py의 Protocol 문서가
+    # 진실이다. 여기 이름은 "언제"만 말한다. 구현이 0개면 아무 일도 없다
+
+    def _run_pre_checks(self, command: CreateReservationCommand) -> None:
+        """값비싼 작업 전의 거부 기회 — 멱등 선점 뒤, 분산락 전 (D23)."""
+        for hook in self._extensions.pre_check:
+            hook.check(command)
+
+    def _run_creation_hooks(
+        self, session, reservation_id: int, command: CreateReservationCommand
+    ) -> None:
+        """예약 INSERT 직후, 같은 트랜잭션 안 — 함께 커밋되거나 함께 롤백된다."""
+        for hook in self._extensions.creation:
+            hook.on_created(session, reservation_id, command)
 
     def _resolve_price(self, session, command, room_type: RoomType) -> Money:
         if not command.discounts:
@@ -231,7 +238,7 @@ class CreateReservationUseCase:
             raise InvalidRequestError("할인은 하나만 적용할 수 있습니다")
 
         ref = command.discounts[0]
-        for resolver in self._discount_resolvers:
+        for resolver in self._extensions.discount_resolvers:
             applied = resolver.resolve(
                 session, ref, command.line.room_type_id, command.line.stay_period
             )

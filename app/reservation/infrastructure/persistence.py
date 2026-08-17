@@ -13,8 +13,13 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.reservation.application.errors import (
+    DuplicateConfirmationCodeError,
+    DuplicateIdempotencyKeyError,
+)
 from app.reservation.domain.enums import ReservationEvent, ReservationStatus
 from app.reservation.domain.models import Reservation, ReservationStatusHistory
 from app.reservation.domain.repositories import EventApplication
@@ -25,10 +30,22 @@ logger = logging.getLogger(__name__)
 
 class MySqlReservationRepository:
     def insert(self, session: Session, reservation: Reservation) -> Reservation:
-        """INSERT 후 flush로 id를 확정한다. UK 위반은 그대로 올라간다 —
-        멱등 UK는 재요청 처리로, 확인번호 UK는 재생성으로 호출부가 가른다."""
+        """INSERT 후 flush로 id를 확정한다. UK 위반은 **타입 있는 예외로 번역해**
+        올린다 — 멱등 UK는 재요청 처리로, 확인번호 UK는 재생성으로 호출부가
+        가른다. 어느 제약이 터졌는지 MySQL은 에러 메시지 텍스트로만 알려주므로
+        (errno 1062), 그 텍스트를 읽는 코드는 **여기 한 곳에만** 둔다.
+        문자열 매칭으로 분기하는 코드를 유스케이스에 두는 것은 금지다
+        (관리자 지시 2026-08-17)."""
         session.add(reservation)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError as error:
+            message = str(error.orig)
+            if "uk_reservation_code" in message:
+                raise DuplicateConfirmationCodeError from error
+            if "uk_reservation_idempotency" in message:
+                raise DuplicateIdempotencyKeyError from error
+            raise  # 다른 제약(CHECK 등)은 모르는 오류다 — 그대로 올린다
         return reservation
 
     def find_by_code(self, session: Session, code: str) -> Reservation | None:
