@@ -6,7 +6,7 @@
 > - 배포된 API: https://pms-api-production-a037.up.railway.app/health
 > - 첫 요청은 컨테이너가 깨어나느라 한 번 실패할 수 있습니다. 새로고침하면 정상입니다.
 
-## 실행 방법 (요약)
+## 실행 방법
 
 Docker와 Python 3.12 이상이 필요합니다. 아래 명령을 실제로 실행해 확인했습니다.
 
@@ -17,7 +17,22 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"  # 의존성 설치
 .venv/bin/uvicorn app.main:app                              # http://localhost:8000
 ```
 
-`curl localhost:8000/health`가 `{"status":"UP"}`이면 준비된 것입니다. **API 문서(Swagger)는 http://localhost:8000/docs** 에서 열리며, 배포본은 https://pms-api-production-a037.up.railway.app/docs 에서 설치 없이 바로 볼 수 있습니다 — 엔드포인트 12개의 설명과 파라미터가 모두 거기 있습니다. 화면(프론트엔드)과 테스트 실행 방법은 문서 맨 아래 [실행 방법](#실행-방법) 절에 있습니다.
+`curl localhost:8000/health`가 `{"status":"UP"}`이면 준비된 것입니다. **API 문서(Swagger)는 http://localhost:8000/docs** 에서 열리며, 배포본은 https://pms-api-production-a037.up.railway.app/docs 에서 설치 없이 바로 볼 수 있습니다 — 엔드포인트 12개의 설명과 파라미터가 모두 거기 있습니다.
+
+**화면까지 띄우려면** Node 20 이상이 추가로 필요합니다. 백엔드를 띄운 채로 새 터미널에서:
+
+```bash
+cd frontend && npm install && npm run dev                   # http://localhost:3000
+```
+
+백엔드 없이 화면만 보는 방법(가짜 응답 모드)은 `frontend/README.md`에 있습니다.
+
+**테스트**는 SQLite가 아니라 Testcontainers로 실제 MySQL 8.4·Redis 7.4를 띄워 돌립니다. SQLite는 행 수준 잠금이 없어, 동시성이 주제인 이 프로젝트에서는 통과해도 아무것도 증명하지 못하기 때문입니다.
+
+```bash
+.venv/bin/pytest                       # 전체 (298개)
+.venv/bin/pytest -m "not concurrency"  # 개발 중 빠른 확인
+```
 
 ## 1. 풀고자 하는 문제
 
@@ -204,36 +219,3 @@ Redis 분산락은 정확성을 담당하지 않습니다 — 분산락을 완�
 | 05-AI-활용.md | AI를 어떻게 썼고 어디서 손해를 봤는가 |
 | docs/decisions/INDEX.md | 의사결정 25건 |
 | docs/deploy/railway.md | 배포 구성 |
-
-## 실행 방법
-
-Docker와 Python 3.12 이상이 필요합니다.
-
-```bash
-docker compose up -d                  # MySQL 8.4, Redis 7.4
-
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-
-.venv/bin/alembic upgrade head        # 스키마 적용
-.venv/bin/uvicorn app.main:app --reload
-```
-
-앱이 떴는지는 `curl localhost:8000/health`로 확인합니다. API 문서는 http://localhost:8000/docs 입니다.
-
-화면까지 띄우려면 Node 20 이상이 추가로 필요합니다. 백엔드를 띄운 채로 새 터미널에서:
-
-```bash
-cd frontend
-npm install
-npm run dev                           # http://localhost:3000
-```
-
-자세한 것은 frontend/README.md에 있습니다 — 백엔드 없이 화면만 보는 방법(가짜 응답 모드)도 거기 있습니다.
-
-테스트는 SQLite가 아니라 Testcontainers로 실제 MySQL 8.4·Redis 7.4를 띄워 돌립니다.
-
-```bash
-.venv/bin/pytest                       # 전체
-.venv/bin/pytest -m "not concurrency"  # 개발 중 빠른 확인
-```
