@@ -1,4 +1,4 @@
-// T2 — 가짜 백엔드. fetch 경계에서 F01·F03 계약을 흉내 낸다.
+// T2 — 가짜 백엔드. fetch 경계에서 예약 코어·검색 계약을 흉내 낸다.
 // 완료 기준: 성공·실패 양쪽을 전환할 수 있다 (브리핑: "가짜를 만들 때 실패 응답도 함께").
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApi } from "./api";
@@ -230,7 +230,7 @@ describe("투숙 리뷰 (더미 API)", () => {
 });
 
 // 라운드1 중요-7 — 예약 생성의 날짜 창
-describe("날짜 창 (F01 D21·시드 범위)", () => {
+describe("날짜 창 (예약 코어 D21·시드 범위)", () => {
   it("이미 끝난 숙박(checkOut <= today)은 400 — 실 백엔드와 같은 거절", async () => {
     await expect(
       api.createReservation(
@@ -257,7 +257,7 @@ describe("날짜 창 (F01 D21·시드 범위)", () => {
     ).rejects.toMatchObject({ code: "INSUFFICIENT_INVENTORY", status: 409 });
   });
 
-  it("검색의 과거 checkIn은 400이다 (F03: 검색은 과거를 막는다)", async () => {
+  it("검색의 과거 checkIn은 400이다 (검색: 검색은 과거를 막는다)", async () => {
     await expect(
       api.searchAvailability({ ...search, checkIn: "2026-08-10", checkOut: "2026-08-12" }),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST", status: 400 });
@@ -265,7 +265,7 @@ describe("날짜 창 (F01 D21·시드 범위)", () => {
 });
 
 // 라운드2 중요 — HTTP로 도달 가능한 전 칸(상태 6 × 이벤트 4 = 24)의 테이블 주도 전수.
-// 진실은 F01 스펙 1.4 전수 표다. 표를 바꾸지 않고 분기 순서만 바꿔도 여기서 잡힌다.
+// 진실은 예약 코어 스펙 1.4 전수 표다. 표를 바꾸지 않고 분기 순서만 바꿔도 여기서 잡힌다.
 describe("전이 표 — 24칸 전수", () => {
   const stay = { ...book, checkIn: "2026-08-15", checkOut: "2026-08-17" }; // 오늘 체크인 가능
 
@@ -367,7 +367,7 @@ describe("전이 표 — 스펙이 강조한 칸", () => {
   });
 
   it("CONFIRMED는 만료 시각이 지나도 만료되지 않는다 — 결제된 예약이 조회 순간 사라지면 안 된다", async () => {
-    // F01 1.4 "읽는 법 주의": CONFIRMED + EXPIRE = 거부. settleExpiry 가드의 회귀 감지용
+    // 예약 코어 1.4 "읽는 법 주의": CONFIRMED + EXPIRE = 거부. settleExpiry 가드의 회귀 감지용
     const r = await api.createReservation(book, { userId: "u", idempotencyKey: "k" });
     await api.confirmReservation(r.confirmationCode, "u");
     nowMs += 11 * 60 * 1000;

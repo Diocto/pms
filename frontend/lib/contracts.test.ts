@@ -1,5 +1,5 @@
 // T2 — 서버 응답을 경계에서 검증한다. 타입 단언(as)으로 믿지 않는다.
-// 표본은 F01 스펙 2.2·2.3, F03 검색-API-계약 3절의 예시 그대로다.
+// 표본은 예약 코어 스펙 2.2·2.3, 검색 검색-API-계약 3절의 예시 그대로다.
 import { describe, expect, it } from "vitest";
 import {
   ContractViolation,

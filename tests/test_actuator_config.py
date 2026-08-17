@@ -1,6 +1,6 @@
 """`GET /api/internal/config` (테스트 T87~T89d, 스펙 D26).
 
-F04의 락 On/Off 대조는 실행 전에 스위치가 실제로 꺼졌는지 확인해야 한다.
+부하테스트의 락 On/Off 대조는 실행 전에 스위치가 실제로 꺼졌는지 확인해야 한다.
 확인 없이 돌리면 두 회차가 같은 조건이 되어도 결과가 "차이 없음"으로 나오고,
 그것이 "락이 없어도 되더라"라는 정반대 결론으로 읽힌다.
 
@@ -28,7 +28,7 @@ def _config_response(monkeypatch, **environment) -> dict:
 
 def test_T87_라우트가_실제로_등록되고_필수_키가_있다(monkeypatch):
     """실행 설정 API(부하테스트 지원) — GET /api/internal/config가 등록되어
-    200을 주고, 필수 키 PMS_LOCK_ENABLED가 loadTest 안에 있다. F04가 실험
+    200을 주고, 필수 키 PMS_LOCK_ENABLED가 loadTest 안에 있다. 부하테스트가 실험
     전에 이 값을 확인하지 못하면 락 On/Off 대조 자체가 성립하지 않는다."""
     body = _config_response(monkeypatch)
     # 필수는 PMS_LOCK_ENABLED 하나다 (D26)
@@ -42,7 +42,7 @@ def test_T88_키는_조작자가_치는_환경변수_이름_그대로의_평평�
     그대로라는 것도 함께 본다."""
     body = _config_response(monkeypatch)
     load_test = body["loadTest"]
-    # F01 소유 키 6개 전부, 중첩 없이
+    # 예약 코어 소유 키 6개 전부, 중첩 없이
     assert set(load_test) >= {
         "PMS_LOCK_ENABLED",
         "PMS_LOCK_WAIT_MILLIS",
@@ -100,7 +100,7 @@ def test_T89d_결제_포트도_실물이_보고된다(monkeypatch):
 
 
 def test_processId는_응답을_만든_프로세스다(monkeypatch):
-    """F04의 단일 프로세스 확인용 — GET 두 번에 pid가 다르면 멀티 워커다.
+    """부하테스트의 단일 프로세스 확인용 — GET 두 번에 pid가 다르면 멀티 워커다.
 
     워커 수 설정값이 아니라 실물(pid)을 보고한다.
     """

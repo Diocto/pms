@@ -1,7 +1,7 @@
 """`RuntimeContributor` 계약 (D26) — 기여 그릇과 병합 규칙.
 
 각 컨텍스트가 자기 설정·구현체·카운터를 `RuntimeReport`로 내놓고,
-F01의 `/api/internal/config` 라우트가 리스트로 모아 병합한다.
+예약 코어의 `/api/internal/config` 라우트가 리스트로 모아 병합한다.
 
 병합에서 지켜야 하는 것 하나: **키 충돌은 조용히 덮어쓰지 않는다.**
 컨텍스트별 접두가 갈리므로 정상 경로에서 충돌이 없고,
@@ -46,7 +46,7 @@ def test_병합은_컨텍스트별_보고를_한_응답으로_합친다():
 
 def test_기여자가_없으면_빈_응답이다():
     """실행 설정 보고(D26) — 기여자가 하나도 없으면 세 칸 모두 빈 dict다.
-    다른 feature가 아직 없어도 F01 코어가 그대로 돈다는 확인이다."""
+    다른 feature가 아직 없어도 예약 코어 코어가 그대로 돈다는 확인이다."""
     merged = merge_reports([])
     assert merged.load_test == {}
     assert merged.implementations == {}

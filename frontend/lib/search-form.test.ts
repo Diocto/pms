@@ -1,5 +1,5 @@
 // T3 — 검색 폼 검증. 클라이언트 검증은 UX다. 판정은 서버가 한다 —
-// 여기 규칙은 F03 계약의 400 조건(과거 날짜·뒤집힌 기간·인원 범위)을 미리 알려주는 것뿐이다.
+// 여기 규칙은 검색 계약의 400 조건(과거 날짜·뒤집힌 기간·인원 범위)을 미리 알려주는 것뿐이다.
 // 박수 상한은 없다 — 서버가 400이 아니라 NOT_YET_OPEN으로 답하기 때문 (D29).
 import { describe, expect, it } from "vitest";
 import { validateSearchForm } from "./search-form";

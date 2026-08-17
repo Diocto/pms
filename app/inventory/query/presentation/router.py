@@ -7,14 +7,20 @@
 """
 
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query
 
 from app.inventory.query.application.commands import (
     AvailableRoomsResult,
     SearchAvailableRoomsQuery,
     StayRange,
 )
+from app.inventory.query.application.usecases.list_hotels import ListHotelsUseCase
+from app.inventory.query.application.usecases.search_available_rooms import (
+    SearchAvailableRoomsUseCase,
+)
+from app.inventory.query.presentation import deps
 from app.inventory.query.presentation.schemas import (
     AvailabilitySearchResponse,
     AvailableRoomTypeResponse,
@@ -22,13 +28,15 @@ from app.inventory.query.presentation.schemas import (
     HotelResponse,
 )
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", tags=["search"])
 
 
 @router.get("/hotels", response_model=HotelListResponse)
-def list_hotels(request: Request) -> HotelListResponse:
-    """호텔 목록과 객실타입 매핑 — F05 검색 화면용. 검색과 같은 익명 경로다."""
-    hotels = request.app.state.container.inventory_query.list_hotels().execute()
+def list_hotels(
+    usecase: Annotated[ListHotelsUseCase, Depends(deps.list_hotels_usecase)],
+) -> HotelListResponse:
+    """호텔 목록과 객실타입 매핑 — 검색 화면용. 검색과 같은 익명 경로다."""
+    hotels = usecase.execute()
     return HotelListResponse(
         hotels=[HotelResponse.model_validate(hotel) for hotel in hotels]
     )
@@ -40,7 +48,9 @@ def list_hotels(request: Request) -> HotelListResponse:
     response_model_exclude_none=True,  # emptyReason 등은 빈 결과에만 붙는다
 )
 def search_availability(
-    request: Request,
+    usecase: Annotated[
+        SearchAvailableRoomsUseCase, Depends(deps.search_available_rooms_usecase)
+    ],
     hotel_id: int = Query(alias="hotelId"),
     check_in: date = Query(alias="checkIn"),
     check_out: date = Query(alias="checkOut"),
@@ -48,7 +58,7 @@ def search_availability(
     room_count: int = Query(default=1, alias="roomCount", ge=1, le=10),
     fresh: bool = Query(default=False),
 ) -> AvailabilitySearchResponse:
-    # 요청 → Query. StayRange 불변식(역전·0박·31박)이 여기서 터지면 400이다
+    # 요청 → Query. StayRange 불변식(역전·0박)이 여기서 터지면 400이다
     query = SearchAvailableRoomsQuery(
         hotel_id=hotel_id,
         stay=StayRange(check_in=check_in, check_out=check_out),
@@ -56,11 +66,7 @@ def search_availability(
         room_count=room_count,
         fresh=fresh,
     )
-    result: AvailableRoomsResult = (
-        request.app.state.container.inventory_query.search_available_rooms().execute(
-            query
-        )
-    )
+    result: AvailableRoomsResult = usecase.execute(query)
     return AvailabilitySearchResponse(
         hotel_id=query.hotel_id,
         check_in=query.stay.check_in,

@@ -1,8 +1,8 @@
 """유스케이스가 아는 바깥 세계의 전부 — 포트 (스펙 3.6절, D10·D22·D23).
 
-구현은 `infrastructure/`(또는 F02)에 있고 컨테이너가 조립한다. 유스케이스는
+구현은 `infrastructure/`(또는 선착순 특가)에 있고 컨테이너가 조립한다. 유스케이스는
 어느 구현이 왔는지 모른다. **이 파일의 시그니처는 스펙 3.6절 코드 블록과
-한 줄씩 대응한다** — F02가 문서만 보고 구현하는 계약이라, 여기가 스펙과
+한 줄씩 대응한다** — 선착순 특가가 문서만 보고 구현하는 계약이라, 여기가 스펙과
 어긋나면 통합 시점에 TypeError로 드러난다 (3회차 리뷰).
 
 **세션을 받는 포트와 안 받는 포트가 갈리는 이유가 계약의 핵심이다.**
@@ -12,7 +12,7 @@ DB를 건드리지 말라는 뜻이다.
 """
 
 from contextlib import AbstractContextManager
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from app.reservation.domain.models import StayPeriod
 
 # ── 분산락 (3.3절, D10) ─────────────────────────────────────────────
 
+@runtime_checkable
 class LockPort(Protocol):
     def acquire_all(
         self, keys: list[str], *, wait_s: float, ttl_s: int
@@ -32,6 +33,21 @@ class LockPort(Protocol):
         """받은 키를 **정렬해서** 전부 잠근다. 호출부는 순서를 신경 쓸 기회조차
         없다 — 넘기는 것은 집합이고 순서는 구현의 몫이다.
         하나라도 실패하면 `LockAcquisitionError` (503)."""
+
+
+class LockPolicy(BaseModel):
+    """락을 "어떻게 쓰는가"를 한 덩어리로 묶는다 (ADR-0064).
+
+    `wait_s`·`ttl_s`가 락과 떨어져 원시값으로 돌아다니면 밀리초를 초에 넣는
+    실수를 잡을 자리가 없다 — 3회차 리뷰가 실제로 지적한 그 실수다. 지금은
+    조립의 변환 지점 하나가 막고 있는데, 이 묶음이 그 방어를 타입으로 올린다.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    lock: LockPort
+    wait_s: float
+    ttl_s: int
 
 
 # ── 멱등성 (3.4절, D9·D18) ──────────────────────────────────────────
@@ -100,8 +116,9 @@ class PaymentPort(Protocol):
         결제를 되돌린다 (2.3절 실패 표)."""
 
 
-# ── 확장 지점 4종 (3.6절) — F02가 구현한다. 시그니처가 곧 계약이다 ────
+# ── 확장 지점 4종 (3.6절) — 선착순 특가가 구현한다. 시그니처가 곧 계약이다 ────
 
+@runtime_checkable
 class ReservationPreCheckHook(Protocol):
     """값비싼 작업에 들어가기 전에 요청을 거를 기회 (D23).
 
@@ -120,6 +137,7 @@ class AppliedDiscount(BaseModel):
     price_per_night: Money
 
 
+@runtime_checkable
 class DiscountResolver(Protocol):
     """할인 참조를 실제 적용 단가로 해석한다. 해석할 수 없으면 None (→ 400
     fail-closed. 정가로 조용히 넘어가지 않는다)."""
@@ -133,6 +151,7 @@ class DiscountResolver(Protocol):
     ) -> AppliedDiscount | None: ...
 
 
+@runtime_checkable
 class ReservationCreationHook(Protocol):
     """예약이 만들어진 직후, **같은 트랜잭션에서** 호출된다.
 
@@ -160,3 +179,18 @@ class ReservationReleaseHook(Protocol):
         from_status: ReservationStatus,
         event: ReservationEvent,
     ) -> None: ...
+
+
+class ReservationExtensions(BaseModel):
+    """예약 생성의 확장 지점 셋을 한 덩어리로 묶는다 (ADR-0064).
+
+    셋은 항상 같이 다닌다 — 선착순 특가 같은 부가 feature가 자기 구현을 끼우는
+    자리이고, 0개면 코어가 그대로 도는 성질(T74)도 셋이 공유한다.
+    생성자에서 세 자리를 따로 받으면 그 성질이 서명에 안 보인다.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    pre_check: tuple[ReservationPreCheckHook, ...] = ()
+    creation: tuple[ReservationCreationHook, ...] = ()
+    discount_resolvers: tuple[DiscountResolver, ...] = ()

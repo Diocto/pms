@@ -1,9 +1,9 @@
-// 가짜 백엔드 — F01(예약)·F03(검색) 계약을 fetch 경계에서 흉내 낸다.
+// 가짜 백엔드 — 예약 코어(예약)·검색(검색) 계약을 fetch 경계에서 흉내 낸다.
 //
 // 왜 fetch 경계인가: api.ts의 검증·오류 변환·재시도가 가짜 모드에서도 전부 실행되게
 // 하기 위해서다. Api 인터페이스를 따로 구현하면 그 경로들이 가짜 모드에서 죽는다.
 //
-// 시드는 F01 스펙 1.9절 그대로다. 상태 전이는 같은 스펙 1.4절의 표를 따른다.
+// 시드는 예약 코어 스펙 1.9절 그대로다. 상태 전이는 같은 스펙 1.4절의 표를 따른다.
 // 실제 스케줄러 대신, PENDING을 읽거나 건드리는 순간 만료 시각이 지났으면 EXPIRED로
 // 옮기고 재고를 되돌린다 (한 번만).
 //
@@ -192,7 +192,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
       return error(404, C.RESOURCE_NOT_FOUND, "없는 호텔");
     if (!checkIn || !checkOut || checkOut <= checkIn || guestCount < 1)
       return error(400, C.INVALID_REQUEST, "검색 조건이 규칙에 어긋남");
-    // F03 계약: 검색은 과거를 400으로 막는다 (checkIn >= today)
+    // 검색 계약: 검색은 과거를 400으로 막는다 (checkIn >= today)
     if (checkIn < today) return error(400, C.INVALID_REQUEST, "과거 날짜는 검색할 수 없음");
 
     // 만료 스케줄러 흉내를 검색에도 적용 — 만료 재고가 조회되기 전에 복원되게 (라운드1 제안)
@@ -270,14 +270,14 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
     if (!rt) return error(404, C.RESOURCE_NOT_FOUND, "없는 객실타입");
     if (!checkIn || !checkOut || checkOut <= checkIn || roomCount < 1 || guestCount < 1)
       return error(400, C.INVALID_REQUEST, "입력이 규칙에 어긋남");
-    // 이미 끝난 숙박은 400 (F01 D21: checkOut > today 필수. checkIn이 지난 건 허용 — 진행 중 투숙)
+    // 이미 끝난 숙박은 400 (예약 코어 D21: checkOut > today 필수. checkIn이 지난 건 허용 — 진행 중 투숙)
     const today = isoLocal(now()).slice(0, 10);
     if (checkOut <= today) return error(400, C.INVALID_REQUEST, "이미 끝난 숙박");
     if (guestCount > rt.capacity * roomCount)
       return error(400, C.INVALID_REQUEST, "정원 초과");
 
     const dates = occupiedDates(checkIn, checkOut);
-    // 시드 범위 밖(개시 전·종료 후)은 재고 행이 없다 → 409 (F01 2.2 실패 표)
+    // 시드 범위 밖(개시 전·종료 후)은 재고 행이 없다 → 409 (예약 코어 2.2 실패 표)
     if (checkIn < SALES_OPEN_FROM || checkOut > SALES_CHECKOUT_LIMIT || dates.some((d) => remainingOn(rt, d) < roomCount))
       return error(409, C.INSUFFICIENT_INVENTORY, "남은 객실 없음");
 
@@ -348,7 +348,7 @@ export function createMockBackend(deps: { now?: () => number; latencyMs?: number
       if (r.status !== "CONFIRMED")
         return error(409, C.INVALID_STATE_TRANSITION, `${r.status}에서 체크인 불가`);
       const today = isoLocal(now()).slice(0, 10);
-      // F01 1.4: checkIn <= today < checkOut일 때만
+      // 예약 코어 1.4: checkIn <= today < checkOut일 때만
       if (today < r.checkIn || today >= r.checkOut)
         return error(409, C.INVALID_STATE_TRANSITION, "체크인 가능 기간이 아님");
       r.status = "CHECKED_IN";

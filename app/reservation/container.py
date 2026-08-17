@@ -26,6 +26,7 @@ from app.reservation.application.usecases.transition_reservation import (
     GetReservationUseCase,
     ListReservationsUseCase,
 )
+from app.reservation.application.ports import LockPolicy, ReservationExtensions
 from app.reservation.infrastructure.idempotency import RedisIdempotencyAdapter
 from app.reservation.infrastructure.lock import NoOpLockAdapter, RedisLockAdapter
 from app.reservation.infrastructure.payment import FakePaymentAdapter
@@ -49,7 +50,7 @@ def _lock_wait_seconds(settings: Settings) -> float:
 
 
 class ReservationRuntimeContributor:
-    """F01 몫의 실행 상태 보고 (D26).
+    """예약 코어 몫의 실행 상태 보고 (D26).
 
     `implementations` 값은 손으로 적지 않고 **실물에서 뽑는다** —
     `type(...).__name__`. 문자열을 손으로 적으면 배선과 어긋날 자리가 된다.
@@ -97,12 +98,28 @@ class ReservationContainer(containers.DeclarativeContainer):
     repository = providers.ThreadSafeSingleton(MySqlReservationRepository)
     inventory_repository = providers.ThreadSafeSingleton(MySqlInventoryRepository)
 
-    # 확장 지점 — F02가 자기 구현을 추가한다. 0개면 빈 리스트라 아무 일도
-    # 일어나지 않고, F02 병합 전에도 코어가 그대로 돈다 (T74)
+    # 확장 지점 — 선착순 특가가 자기 구현을 추가한다. 0개면 빈 리스트라 아무 일도
+    # 일어나지 않고, 선착순 특가 병합 전에도 코어가 그대로 돈다 (T74)
     pre_check_hooks = providers.List()
     creation_hooks = providers.List()
     release_hooks = providers.List()
     discount_resolvers = providers.List()
+
+    # 종류별 묶음 (ADR-0064). Factory여야 한다 — 테스트가 위의 낱개
+    # 프로바이더를 override하면 다음 생성에서 그대로 반영돼야 하므로,
+    # 여기서 값을 굳히면 안 된다
+    lock_policy = providers.Factory(
+        LockPolicy,
+        lock=lock,
+        wait_s=lock_wait_s,
+        ttl_s=settings.provided.lock_ttl_seconds,
+    )
+    extensions = providers.Factory(
+        ReservationExtensions,
+        pre_check=pre_check_hooks,
+        creation=creation_hooks,
+        discount_resolvers=discount_resolvers,
+    )
 
     runtime_contributor = providers.ThreadSafeSingleton(
         ReservationRuntimeContributor, settings=settings, lock=lock, payment=payment
@@ -111,17 +128,13 @@ class ReservationContainer(containers.DeclarativeContainer):
     create_reservation = providers.Factory(
         CreateReservationUseCase,
         tx=transaction_manager,
-        lock=lock,
         idempotency=idempotency,
         inventory_repository=inventory_repository,
         reservation_repository=repository,
         clock=clock,
         hold_minutes=settings.provided.reservation_hold_minutes,
-        lock_wait_s=lock_wait_s,
-        lock_ttl_s=settings.provided.lock_ttl_seconds,
-        pre_check_hooks=pre_check_hooks,
-        creation_hooks=creation_hooks,
-        discount_resolvers=discount_resolvers,
+        lock_policy=lock_policy,
+        extensions=extensions,
     )
 
     _transition_deps = dict(

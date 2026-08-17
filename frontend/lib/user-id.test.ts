@@ -1,4 +1,4 @@
-// T1 — 사용자 식별값 규칙 (계약: F01 스펙 1.9 (6) — VARCHAR(64), 비어 있지 않으면 어떤 값이든)
+// T1 — 사용자 식별값 규칙 (계약: 예약 코어 스펙 1.9 (6) — VARCHAR(64), 비어 있지 않으면 어떤 값이든)
 import { describe, expect, it } from "vitest";
 import { DEFAULT_USER_ID, normalizeUserId } from "./user-id";
 

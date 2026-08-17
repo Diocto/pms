@@ -1,4 +1,4 @@
-"""예약 목록 API 통합 — GET /api/reservations (F05 요청, 관리자 지시 2026-08-16).
+"""예약 목록 API 통합 — GET /api/reservations (예약 화면 요청, 관리자 지시 2026-08-16).
 
 계약: 헤더 `X-User-Id` 필수, 그 사용자의 예약 배열을 **최신순**으로 준다.
 원소 형태는 단건 조회의 `ReservationResponse`와 같다 (camelCase).

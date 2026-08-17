@@ -1,5 +1,5 @@
-// 백엔드 계약의 사본 — 최종 진실은 F01이 완성한 Swagger(/openapi.json)다 (관리자 지시).
-// 그 전까지는 F01 스펙 2장·F03 검색-API-계약 문서에서 읽었다.
+// 백엔드 계약의 사본 — 최종 진실은 예약 코어가 완성한 Swagger(/openapi.json)다 (관리자 지시).
+// 그 전까지는 예약 코어 스펙 2장·검색-API-계약 문서에서 읽었다.
 // 계약이 바뀌면 이 파일 하나만 고친다. 화면은 여기서 나간 타입·상수만 본다 —
 // 필드 이름과 에러 코드 문자열이 이 파일 밖에 직접 나타나면 안 된다.
 //
@@ -7,10 +7,10 @@
 // 형태가 어긋나면 ContractViolation — 화면에서는 일반 오류로 떨어진다.
 //
 // ── 가정 대장 — Swagger가 나오면 아래 [가정]만 확인하면 된다 ─────────────────
-// [문서] 에러 코드 7종, 에러 본문 {code,message,traceId} (F01 2.1 에러 코드 계약)
-// [문서] 검색 응답 필드·emptyReason 3종·salesOpenUntil (F03 계약 3절)
-// [문서] 예약 생성 201 본문 필드 전부 (F01 2.2 응답 예시)
-// [문서] confirm 200 본문: status CONFIRMED+confirmedAt / CANCELLED+failureReason (F01 2.3)
+// [문서] 에러 코드 7종, 에러 본문 {code,message,traceId} (예약 코어 2.1 에러 코드 계약)
+// [문서] 검색 응답 필드·emptyReason 3종·salesOpenUntil (검색 계약 3절)
+// [문서] 예약 생성 201 본문 필드 전부 (예약 코어 2.2 응답 예시)
+// [문서] confirm 200 본문: status CONFIRMED+confirmedAt / CANCELLED+failureReason (예약 코어 2.3)
 // [확인됨 2026-08-16, 실 백엔드 대조] GET·confirm·cancel·check-in/out 전부 생성 201과
 //        같은 response_model(ReservationResponse, camelCase). 스키마·실호출로 검증.
 //        nights 필드는 응답에 없다(파서에서 선택 필드 — 화면은 날짜로 계산). createdAt 추가됨(미사용).
@@ -24,12 +24,12 @@
 //        호텔 100곳, 확장 객실타입 id = 호텔id×1000+n (실호출로 50→50001~3 확인).
 // [가정] 검색 응답의 source 필드 존재(화면 미사용·타입에서 제외) — 대조만 하면 된다.
 // [확인 예정] 공용 설정 노출 계약 이름 ConfigReport→RuntimeReport (화면 무관, PM 공지)
-// [해소됨] 검색 경로 — F03이 구두 오기였다고 정정 (2026-08-16). 계약 문서의
+// [해소됨] 검색 경로 — 검색이 구두 오기였다고 정정 (2026-08-16). 계약 문서의
 //        GET /api/availability?hotelId= 그대로 간다. 코드 변경 없음.
 //        (같은 대화에서 emptyReason을 "NO_INVENTORY"로 쓴 오기도 있었다 — 계약 문서의
-//        NO_FITTING_ROOM_TYPE이 진실. F03에 통지함. Swagger 대조 때 이 값도 재확인.)
+//        NO_FITTING_ROOM_TYPE이 진실. 검색에 통지함. Swagger 대조 때 이 값도 재확인.)
 // [실물 확인됨] 시드 호텔 1=서울 그랜드, 2=부산 오션뷰 (origin/main 051 리비전 대조,
-//        lib/hotels.ts 상수와 일치. 호텔 목록 API는 만들지 않기로 F03과 합의 — 시안 D7)
+//        lib/hotels.ts 상수와 일치. 호텔 목록 API는 만들지 않기로 검색과 합의 — 시안 D7)
 
 // 에러 코드 상수 — 화면·흐름 코드는 문자열 대신 반드시 이걸 쓴다.
 export const ERROR_CODES = {

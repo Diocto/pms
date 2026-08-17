@@ -20,7 +20,7 @@ class DiscountType(str, Enum):
 
 
 class DiscountRef(BaseModel):
-    """어떤 할인을 적용할지 가리키는 참조. F01은 할인의 내용을 모른다."""
+    """어떤 할인을 적용할지 가리키는 참조. 예약 코어는 할인의 내용을 모른다."""
 
     model_config = ConfigDict(frozen=True)
 

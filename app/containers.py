@@ -30,7 +30,7 @@ def _build_engine(settings: Settings):
 
 class AppContainer(containers.DeclarativeContainer):
     # 전부 ThreadSafeSingleton이다 (D37). 잠금 없는 Singleton은 냉시동 상태에서
-    # 스레드풀 스레드 수만큼 엔진을 만들어 MySQL 커넥션 한도를 넘겼다 (F04 실측, T90)
+    # 스레드풀 스레드 수만큼 엔진을 만들어 MySQL 커넥션 한도를 넘겼다 (부하테스트 실측, T90)
     settings = providers.ThreadSafeSingleton(Settings)
 
     clock = providers.ThreadSafeSingleton(SystemClock)
@@ -58,7 +58,7 @@ class AppContainer(containers.DeclarativeContainer):
         clock=clock,
     )
 
-    # 컨텍스트별 실행 상태 기여 (D26). F02가 자기 기여자를 여기 추가한다 —
+    # 컨텍스트별 실행 상태 기여 (D26). 선착순 특가가 자기 기여자를 여기 추가한다 —
     # 구현이 0개인 컨텍스트는 자연히 응답에 나오지 않는다
     runtime_contributors = providers.List(
         reservation.runtime_contributor,

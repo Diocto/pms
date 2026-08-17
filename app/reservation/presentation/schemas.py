@@ -11,7 +11,7 @@ from app.common.response import ApiModel
 
 class CreateReservationRequest(ApiModel):
     """일반 예약 요청. **`discounts`는 여기 없다** — 스펙 2.2가 일반 예약
-    API에 노출하지 않는다고 못 박았다 (D22). 할인 예약은 F02의 특가
+    API에 노출하지 않는다고 못 박았다 (D22). 할인 예약은 선착순 특가의 특가
     유스케이스가 Command를 직접 채운다."""
 
     room_type_id: int
@@ -54,6 +54,6 @@ class RuntimeConfigResponse(ApiModel):
     load_test: dict[str, bool | int | float | str]
     implementations: dict[str, str]
     counters: dict[str, int]
-    # 응답을 만든 프로세스의 pid. F04가 GET 두 번으로 단일 프로세스를 확인한다 —
+    # 응답을 만든 프로세스의 pid. 부하테스트가 GET 두 번으로 단일 프로세스를 확인한다 —
     # 워커 수 설정값(선언)이 아니라 실물이다
     process_id: int

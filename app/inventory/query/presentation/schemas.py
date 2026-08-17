@@ -35,7 +35,7 @@ class HotelResponse(ApiModel):
 
 
 class HotelListResponse(ApiModel):
-    """`GET /api/hotels` — F05 검색 화면의 호텔 선택 목록.
+    """`GET /api/hotels` — 검색 화면의 호텔 선택 목록.
 
     배열을 그대로 내보내지 않고 `hotels`로 감싼다 — 나중에 총계·페이지
     정보가 붙을 자리를 지금 만들어 두면 그때 계약이 안 깨진다."""
