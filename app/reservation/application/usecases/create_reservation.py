@@ -1,15 +1,13 @@
 """예약 생성 유스케이스 — 이 프로젝트의 심장 (스펙 2.2절, 4.1절의 열두 줄).
 
-순서가 곧 계약이다. 락이 트랜잭션 밖에 있다는 사실, 사전 검사가 락보다
-앞이라는 사실, 멱등 저장이 커밋 뒤라는 사실이 전부 `execute()` 한 함수에서
-눈으로 읽힌다 — 데코레이터를 기각한 이유가 이것이다 (D28).
+순서가 곧 계약이다. 락이 트랜잭션 밖에 있다는 사실과 멱등 저장이 커밋
+뒤라는 사실이 전부 `execute()` 한 함수에서 눈으로 읽힌다 — 데코레이터를
+기각한 이유가 이것이다 (D28).
 
 ```
-멱등 키 선점 → (입력 검증) → [PreCheckHook] → 락 획득
+멱등 키 선점 → (입력 검증) → 락 획득
   ┌─ 트랜잭션 ────────────────────────────┐
-  │ [DiscountResolver] → 가격 확정        │
-  │ → 재고 차감 → 예약 INSERT             │
-  │ → [CreationHook]                     │
+  │ 가격 확정 → 재고 차감 → 예약 INSERT   │
   └──────────────────────────────────────┘
   커밋 → 락 해제 → 멱등 결과 저장
 ```
@@ -37,12 +35,7 @@ from app.reservation.application.errors import (
     LockAcquisitionError,
     RequestInProgressError,
 )
-from app.reservation.application.ports import (
-    AppliedDiscount,
-    IdempotencyPort,
-    LockPolicy,
-    ReservationExtensions,
-)
+from app.reservation.application.ports import IdempotencyPort, LockPolicy
 from app.reservation.domain.models import Reservation
 from app.reservation.domain.repositories import ReservationRepository
 from app.reservation.domain.services import generate_confirmation_code
@@ -63,10 +56,9 @@ class CreateReservationUseCase:
         clock: Clock,
         hold_minutes: int,
         lock_policy: LockPolicy,
-        extensions: ReservationExtensions,
     ) -> None:
-        # 파라미터는 종류별 묶음으로 받는다 (ADR-0064) — 락의 사용법은
-        # LockPolicy가, 확장 지점 셋은 ReservationExtensions가 든다.
+        # 락의 사용법(구현·대기·수명·키 규약)은 LockPolicy 한 덩어리로
+        # 받는다 (ADR-0064)
         self._tx = tx
         self._lock_policy = lock_policy
         self._idempotency = idempotency
@@ -74,7 +66,6 @@ class CreateReservationUseCase:
         self._reservations = reservation_repository
         self._clock = clock
         self._hold_minutes = hold_minutes
-        self._extensions = extensions
 
     def execute(self, command: CreateReservationCommand) -> ReservationResult:
         ttl_seconds = self._hold_minutes * 60
@@ -93,9 +84,6 @@ class CreateReservationUseCase:
             raise ConflictError("이전 요청과 같은 결과입니다", code=claim.failure_code)
 
         try:
-            # ── 사전 검사 훅 — 락보다 앞이다 (D23). 세션도 락도 아직 없다 ──
-            self._run_pre_checks(command)
-
             period = command.line.stay_period
             now = self._clock.now().replace(tzinfo=None)  # DATETIME은 naive KST다
             today = self._clock.today()
@@ -152,15 +140,6 @@ class CreateReservationUseCase:
                 user_id=command.user_id, key=command.idempotency_key
             )
             raise
-        except ConflictError as error:
-            # 사전 검사 훅의 거부(선착순 특가의 409류) — 재고 부족과 같은 성격이라
-            # 실패로 완료 표시한다. 같은 키 재요청이 같은 409를 받는다 (D30)
-            if error.code is not None:
-                self._idempotency.store_failure(
-                    user_id=command.user_id, key=command.idempotency_key,
-                    failure_code=error.code, ttl_seconds=ttl_seconds,
-                )
-            raise
         except Exception:
             # 예상 못 한 실패(500) — 아무것도 커밋되지 않았으므로 키를 지워
             # 재시도가 최초 요청이 되게 한다 (D31). PROCESSING으로 방치하면
@@ -184,7 +163,9 @@ class CreateReservationUseCase:
             if room_type is None:
                 raise NotFoundError(f"객실타입 {line.room_type_id}이 없습니다")
 
-            price_per_night = self._resolve_price(session, command, room_type)
+            # 단가는 객실타입 정가 하나다 — 예약 행에 스냅샷으로 남으므로
+            # 나중에 정가가 바뀌어도 이미 잡힌 예약의 금액은 흔들리지 않는다
+            price_per_night = Money(amount=room_type.base_price)
 
             reservation = Reservation.create(
                 user_id=command.user_id,
@@ -202,7 +183,7 @@ class CreateReservationUseCase:
                 hold_minutes=self._hold_minutes,
             )
 
-            # 가격 확정 → 재고 차감 → INSERT → 훅 (3.6절 호출 순서)
+            # 가격 확정 → 재고 차감 → INSERT (3.6절 호출 순서)
             self._inventory.deduct(
                 session,
                 room_type_id=line.room_type_id,
@@ -211,42 +192,8 @@ class CreateReservationUseCase:
                 now=now,
             )
             self._reservations.insert(session, reservation)
-            self._run_creation_hooks(session, reservation.id, command)
 
             return ReservationResult.model_validate(reservation)
-
-    # ── 확장 지점 실행 (3.6절) ─────────────────────────────────────────
-    # 훅의 계약(언제 불리고, 세션을 받는가)은 ports.py의 Protocol 문서가
-    # 진실이다. 여기 이름은 "언제"만 말한다. 구현이 0개면 아무 일도 없다
-
-    def _run_pre_checks(self, command: CreateReservationCommand) -> None:
-        """값비싼 작업 전의 거부 기회 — 멱등 선점 뒤, 분산락 전 (D23)."""
-        for hook in self._extensions.pre_check:
-            hook.check(command)
-
-    def _run_creation_hooks(
-        self, session, reservation_id: int, command: CreateReservationCommand
-    ) -> None:
-        """예약 INSERT 직후, 같은 트랜잭션 안 — 함께 커밋되거나 함께 롤백된다."""
-        for hook in self._extensions.creation:
-            hook.on_created(session, reservation_id, command)
-
-    def _resolve_price(self, session, command, room_type: RoomType) -> Money:
-        if not command.discounts:
-            return Money(amount=room_type.base_price)  # 정가 예약
-        if len(command.discounts) > 1:
-            raise InvalidRequestError("할인은 하나만 적용할 수 있습니다")
-
-        ref = command.discounts[0]
-        for resolver in self._extensions.discount_resolvers:
-            applied = resolver.resolve(
-                session, ref, command.line.room_type_id, command.line.stay_period
-            )
-            if applied is not None:
-                return applied.price_per_night
-        # 해석 실패는 400이다 — 정가로 조용히 넘어가면 사용자가 기대한 금액보다
-        # 더 청구하게 된다 (fail-closed, 3.6절)
-        raise InvalidRequestError(f"할인을 해석할 수 없습니다: {ref.reference}")
 
     # ── 멱등 재요청 ────────────────────────────────────────────────────
 

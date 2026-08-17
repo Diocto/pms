@@ -66,7 +66,6 @@ def create_reservation(
             room_count=body.room_count,
             guest_count=GuestCount(value=body.guest_count),
         ),
-        # discounts는 비워 둔다 — 일반 예약 API는 할인을 받지 않는다 (2.2절, D22)
     )
     result = usecase.execute(command)
     if result.replayed:

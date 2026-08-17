@@ -14,16 +14,16 @@ from sqlalchemy.orm import sessionmaker
 
 from app.common.clock import KST, FixedClock
 from app.common.db import TransactionManager
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     SearchAvailableRoomsQuery,
     Source,
     StayRange,
 )
-from app.inventory.query.application.usecases.search_available_rooms import (
+from app.inventory.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
-from app.inventory.query.infrastructure.cache import RedisAvailabilityCacheAdapter
-from app.inventory.query.infrastructure.persistence import (
+from app.inventory.infrastructure.cache import RedisAvailabilityCacheAdapter
+from app.inventory.infrastructure.search_persistence import (
     MySqlAvailabilityQueryAdapter,
 )
 

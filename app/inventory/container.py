@@ -1,4 +1,4 @@
-"""inventory.query 컨텍스트 컨테이너 (검색, 조회 전용).
+"""inventory 컨텍스트 컨테이너 (검색, 조회 전용).
 
 캐시 구현 선택과 값 노출(기여자)이 **같은 프로바이더**를 본다 (D15) —
 값은 `false`인데 Redis 구현이 들어가 있는 상태를 만들 자리가 없다.
@@ -7,19 +7,19 @@
 from dependency_injector import containers, providers
 
 from app.common.config import Settings
-from app.inventory.query.application.usecases.list_hotels import ListHotelsUseCase
-from app.inventory.query.application.usecases.search_available_rooms import (
+from app.inventory.application.usecases.list_hotels import ListHotelsUseCase
+from app.inventory.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
-from app.inventory.query.infrastructure.cache import (
+from app.inventory.infrastructure.cache import (
     NoOpAvailabilityCacheAdapter,
     RedisAvailabilityCacheAdapter,
 )
-from app.inventory.query.infrastructure.persistence import (
+from app.inventory.infrastructure.search_persistence import (
     MySqlAvailabilityQueryAdapter,
     MySqlHotelCatalogAdapter,
 )
-from app.inventory.query.presentation.actuator import SearchRuntimeContributor
+from app.inventory.presentation.actuator import SearchRuntimeContributor
 
 
 def _select_cache(settings: Settings, redis_client):
@@ -35,7 +35,7 @@ def _stale_tolerance(settings: Settings) -> int:
     return settings.search_cache_ttl_seconds if settings.search_cache_enabled else 0
 
 
-class InventoryQueryContainer(containers.DeclarativeContainer):
+class InventoryContainer(containers.DeclarativeContainer):
     settings = providers.Dependency()
     redis_client = providers.Dependency()
     transaction_manager = providers.Dependency()

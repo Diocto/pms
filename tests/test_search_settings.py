@@ -31,16 +31,16 @@ def test_환경변수로_스위치가_뒤집힌다(monkeypatch: pytest.MonkeyPat
 
 
 def test_루트가_검색_컨텍스트를_배선한다() -> None:
-    """루트 컨테이너가 inventory_query 컨테이너에 네 의존을 전부 넘긴다.
+    """루트 컨테이너가 inventory 컨테이너에 네 의존을 전부 넘긴다.
 
     설정을 두 곳에서 따로 읽지 않는다 — 검색 컨텍스트가 받는 settings가
     루트의 그 싱글턴이어야, 노출되는 값과 실제 쓰는 값이 같은 출처가 된다.
     """
     container = AppContainer()
-    assert container.inventory_query.settings() is container.settings()
-    assert container.inventory_query.clock() is container.clock()
+    assert container.inventory.settings() is container.settings()
+    assert container.inventory.clock() is container.clock()
     assert (
-        container.inventory_query.transaction_manager()
+        container.inventory.transaction_manager()
         is container.transaction_manager()
     )
-    assert container.inventory_query.redis_client() is container.redis_client()
+    assert container.inventory.redis_client() is container.redis_client()

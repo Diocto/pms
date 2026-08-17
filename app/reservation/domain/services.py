@@ -1,8 +1,7 @@
 """한 애그리거트에 담기지 않는 도메인 규칙.
 
 가격 계산은 여기 없다 — 단가·기간·객실 수는 전부 애그리거트 자신의 데이터라
-`Reservation.create()` 안에 있다 (2회차 리뷰). 할인 해석이 붙는 가격 결정은
-3회차의 `DiscountResolver` 포트(D22) 몫이다.
+`Reservation.create()` 안에 있다 (2회차 리뷰).
 """
 
 import secrets

@@ -11,17 +11,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailableRoomsResult,
     SearchAvailableRoomsQuery,
     StayRange,
 )
-from app.inventory.query.application.usecases.list_hotels import ListHotelsUseCase
-from app.inventory.query.application.usecases.search_available_rooms import (
+from app.inventory.application.usecases.list_hotels import ListHotelsUseCase
+from app.inventory.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
-from app.inventory.query.presentation import deps
-from app.inventory.query.presentation.schemas import (
+from app.inventory.presentation import deps
+from app.inventory.presentation.schemas import (
     AvailabilitySearchResponse,
     AvailableRoomTypeResponse,
     HotelListResponse,

@@ -9,7 +9,7 @@ from datetime import date
 import pytest
 
 from app.common.errors import InvalidRequestError
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailabilityDiagnosis,
     EmptyReason,
     StayRange,

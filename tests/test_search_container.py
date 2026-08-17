@@ -12,7 +12,7 @@ from dependency_injector import providers
 
 from app.common.config import Settings
 from app.containers import AppContainer
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     SearchAvailableRoomsQuery,
     Source,
     StayRange,
@@ -29,14 +29,14 @@ def off_container(monkeypatch):
 
 
 def test_T13_끄면_NoOp_구현이_선택된다(off_container):
-    cache = off_container.inventory_query.search_cache()
+    cache = off_container.inventory.search_cache()
     assert type(cache).__name__ == "NoOpAvailabilityCacheAdapter"
-    assert off_container.inventory_query.stale_tolerance_seconds() == 0
+    assert off_container.inventory.stale_tolerance_seconds() == 0
 
 
 def test_T13_기여자의_보고가_선택된_실물과_일치한다(off_container):
-    cache = off_container.inventory_query.search_cache()
-    report = off_container.inventory_query.runtime_contributor().report()
+    cache = off_container.inventory.search_cache()
+    report = off_container.inventory.runtime_contributor().report()
     # 키는 조작자가 셸에 치는 환경변수 이름 그대로다 (설정 키 예외)
     assert report.load_test["PMS_SEARCH_CACHE_ENABLED"] is False
     assert report.load_test["PMS_SEARCH_CACHE_TTL_SECONDS"] == 10
@@ -56,7 +56,7 @@ class _FakeQueryAdapter:
         return []
 
     def diagnose(self, session, query):
-        from app.inventory.query.application.commands import AvailabilityDiagnosis
+        from app.inventory.application.commands import AvailabilityDiagnosis
 
         return AvailabilityDiagnosis(
             room_type_count=1,
@@ -66,13 +66,13 @@ class _FakeQueryAdapter:
 
 
 def test_T13_끄면_항상_DB에서_읽는다(off_container):
-    off_container.inventory_query.query_adapter.override(
+    off_container.inventory.query_adapter.override(
         providers.Object(_FakeQueryAdapter())
     )
-    off_container.inventory_query.transaction_manager.override(
+    off_container.inventory.transaction_manager.override(
         providers.Object(_FakeTransactionManager())
     )
-    usecase = off_container.inventory_query.search_available_rooms()
+    usecase = off_container.inventory.search_available_rooms()
     query = SearchAvailableRoomsQuery(
         hotel_id=1,
         stay=StayRange(check_in=date(2026, 9, 1), check_out=date(2026, 9, 4)),
@@ -91,10 +91,10 @@ def test_켜면_Redis_구현이_선택되고_보고도_일치한다(monkeypatch)
     container = AppContainer()
     container.settings.override(providers.Object(Settings(_env_file=None)))
     try:
-        cache = container.inventory_query.search_cache()
+        cache = container.inventory.search_cache()
         assert type(cache).__name__ == "RedisAvailabilityCacheAdapter"
-        assert container.inventory_query.stale_tolerance_seconds() == 7
-        report = container.inventory_query.runtime_contributor().report()
+        assert container.inventory.stale_tolerance_seconds() == 7
+        report = container.inventory.runtime_contributor().report()
         assert report.load_test["PMS_SEARCH_CACHE_ENABLED"] is True
         assert report.load_test["PMS_SEARCH_CACHE_TTL_SECONDS"] == 7
         assert report.implementations["searchCache"] == type(cache).__name__

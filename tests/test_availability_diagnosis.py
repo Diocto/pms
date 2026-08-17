@@ -13,12 +13,12 @@ from sqlalchemy.orm import sessionmaker
 
 from app.common.db import TransactionManager
 from app.common.errors import NotFoundError
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     EmptyReason,
     SearchAvailableRoomsQuery,
     StayRange,
 )
-from app.inventory.query.infrastructure.persistence import MySqlAvailabilityQueryAdapter
+from app.inventory.infrastructure.search_persistence import MySqlAvailabilityQueryAdapter
 
 HOTEL_ID = 931
 ROOM_TYPE_ID = 9311  # capacity 2, 총 3실
@@ -257,7 +257,7 @@ def bulk_dataset(engine):
 
 
 def test_D8_집계_쿼리가_재고_테이블을_풀스캔하지_않는다(engine, bulk_dataset):
-    from app.inventory.query.infrastructure.persistence import _SEARCH_SQL
+    from app.inventory.infrastructure.search_persistence import _SEARCH_SQL
 
     with engine.connect() as conn:
         rows = conn.execute(

@@ -91,7 +91,6 @@ def _deps(repository) -> dict:
         inventory_repository=StubInventory(),
         reservation_repository=repository,
         clock=FixedClock(NOW),
-        release_hooks=[],
     )
 
 

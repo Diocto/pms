@@ -3,33 +3,16 @@
 계층을 넘는 그릇이므로 전부 Pydantic이고 `frozen`이다 — 유스케이스가 입력을
 고쳐 쓰면 어디서 바뀌었는지 추적할 수 없다.
 
-`discounts`가 비어 있으면 정가 예약이다. **할인은 명시적으로 요청해야만
-적용된다** — 자동 적용하면 일반가로 예약하려는 사용자까지 특가를 소진시킨다.
+한때 할인 참조(`discounts`)가 여기 있었다 — 선착순 특가(폐기, ADR-0058)의
+입구였는데 구현 없이 자리만 남아 제거했다 (ADR-0065). 단가는 객실타입
+정가 하나다.
 """
 
 from datetime import date, datetime
-from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
 from app.reservation.domain.models import GuestCount, StayPeriod
-
-
-class DiscountType(str, Enum):
-    PROMOTION = "PROMOTION"      # COUPON이 생기면 여기 추가된다
-
-
-class DiscountRef(BaseModel):
-    """어떤 할인을 적용할지 가리키는 참조. 예약 코어는 할인의 내용을 모른다."""
-
-    # 요청 필드가 아니라 pydantic의 클래스 설정이다 — frozen이라 생성 후 못 바꾼다
-    model_config = ConfigDict(frozen=True)
-
-    type: DiscountType
-    # 할인 대상을 가리키는 불투명한 식별자 (프로모션 코드·쿠폰 번호 등).
-    # 무슨 뜻인지는 그 타입을 소유한 해석기만 안다 — 예약 코어가 이 문자열을
-    # 해석하기 시작하면 할인의 내용이 코어로 새 들어온다 (D22)
-    reference: str
 
 
 class OrderLine(BaseModel):
@@ -47,7 +30,6 @@ class CreateReservationCommand(BaseModel):
     user_id: str
     idempotency_key: str
     line: OrderLine
-    discounts: list[DiscountRef] = []          # 지금은 0개 또는 1개
 
 
 class ReservationResult(BaseModel):

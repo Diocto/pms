@@ -6,7 +6,7 @@
 
 import redis
 
-from app.inventory.query.application.commands import AvailableRoomsResult
+from app.inventory.application.commands import AvailableRoomsResult
 
 
 class NoOpAvailabilityCacheAdapter:

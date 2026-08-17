@@ -11,7 +11,7 @@ import pytest
 import redis as redis_library
 
 from app.common.clock import KST
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailableRoomsResult,
     AvailableRoomTypeView,
     EmptyReason,
@@ -19,7 +19,7 @@ from app.inventory.query.application.commands import (
     Source,
     StayRange,
 )
-from app.inventory.query.infrastructure.cache import RedisAvailabilityCacheAdapter
+from app.inventory.infrastructure.cache import RedisAvailabilityCacheAdapter
 
 HOTEL_ID = 934
 TTL_SECONDS = 10

@@ -4,8 +4,8 @@
 데이터에 캐시를 얹으면 무효화 경로만 하나 늘어난다.
 """
 
-from app.inventory.query.application.commands import HotelView
-from app.inventory.query.application.ports import HotelCatalogPort
+from app.inventory.application.commands import HotelView
+from app.inventory.application.ports import HotelCatalogPort
 
 
 class ListHotelsUseCase:

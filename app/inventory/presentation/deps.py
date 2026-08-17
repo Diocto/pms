@@ -6,15 +6,15 @@
 
 from fastapi import Request
 
-from app.inventory.query.application.usecases.list_hotels import ListHotelsUseCase
-from app.inventory.query.application.usecases.search_available_rooms import (
+from app.inventory.application.usecases.list_hotels import ListHotelsUseCase
+from app.inventory.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
 
 
 def list_hotels_usecase(request: Request) -> ListHotelsUseCase:
-    return request.app.state.container.inventory_query.list_hotels()
+    return request.app.state.container.inventory.list_hotels()
 
 
 def search_available_rooms_usecase(request: Request) -> SearchAvailableRoomsUseCase:
-    return request.app.state.container.inventory_query.search_available_rooms()
+    return request.app.state.container.inventory.search_available_rooms()

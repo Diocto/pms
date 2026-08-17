@@ -7,7 +7,7 @@ snake_case로 나가고 서버는 200을 준다 — TDD 20이 키 문자열로 �
 from datetime import date, datetime
 
 from app.common.response import ApiModel
-from app.inventory.query.application.commands import EmptyReason, Source
+from app.inventory.application.commands import EmptyReason, Source
 
 
 class AvailableRoomTypeResponse(ApiModel):

@@ -6,7 +6,7 @@
 
 from app.common.config import Settings
 from app.common.runtime_report import RuntimeReport
-from app.inventory.query.application.ports import AvailabilityCachePort
+from app.inventory.application.ports import AvailabilityCachePort
 
 
 class SearchRuntimeContributor:
