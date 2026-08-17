@@ -39,7 +39,7 @@ from app.reservation.presentation.schemas import (
     ReservationResponse,
 )
 
-router = APIRouter(prefix="/api", tags=["reservation"])
+router = APIRouter(prefix="/api", tags=["예약"])
 
 # 모든 예약 API가 요구하는 헤더 — Swagger 표기를 한 곳에서 정의한다
 _USER_ID_HEADER = Header(

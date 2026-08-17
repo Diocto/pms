@@ -34,7 +34,28 @@ def create_app() -> FastAPI:
         yield
         scheduler.stop()
 
-    app = FastAPI(title="PMS 숙박 예약 시스템", version="0.1.0", lifespan=lifespan)
+    # Swagger 태그 설명 — 문서 메타데이터일 뿐, 동작에는 영향이 없다.
+    openapi_tags = [
+        {
+            "name": "예약",
+            "description": (
+                "예약 생성 · 조회 · 확정 · 취소 · 체크인/아웃 · 만료. "
+                "모두 X-User-Id 헤더가 필요하다"
+            ),
+        },
+        {
+            "name": "검색",
+            "description": "가용 객실 검색과 호텔 목록 — 익명 호출, 잠금 없이 읽는다",
+        },
+        {"name": "내부", "description": "운영·부하테스트 확인용"},
+    ]
+
+    app = FastAPI(
+        title="PMS 숙박 예약 시스템",
+        version="0.1.0",
+        lifespan=lifespan,
+        openapi_tags=openapi_tags,
+    )
     app.state.container = container
 
     register_error_handlers(app)

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from app.common.runtime_report import merge_reports
 from app.reservation.presentation.schemas import RuntimeConfigResponse
 
-router = APIRouter(tags=["internal"])
+router = APIRouter(tags=["내부"])
 
 
 def runtime_contributors(request: Request) -> list:
