@@ -252,7 +252,7 @@ def expire_reservations(
     """결제 대기 시간이 지난 예약을 일괄 만료 처리합니다.
 
     평소에는 서버가 30초마다 자동으로 실행하므로 화면에서 부를 일은 없습니다.
-    테스트·부하테스트가 만료 시점을 제어할 때 씁니다 (2.5절).
+    테스트·부하테스트가 만료 시점을 제어할 때 씁니다.
     """
     expired = usecase.execute()
     return ExpireResponse(expired_count=expired)
