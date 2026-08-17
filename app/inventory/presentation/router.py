@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api", tags=["검색"])
 def list_hotels(
     usecase: Annotated[ListHotelsUseCase, Depends(deps.list_hotels_usecase)],
 ) -> HotelListResponse:
-    """호텔 목록과 객실타입 매핑 — 검색 화면용. 검색과 같은 익명 경로다."""
+    """호텔과 객실타입 목록을 돌려줍니다. 검색 폼의 선택지를 채우는 용도이며, 로그인 없이 부를 수 있습니다."""
     hotels = usecase.execute()
     return HotelListResponse(
         hotels=[HotelResponse.model_validate(hotel) for hotel in hotels]
@@ -47,6 +47,10 @@ def list_hotels(
     response_model=AvailabilitySearchResponse,
     response_model_exclude_none=True,  # emptyReason 등은 빈 결과에만 붙는다
     summary="가용 객실 검색",
+    responses={
+        400: {"description": "날짜가 잘못됨 — 체크아웃이 체크인보다 같거나 빠름, 인원·객실 수 범위 밖 (INVALID_REQUEST)"},
+        404: {"description": "호텔이 없음 (RESOURCE_NOT_FOUND)"},
+    },
 )
 def search_availability(
     usecase: Annotated[
@@ -67,11 +71,12 @@ def search_availability(
         default=False, description="true면 캐시를 건너뛰고 DB에서 바로 읽는다"
     ),
 ) -> AvailabilitySearchResponse:
-    """기간·인원 조건에 맞는 객실타입과 잔여 수량을 돌려준다.
+    """조건에 맞는 예약 가능한 객실타입과 잔여 수량을 돌려줍니다. 로그인 없이 부를 수 있습니다.
 
-    기본은 Redis 캐시를 거치며(`source=CACHE`), 잠금 없이 읽는다 — 결과가
-    살짝 낡을 수 있고, 최종 확인은 예약 생성이 한다 (ADR-0030). 판매 개시
-    전 기간이면 빈 결과에 `emptyReason=NOT_YET_OPEN`과 판매 개시일이 붙는다.
+    결과는 몇 초 캐시될 수 있습니다(`source=CACHE`) — 화면에 보이던 방이 예약
+    시점에는 없을 수 있고, 그 경우 예약 생성이 409로 거절하니 화면은 그 응답으로
+    안내하면 됩니다. 판매 개시 전 기간을 조회하면 빈 결과에
+    `emptyReason=NOT_YET_OPEN`과 판매 개시일(`salesOpenUntil`)이 담깁니다.
     """
     # 요청 → Query. StayRange 불변식(역전·0박)이 여기서 터지면 400이다
     query = SearchAvailableRoomsQuery(

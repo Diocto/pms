@@ -63,6 +63,23 @@ def create_app() -> FastAPI:
     app.include_router(reservation_router)
     app.include_router(availability_router)
 
+    # 검증 실패는 전역 핸들러가 400 INVALID_REQUEST로 바꾼다(에러 계약).
+    # FastAPI가 자동으로 넣는 422 항목은 실제로 나가지 않는 응답이므로
+    # Swagger 스키마에서 지운다 — 문서가 계약과 다르면 문서가 거짓이 된다.
+    _default_openapi = app.openapi
+
+    def _openapi_without_422() -> dict:
+        if app.openapi_schema is None:
+            schema = _default_openapi()
+            for path_item in schema["paths"].values():
+                for operation in path_item.values():
+                    if isinstance(operation, dict):
+                        operation.get("responses", {}).pop("422", None)
+            app.openapi_schema = schema
+        return app.openapi_schema
+
+    app.openapi = _openapi_without_422
+
     @app.get("/health", summary="헬스체크 — 앱 생존만 확인")
     def health() -> dict[str, str]:
         """앱이 떠 있는지만 본다. DB·Redis 연결은 보지 않는다.
