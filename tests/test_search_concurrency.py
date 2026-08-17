@@ -21,19 +21,19 @@ from sqlalchemy.orm import sessionmaker
 
 from app.common.clock import KST, FixedClock
 from app.common.db import TransactionManager
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     SearchAvailableRoomsQuery,
     Source,
     StayRange,
 )
-from app.inventory.query.application.usecases.search_available_rooms import (
+from app.inventory.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
-from app.inventory.query.infrastructure.cache import (
+from app.inventory.infrastructure.cache import (
     NoOpAvailabilityCacheAdapter,
     RedisAvailabilityCacheAdapter,
 )
-from app.inventory.query.infrastructure.persistence import (
+from app.inventory.infrastructure.search_persistence import (
     MySqlAvailabilityQueryAdapter,
 )
 
@@ -357,7 +357,7 @@ def test_C5_Redis가_죽어도_검색은_전부_성공한다(engine, inventory, 
 
     from testcontainers.community.redis import RedisContainer
 
-    from app.inventory.query.application.usecases import search_available_rooms
+    from app.inventory.application.usecases import search_available_rooms
 
     logging.getLogger(search_available_rooms.__name__).disabled = False
 

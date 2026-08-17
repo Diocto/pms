@@ -26,7 +26,7 @@ from app.reservation.application.usecases.transition_reservation import (
     GetReservationUseCase,
     ListReservationsUseCase,
 )
-from app.reservation.application.ports import LockPolicy, ReservationExtensions
+from app.reservation.application.ports import LockPolicy
 from app.reservation.infrastructure.idempotency import RedisIdempotencyAdapter
 from app.reservation.infrastructure.lock import NoOpLockAdapter, RedisLockAdapter
 from app.reservation.infrastructure.payment import FakePaymentAdapter
@@ -98,27 +98,13 @@ class ReservationContainer(containers.DeclarativeContainer):
     repository = providers.ThreadSafeSingleton(MySqlReservationRepository)
     inventory_repository = providers.ThreadSafeSingleton(MySqlInventoryRepository)
 
-    # 확장 지점 — 선착순 특가가 자기 구현을 추가한다. 0개면 빈 리스트라 아무 일도
-    # 일어나지 않고, 선착순 특가 병합 전에도 코어가 그대로 돈다 (T74)
-    pre_check_hooks = providers.List()
-    creation_hooks = providers.List()
-    release_hooks = providers.List()
-    discount_resolvers = providers.List()
-
-    # 종류별 묶음 (ADR-0064). Factory여야 한다 — 테스트가 위의 낱개
-    # 프로바이더를 override하면 다음 생성에서 그대로 반영돼야 하므로,
-    # 여기서 값을 굳히면 안 된다
+    # 락 사용법 묶음 (ADR-0064). Factory여야 한다 — 테스트가 lock 프로바이더를
+    # override하면 다음 생성에서 그대로 반영돼야 하므로, 값을 굳히지 않는다
     lock_policy = providers.Factory(
         LockPolicy,
         lock=lock,
         wait_s=lock_wait_s,
         ttl_s=settings.provided.lock_ttl_seconds,
-    )
-    extensions = providers.Factory(
-        ReservationExtensions,
-        pre_check=pre_check_hooks,
-        creation=creation_hooks,
-        discount_resolvers=discount_resolvers,
     )
 
     runtime_contributor = providers.ThreadSafeSingleton(
@@ -134,7 +120,6 @@ class ReservationContainer(containers.DeclarativeContainer):
         clock=clock,
         hold_minutes=settings.provided.reservation_hold_minutes,
         lock_policy=lock_policy,
-        extensions=extensions,
     )
 
     _transition_deps = dict(
@@ -142,7 +127,6 @@ class ReservationContainer(containers.DeclarativeContainer):
         inventory_repository=inventory_repository,
         reservation_repository=repository,
         clock=clock,
-        release_hooks=release_hooks,
     )
     confirm_reservation = providers.Factory(
         ConfirmReservationUseCase, payment=payment, **_transition_deps

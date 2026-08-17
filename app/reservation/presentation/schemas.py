@@ -10,9 +10,8 @@ from app.common.response import ApiModel
 
 
 class CreateReservationRequest(ApiModel):
-    """일반 예약 요청. **`discounts`는 여기 없다** — 스펙 2.2가 일반 예약
-    API에 노출하지 않는다고 못 박았다 (D22). 할인 예약은 선착순 특가의 특가
-    유스케이스가 Command를 직접 채운다."""
+    """일반 예약 요청. 할인 필드는 없다 — 단가는 객실타입 정가 하나다
+    (선착순 특가 폐기, ADR-0058·ADR-0065)."""
 
     room_type_id: int
     check_in: date

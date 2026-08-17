@@ -8,7 +8,7 @@
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailabilityDiagnosis,
     AvailableRoomTypeView,
     HotelRoomTypeView,

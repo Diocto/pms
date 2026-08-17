@@ -10,13 +10,13 @@ import logging
 
 from app.common.clock import Clock
 from app.common.db import TransactionManager
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailableRoomsResult,
     EmptyReason,
     SearchAvailableRoomsQuery,
     Source,
 )
-from app.inventory.query.application.ports import (
+from app.inventory.application.ports import (
     AvailabilityCachePort,
     AvailabilityQueryPort,
 )

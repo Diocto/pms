@@ -1,14 +1,13 @@
-"""유스케이스가 아는 바깥 세계의 전부 — 포트 (스펙 3.6절, D10·D22·D23).
+"""유스케이스가 아는 바깥 세계의 전부 — 포트 (스펙 3.6절, D10).
 
-구현은 `infrastructure/`(또는 선착순 특가)에 있고 컨테이너가 조립한다. 유스케이스는
-어느 구현이 왔는지 모른다. **이 파일의 시그니처는 스펙 3.6절 코드 블록과
-한 줄씩 대응한다** — 선착순 특가가 문서만 보고 구현하는 계약이라, 여기가 스펙과
-어긋나면 통합 시점에 TypeError로 드러난다 (3회차 리뷰).
+구현은 `infrastructure/`에 있고 컨테이너가 조립한다. 유스케이스는 어느
+구현이 왔는지 모른다. 락은 켠 것과 끈 것(NoOp)이 같은 포트 뒤에 있어
+`PMS_LOCK_ENABLED` 하나로 갈린다 — 끌 수 없는 층은 살아 있는지 확인할
+방법이 없다.
 
-**세션을 받는 포트와 안 받는 포트가 갈리는 이유가 계약의 핵심이다.**
-세션을 받는 것(해석기·훅)은 호출부의 트랜잭션에 참여하라는 뜻이고, 받을 수
-없으면 자기 세션을 열 수 없다. 안 받는 것(사전 검사)은 트랜잭션이 아직 없고
-DB를 건드리지 말라는 뜻이다.
+한때 선착순 특가(폐기, ADR-0058)를 위한 확장 훅 4종이 여기 있었다.
+구현이 0개인 채 계약만 남아 읽기를 방해해서 제거했다 (ADR-0065).
+설계 기록은 `docs/spec/F02-선착순-프로모션.md`에 남아 있다.
 """
 
 from collections.abc import Iterable
@@ -17,12 +16,6 @@ from datetime import date
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.orm import Session
-
-from app.inventory.domain.models import Money
-from app.reservation.application.commands import CreateReservationCommand, DiscountRef
-from app.reservation.domain.enums import ReservationEvent, ReservationStatus
-from app.reservation.domain.models import StayPeriod
 
 
 # ── 분산락 (3.3절, D10) ─────────────────────────────────────────────
@@ -104,9 +97,8 @@ class IdempotencyPort(Protocol):
         """키를 지운다. **재시도가 의미 있는 실패에서만** — 입력 오류(400),
         잘못된 참조(404), 혼잡(503). 지우면 고친 재시도가 최초 요청이 된다.
 
-        같은 키로 다시 와도 같은 실패가 재현되어야 하는 경우(재고 부족,
-        사전 검사 거부)는 지우지 않고 `store_failure()`를 부른다
-        (스펙 2.2절 실패 표 기준)."""
+        같은 키로 다시 와도 같은 실패가 재현되어야 하는 경우(재고 부족)는
+        지우지 않고 `store_failure()`를 부른다 (스펙 2.2절 실패 표 기준)."""
 
 
 # ── 결제 (2.3절) ────────────────────────────────────────────────────
@@ -130,83 +122,3 @@ class PaymentPort(Protocol):
     def refund(self, *, transaction_id: str | None) -> None:
         """보상 — 결제 승인 후 전이 경합에서 졌을 때(만료·취소가 먼저 이김)
         결제를 되돌린다 (2.3절 실패 표)."""
-
-
-# ── 확장 지점 4종 (3.6절) — 선착순 특가가 구현한다. 시그니처가 곧 계약이다 ────
-
-@runtime_checkable
-class ReservationPreCheckHook(Protocol):
-    """값비싼 작업에 들어가기 전에 요청을 거를 기회 (D23).
-
-    멱등 키 선점과 입력 검증 뒤, **분산락을 잡기 전에** 호출된다.
-    거부는 예외로 표현한다. **세션을 받지 않는다** — 트랜잭션이 아직 없고,
-    여기서 DB를 건드리지 말라는 뜻이다.
-    """
-
-    def check(self, command: CreateReservationCommand) -> None: ...
-
-
-class AppliedDiscount(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    ref: DiscountRef                 # 해석 결과가 자기 출처를 안다
-    price_per_night: Money
-
-
-@runtime_checkable
-class DiscountResolver(Protocol):
-    """할인 참조를 실제 적용 단가로 해석한다. 해석할 수 없으면 None (→ 400
-    fail-closed. 정가로 조용히 넘어가지 않는다)."""
-
-    def resolve(
-        self,
-        session: Session,
-        ref: DiscountRef,
-        room_type_id: int,
-        period: StayPeriod,
-    ) -> AppliedDiscount | None: ...
-
-
-@runtime_checkable
-class ReservationCreationHook(Protocol):
-    """예약이 만들어진 직후, **같은 트랜잭션에서** 호출된다.
-
-    세션을 첫 인자로 받는 것이 계약의 핵심이다 — 안 주면 구현자가 자기
-    세션을 열 수 있고 "함께 커밋하거나 함께 롤백"이 조용히 깨진다.
-    구현부는 `session_factory`를 주입받지 않는다.
-    """
-
-    def on_created(
-        self, session: Session, reservation_id: int, command: CreateReservationCommand
-    ) -> None: ...
-
-
-class ReservationReleaseHook(Protocol):
-    """예약에 묶인 부가 자원을 반납한다.
-
-    상태 전이 조건부 UPDATE가 1건 성공했을 때만, 같은 트랜잭션에서
-    정확히 한 번 호출된다.
-    """
-
-    def on_released(
-        self,
-        session: Session,
-        reservation_id: int,
-        from_status: ReservationStatus,
-        event: ReservationEvent,
-    ) -> None: ...
-
-
-class ReservationExtensions(BaseModel):
-    """예약 생성의 확장 지점 셋을 한 덩어리로 묶는다 (ADR-0064).
-
-    셋은 항상 같이 다닌다 — 선착순 특가 같은 부가 feature가 자기 구현을 끼우는
-    자리이고, 0개면 코어가 그대로 도는 성질(T74)도 셋이 공유한다.
-    생성자에서 세 자리를 따로 받으면 그 성질이 서명에 안 보인다.
-    """
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    pre_check: tuple[ReservationPreCheckHook, ...] = ()
-    creation: tuple[ReservationCreationHook, ...] = ()
-    discount_resolvers: tuple[DiscountResolver, ...] = ()

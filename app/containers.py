@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.common.clock import SystemClock
 from app.common.config import Settings
 from app.common.db import TransactionManager
-from app.inventory.query.container import InventoryQueryContainer
+from app.inventory.container import InventoryContainer
 from app.reservation.container import ReservationContainer
 
 
@@ -50,17 +50,17 @@ class AppContainer(containers.DeclarativeContainer):
         clock=clock,
     )
 
-    inventory_query = providers.Container(
-        InventoryQueryContainer,
+    inventory = providers.Container(
+        InventoryContainer,
         settings=settings,
         redis_client=redis_client,
         transaction_manager=transaction_manager,
         clock=clock,
     )
 
-    # 컨텍스트별 실행 상태 기여 (D26). 선착순 특가가 자기 기여자를 여기 추가한다 —
-    # 구현이 0개인 컨텍스트는 자연히 응답에 나오지 않는다
+    # 컨텍스트별 실행 상태 기여 (D26). 새 컨텍스트는 자기 기여자를 여기
+    # 추가한다 — 구현이 0개인 컨텍스트는 자연히 응답에 나오지 않는다
     runtime_contributors = providers.List(
         reservation.runtime_contributor,
-        inventory_query.runtime_contributor,
+        inventory.runtime_contributor,
     )

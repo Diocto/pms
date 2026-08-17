@@ -97,8 +97,7 @@ def _remaining(engine, stay_date: date) -> int:
 
 
 def _create(client, *, user="user-api-1", key="idem-api-1", check_in=IN_1,
-            check_out=OUT_4, room_count=1, guest_count=2, room_type_id=ROOM_TYPE_ID,
-            discounts=None):
+            check_out=OUT_4, room_count=1, guest_count=2, room_type_id=ROOM_TYPE_ID):
     body = {
         "roomTypeId": room_type_id,
         "checkIn": str(check_in),
@@ -106,8 +105,6 @@ def _create(client, *, user="user-api-1", key="idem-api-1", check_in=IN_1,
         "roomCount": room_count,
         "guestCount": guest_count,
     }
-    if discounts is not None:
-        body["discounts"] = discounts
     return client.post(
         "/api/reservations",
         json=body,

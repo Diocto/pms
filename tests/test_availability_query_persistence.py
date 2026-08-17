@@ -11,11 +11,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.common.db import TransactionManager
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     SearchAvailableRoomsQuery,
     StayRange,
 )
-from app.inventory.query.infrastructure.persistence import MySqlAvailabilityQueryAdapter
+from app.inventory.infrastructure.search_persistence import MySqlAvailabilityQueryAdapter
 
 HOTEL_ID = 930  # 시드(1~2)·다른 테스트(901~905)와 겹치지 않는 검색 전용 대역
 CHEAP_TYPE = 9301  # capacity 2, 총 5실, 100,000원

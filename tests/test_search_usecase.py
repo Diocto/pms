@@ -10,7 +10,7 @@ import pytest
 
 from app.common.clock import KST, FixedClock
 from app.common.errors import InvalidRequestError, NotFoundError
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailabilityDiagnosis,
     AvailableRoomsResult,
     AvailableRoomTypeView,
@@ -19,7 +19,7 @@ from app.inventory.query.application.commands import (
     Source,
     StayRange,
 )
-from app.inventory.query.application.usecases.search_available_rooms import (
+from app.inventory.application.usecases.search_available_rooms import (
     SearchAvailableRoomsUseCase,
 )
 
@@ -182,7 +182,7 @@ def test_T12_캐시_장애에도_검색은_동작한다(caplog):
     # 발생 자체가 관심사이므로 대상 로거를 다시 살리고 잰다
     import logging
 
-    from app.inventory.query.application.usecases import search_available_rooms
+    from app.inventory.application.usecases import search_available_rooms
 
     logging.getLogger(search_available_rooms.__name__).disabled = False
 

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 
 from app.common.error_handlers import register_error_handlers
 from app.containers import AppContainer
-from app.inventory.query.presentation.router import router as availability_router
+from app.inventory.presentation.router import router as availability_router
 from app.reservation.presentation.actuator import router as actuator_router
 from app.reservation.presentation.router import router as reservation_router
 from app.reservation.presentation.scheduler import ExpireScheduler

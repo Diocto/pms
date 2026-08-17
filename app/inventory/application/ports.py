@@ -8,7 +8,7 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
-from app.inventory.query.application.commands import (
+from app.inventory.application.commands import (
     AvailabilityDiagnosis,
     AvailableRoomsResult,
     AvailableRoomTypeView,

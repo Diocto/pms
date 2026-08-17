@@ -8,7 +8,7 @@
 따른다: 취소·체크인·체크아웃은 409, 확정은 **보상(환불) 후 409**, 만료는
 정상 흐름으로 조용히 넘어간다.
 
-**복원과 반납 훅은 전이에서 이긴 쪽만** — apply_event가 rowcount 1을 받은
+**재고 복원은 전이에서 이긴 쪽만** — apply_event가 rowcount 1을 받은
 트랜잭션 안에서만 부른다. 이것이 이중 복원(C6)을 막는 유일한 논리다 (3.2절).
 """
 
@@ -19,7 +19,7 @@ from app.common.clock import Clock
 from app.common.db import TransactionManager
 from app.inventory.domain.repositories import InventoryRepository
 from app.reservation.application.commands import ReservationResult
-from app.reservation.application.ports import PaymentPort, ReservationReleaseHook
+from app.reservation.application.ports import PaymentPort
 from app.reservation.domain.enums import ReservationEvent, ReservationStatus
 from app.reservation.domain.errors import (
     InvalidStateTransitionError,
@@ -40,13 +40,11 @@ class _TransitionBase:
         inventory_repository: InventoryRepository,
         reservation_repository: ReservationRepository,
         clock: Clock,
-        release_hooks: list[ReservationReleaseHook],
     ) -> None:
         self._tx = tx
         self._inventory = inventory_repository
         self._reservations = reservation_repository
         self._clock = clock
-        self._release_hooks = release_hooks
 
     def _now(self) -> datetime:
         return self._clock.now().replace(tzinfo=None)  # DATETIME 경계 — naive KST
@@ -66,7 +64,7 @@ class _TransitionBase:
         event: ReservationEvent,
         now: datetime,
     ) -> str:
-        """전이를 적용하고, 이긴 쪽만 복원·반납 훅을 태운다. outcome을 돌려준다.
+        """전이를 적용하고, 이긴 쪽만 재고를 복원한다. outcome을 돌려준다.
 
         `expected`는 호출부가 행동을 정당화할 때 관찰한 상태다 — 재조회하지
         않는다. 표 밖 조합은 apply_event 안의 resolve()가 던진다.
@@ -89,9 +87,6 @@ class _TransitionBase:
                 room_count=reservation.room_count,
                 now=now,
             )
-            for hook in self._release_hooks:
-                # 정확히 한 번 — rowcount 1을 받은 이 트랜잭션에서만 (3.6절)
-                hook.on_released(session, reservation.id, expected, event)
         return applied.outcome
 
     def _result(self, session, code: str, **updates) -> ReservationResult:
@@ -111,7 +106,6 @@ class ConfirmReservationUseCase(_TransitionBase):
         inventory_repository: InventoryRepository,
         reservation_repository: ReservationRepository,
         clock: Clock,
-        release_hooks: list[ReservationReleaseHook],
     ) -> None:
         # `**deps`로 접지 않는다 (ADR-0064) — 서명이 의존을 숨기면 개수가
         # 줄어든 게 아니라 안 보이게 된 것이다
@@ -120,7 +114,6 @@ class ConfirmReservationUseCase(_TransitionBase):
             inventory_repository=inventory_repository,
             reservation_repository=reservation_repository,
             clock=clock,
-            release_hooks=release_hooks,
         )
         self._payment = payment
 
@@ -230,14 +223,12 @@ class ExpireReservationsUseCase(_TransitionBase):
         inventory_repository: InventoryRepository,
         reservation_repository: ReservationRepository,
         clock: Clock,
-        release_hooks: list[ReservationReleaseHook],
     ) -> None:
         super().__init__(
             tx=tx,
             inventory_repository=inventory_repository,
             reservation_repository=reservation_repository,
             clock=clock,
-            release_hooks=release_hooks,
         )
         self._batch_size = batch_size
 
