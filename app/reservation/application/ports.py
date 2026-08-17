@@ -11,7 +11,9 @@
 DB를 건드리지 말라는 뜻이다.
 """
 
+from collections.abc import Iterable
 from contextlib import AbstractContextManager
+from datetime import date
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
@@ -48,6 +50,20 @@ class LockPolicy(BaseModel):
     lock: LockPort
     wait_s: float
     ttl_s: int
+
+    def hold_inventory(
+        self, *, room_type_id: int, stay_dates: Iterable[date]
+    ) -> AbstractContextManager[None]:
+        """재고 행들에 대한 분산락을 with 한 문장으로 잡는다.
+
+        키 규약(`lock:inventory:{객실타입}:{날짜}`)과 대기·수명 값이 전부
+        여기 있으므로, 유스케이스에는 "어느 재고를 잠그는가"만 남는다.
+        해제는 with를 빠져나올 때 자동이다 — 명시적 해제 코드는 없다.
+        """
+        keys = [
+            f"lock:inventory:{room_type_id}:{stay_date}" for stay_date in stay_dates
+        ]
+        return self.lock.acquire_all(keys, wait_s=self.wait_s, ttl_s=self.ttl_s)
 
 
 # ── 멱등성 (3.4절, D9·D18) ──────────────────────────────────────────
