@@ -17,7 +17,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Date,
-    ForeignKey,
     Integer,
     String,
     UniqueConstraint,
@@ -71,12 +70,9 @@ class RoomType(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
+    # 참조는 id 값으로만 기록한다 — 외래키 없음 (ADR-0066)
     hotel_id: int = Field(
-        sa_column=Column(
-            BigInteger,
-            ForeignKey("hotel.id", name="fk_room_type_hotel"),
-            nullable=False,
-        )
+        sa_column=Column(BigInteger, nullable=False)
     )
     name: str = Field(sa_column=Column(String(100), nullable=False))
     capacity: int = Field(sa_column=Column(Integer, nullable=False))
@@ -106,11 +102,7 @@ class RoomDailyInventory(SQLModel, table=True):
     )
 
     room_type_id: int = Field(
-        sa_column=Column(
-            BigInteger,
-            ForeignKey("room_type.id", name="fk_inventory_room_type"),
-            primary_key=True,
-        )
+        sa_column=Column(BigInteger, primary_key=True)  # 외래키 없음 (ADR-0066)
     )
     stay_date: date = Field(sa_column=Column(Date, primary_key=True))
     total_quantity: int = Field(sa_column=Column(Integer, nullable=False))
