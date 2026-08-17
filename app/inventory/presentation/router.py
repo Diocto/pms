@@ -28,7 +28,7 @@ from app.inventory.presentation.schemas import (
     HotelResponse,
 )
 
-router = APIRouter(prefix="/api", tags=["search"])
+router = APIRouter(prefix="/api", tags=["검색"])
 
 
 @router.get("/hotels", response_model=HotelListResponse, summary="호텔 목록")
