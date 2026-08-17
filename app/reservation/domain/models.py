@@ -18,7 +18,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Date,
-    ForeignKey,
     Index,
     Integer,
     String,
@@ -84,8 +83,8 @@ class Reservation(SQLModel, table=True):
         UniqueConstraint("user_id", "idempotency_key", name="uk_reservation_idempotency"),
         # 만료 스케줄러의 WHERE status = 'PENDING' AND expires_at <= ? 경로
         Index("idx_reservation_expire", "status", "expires_at"),
-        # FK가 요구하는 인덱스를 MySQL의 암묵 생성에 맡기지 않고 이름 붙여 명시한다.
-        # 암묵 인덱스는 이름이 예측 불가라 모델-스키마 대조(T28)를 깨뜨린다
+        # 자식 → 부모(객실타입) 조회 경로. 외래키는 없지만(ADR-0066) 인덱스는
+        # 남긴다 — 지우면 room_type_id 조회가 풀스캔이 된다
         Index("idx_reservation_room_type", "room_type_id"),
         CheckConstraint("check_out > check_in", name="ck_reservation_period"),
         CheckConstraint("room_count >= 1", name="ck_reservation_room_count"),
@@ -180,12 +179,10 @@ class Reservation(SQLModel, table=True):
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
     confirmation_code: str = Field(sa_column=Column(String(32), nullable=False))
     user_id: str = Field(sa_column=Column(String(64), nullable=False))
+    # 참조는 id 값으로만 기록한다 — 외래키 없음 (ADR-0066). 존재 검증은
+    # 예약 생성 유스케이스가 조회로 한다
     room_type_id: int = Field(
-        sa_column=Column(
-            BigInteger,
-            ForeignKey("room_type.id", name="fk_reservation_room_type"),
-            nullable=False,
-        )
+        sa_column=Column(BigInteger, nullable=False)
     )
     check_in: date = Field(sa_column=Column(Date, nullable=False))
     check_out: date = Field(sa_column=Column(Date, nullable=False))
@@ -223,11 +220,7 @@ class ReservationStatusHistory(SQLModel, table=True):
 
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True))
     reservation_id: int = Field(
-        sa_column=Column(
-            BigInteger,
-            ForeignKey("reservation.id", name="fk_history_reservation"),
-            nullable=False,
-        )
+        sa_column=Column(BigInteger, nullable=False)  # 외래키 없음 (ADR-0066)
     )
     from_status: str = Field(sa_column=Column(String(20), nullable=False))
     event: str = Field(sa_column=Column(String(20), nullable=False))
