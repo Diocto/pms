@@ -32,7 +32,7 @@ def engine(database_url):
         conn.execute(
             text(
                 "INSERT INTO hotel (id, name, address, created_at)"
-                " VALUES (:id, 'F03 진단 테스트 호텔', 'F03 테스트 주소', NOW(6))"
+                " VALUES (:id, '검색 진단 테스트 호텔', '검색 테스트 주소', NOW(6))"
             ),
             {"id": HOTEL_ID},
         )
@@ -41,7 +41,7 @@ def engine(database_url):
                 "INSERT INTO room_type"
                 " (id, hotel_id, name, capacity, total_quantity, base_price,"
                 "  created_at)"
-                " VALUES (:id, :hotel, 'F03 진단 타입', 2, 3, 100000, NOW(6))"
+                " VALUES (:id, :hotel, '검색 진단 타입', 2, 3, 100000, NOW(6))"
             ),
             {"id": ROOM_TYPE_ID, "hotel": HOTEL_ID},
         )
@@ -174,7 +174,7 @@ def test_그_외의_빈_결과는_SOLD_OUT이다(tx, adapter, engine):
     assert diagnosis.empty_reason(query.stay) is EmptyReason.SOLD_OUT
 
 
-# --- Enum 문자열 계약 (F04·F05가 생 문자열로 비교한다) ---
+# --- Enum 문자열 계약 (부하테스트·화면가 생 문자열로 비교한다) ---
 
 
 def test_emptyReason_문자열은_계약값_그대로다():
@@ -204,7 +204,7 @@ def bulk_dataset(engine):
         conn.execute(
             text(
                 "INSERT INTO hotel (id, name, address, created_at)"
-                " VALUES (:id, 'F03 실행계획 호텔', 'F03 테스트 주소', NOW(6))"
+                " VALUES (:id, '검색 실행계획 호텔', '검색 테스트 주소', NOW(6))"
             ),
             {"id": BULK_HOTEL_ID},
         )

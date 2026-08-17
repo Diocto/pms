@@ -103,8 +103,25 @@ class _TransitionBase:
 class ConfirmReservationUseCase(_TransitionBase):
     """확정 — 내부 모의 결제 (스펙 2.3절). 결제 호출은 트랜잭션 밖이다."""
 
-    def __init__(self, *, payment: PaymentPort, **deps) -> None:
-        super().__init__(**deps)
+    def __init__(
+        self,
+        *,
+        payment: PaymentPort,
+        tx: TransactionManager,
+        inventory_repository: InventoryRepository,
+        reservation_repository: ReservationRepository,
+        clock: Clock,
+        release_hooks: list[ReservationReleaseHook],
+    ) -> None:
+        # `**deps`로 접지 않는다 (ADR-0064) — 서명이 의존을 숨기면 개수가
+        # 줄어든 게 아니라 안 보이게 된 것이다
+        super().__init__(
+            tx=tx,
+            inventory_repository=inventory_repository,
+            reservation_repository=reservation_repository,
+            clock=clock,
+            release_hooks=release_hooks,
+        )
         self._payment = payment
 
     def execute(self, *, confirmation_code: str, user_id: str) -> ReservationResult:
@@ -205,8 +222,23 @@ class ExpireReservationsUseCase(_TransitionBase):
     **경합 패배가 정상 흐름인 유일한 유스케이스다** — 사용자가 그 사이
     확정·취소했으면 아무것도 하지 않고 넘어간다."""
 
-    def __init__(self, *, batch_size: int, **deps) -> None:
-        super().__init__(**deps)
+    def __init__(
+        self,
+        *,
+        batch_size: int,
+        tx: TransactionManager,
+        inventory_repository: InventoryRepository,
+        reservation_repository: ReservationRepository,
+        clock: Clock,
+        release_hooks: list[ReservationReleaseHook],
+    ) -> None:
+        super().__init__(
+            tx=tx,
+            inventory_repository=inventory_repository,
+            reservation_repository=reservation_repository,
+            clock=clock,
+            release_hooks=release_hooks,
+        )
         self._batch_size = batch_size
 
     def execute(self) -> int:
@@ -293,7 +325,7 @@ class GetReservationUseCase(_TransitionBase):
 
 
 class ListReservationsUseCase(_TransitionBase):
-    """목록 조회 — 자기 예약만 최신순 (F05 요청, 관리자 지시 2026-08-16).
+    """목록 조회 — 자기 예약만 최신순 (검색 화면 요청, 관리자 지시 2026-08-16).
 
     단건 조회의 404 존재 은닉과 충돌하지 않는다 — 소유자 필터가 조회
     조건에 박혀 있어 남의 예약은 애초에 결과에 없고, 없는 사용자는

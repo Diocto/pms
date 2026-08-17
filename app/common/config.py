@@ -53,7 +53,7 @@ class Settings(BaseSettings):
         default=0.0, validation_alias="PMS_PAYMENT_DECLINE_RATE"
     )
 
-    # --- 검색 캐시 (F03) ---
+    # --- 검색 캐시 (검색) ---
     # 절단 1순위(00 D4). 끈 채로도 전체가 돌아야 하므로 이 스위치가 계약이다.
     search_cache_enabled: bool = Field(
         default=True, validation_alias="PMS_SEARCH_CACHE_ENABLED"

@@ -42,7 +42,7 @@ def engine(database_url):
         conn.execute(
             text(
                 "INSERT INTO hotel (id, name, address, created_at)"
-                " VALUES (:id, 'F03 낡음 호텔', 'F03 테스트 주소', NOW(6))"
+                " VALUES (:id, '검색 낡음 호텔', '검색 테스트 주소', NOW(6))"
             ),
             {"id": HOTEL_ID},
         )
@@ -51,7 +51,7 @@ def engine(database_url):
                 "INSERT INTO room_type"
                 " (id, hotel_id, name, capacity, total_quantity, base_price,"
                 "  created_at)"
-                " VALUES (:id, :hotel, 'F03 낡음 타입', 2, 10, 100000, NOW(6))"
+                " VALUES (:id, :hotel, '검색 낡음 타입', 2, 10, 100000, NOW(6))"
             ),
             {"id": ROOM_TYPE_ID, "hotel": HOTEL_ID},
         )
@@ -119,7 +119,7 @@ def test_C3_낡음은_허용되고_evict가_상한을_당긴다(engine, redis_ur
         assert first.source is Source.DB
         assert first.items[0].min_remaining == 1
 
-        # 2) 재고가 0이 된다 (F01의 차감을 테스트 전용 SQL로 흉내낸다)
+        # 2) 재고가 0이 된다 (예약 코어의 차감을 테스트 전용 SQL로 흉내낸다)
         with engine.begin() as conn:
             conn.execute(
                 text(
@@ -130,7 +130,7 @@ def test_C3_낡음은_허용되고_evict가_상한을_당긴다(engine, redis_ur
             )
 
         # 3) 즉시 재검색 — 옛 값(1)이 나온다. 버그가 아니라 **허용된 결과**다.
-        #    이 단언이 "F03은 신선함을 약속하지 않는다"(G2)의 코드 형태다
+        #    이 단언이 "검색은 신선함을 약속하지 않는다"(G2)의 코드 형태다
         stale = usecase.execute(_query())
         assert stale.source is Source.CACHE
         assert stale.items[0].min_remaining == 1

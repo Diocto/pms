@@ -42,7 +42,7 @@ class HotelCatalogPort(Protocol):
 class AvailabilityCachePort(Protocol):
     """결과 스냅샷 캐시. 어느 메서드든 실패해도 검색은 계속돼야 한다 (D7 fail-open).
 
-    `evict_hotel`은 자리만 있다 — F03 프로덕션 코드는 부르지 않고,
+    `evict_hotel`은 자리만 있다 — 검색 프로덕션 코드는 부르지 않고,
     테스트(C3)와 운영 조작만 부른다 (D6).
     """
 

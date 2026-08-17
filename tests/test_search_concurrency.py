@@ -56,7 +56,7 @@ def engine(database_url):
         conn.execute(
             text(
                 "INSERT INTO hotel (id, name, address, created_at)"
-                " VALUES (:id, 'F03 동시성 호텔', 'F03 테스트 주소', NOW(6))"
+                " VALUES (:id, '검색 동시성 호텔', '검색 테스트 주소', NOW(6))"
             ),
             {"id": HOTEL_ID},
         )

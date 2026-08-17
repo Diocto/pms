@@ -1,7 +1,7 @@
 """가용 객실 집계 쿼리 어댑터 (스펙 8절).
 
-생 SQL 1발이다. F01의 SQLModel 테이블 클래스를 import하지 않는다 (D2) —
-같은 테이블을 이름으로만 읽으므로, F01이 모델을 바꿔도 스키마가 그대로면
+생 SQL 1발이다. 예약 코어의 SQLModel 테이블 클래스를 import하지 않는다 (D2) —
+같은 테이블을 이름으로만 읽으므로, 예약 코어가 모델을 바꿔도 스키마가 그대로면
 이 쿼리는 그대로다. 세션은 주입받아 쓰기만 하고 스스로 열지 않는다.
 """
 
@@ -55,7 +55,7 @@ _DIAGNOSE_SQL = text(
 
 
 # 호텔 목록 — 정적 마스터 조인 1발. 재고 테이블은 건드리지 않는다 (그건 검색의 일).
-# 정렬이 곧 응답 순서다 — F05가 이 순서를 그대로 그린다
+# 정렬이 곧 응답 순서다 — 화면가 이 순서를 그대로 그린다
 _LIST_HOTELS_SQL = text(
     """
     SELECT h.id             AS hotel_id,
@@ -129,7 +129,7 @@ class MySqlAvailabilityQueryAdapter:
                 capacity=row["capacity"],
                 min_remaining=row["min_remaining"],
                 price_per_night=row["price_per_night"],
-                # 총액 = 단가 × 박수 × 객실 수 (스펙 8절) — F01 예약 청구액과 같은 식
+                # 총액 = 단가 × 박수 × 객실 수 (스펙 8절) — 예약 코어 예약 청구액과 같은 식
                 total_price=row["price_per_night"] * nights * query.room_count,
             )
             for row in rows

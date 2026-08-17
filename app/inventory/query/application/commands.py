@@ -15,7 +15,7 @@ from app.common.errors import InvalidRequestError, NotFoundError
 class StayRange(BaseModel):
     """투숙 기간. 체크아웃 당일은 점유하지 않는다.
 
-    F01의 StayPeriod와 규칙이 같지만 그건 reservation 구역 소유라 참조하지
+    예약 코어의 StayPeriod와 규칙이 같지만 그건 reservation 구역 소유라 참조하지
     않는다 (00 D6). "오늘"에 걸리는 규칙만 `ensure_not_past`로 분리한다 —
     오늘이 언제인지는 이 객체가 알 수 없고, 시계를 주입받은 쪽이 준다 (D14).
     """
@@ -26,10 +26,10 @@ class StayRange(BaseModel):
     check_out: date
 
     def model_post_init(self, _context: Any) -> None:
-        # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (F01 D27)
+        # 불변식은 validator가 아니라 생성 시점의 도메인 검증이다 (예약 코어 D27)
         if self.check_out <= self.check_in:
             raise InvalidRequestError("체크아웃은 체크인보다 뒤여야 합니다")
-        # 박수 상한은 두지 않는다 — 예약과 같은 규칙이다 (F01 D29, 관리자 8/16).
+        # 박수 상한은 두지 않는다 — 예약과 같은 규칙이다 (예약 코어 D29, 관리자 8/16).
         # 긴 기간은 막지 않아도 판정이 거른다: 재고 행이 없는 날짜가 끼면 그
         # 객실타입이 집계에서 빠지고(D9), 빈 결과는 NOT_YET_OPEN으로 나간다.
         # 쿼리 비용도 늘지 않는다 — 범위 스캔은 실재하는 행만 훑는다
@@ -78,7 +78,7 @@ class SearchAvailableRoomsQuery(BaseModel):
 
 
 class EmptyReason(str, Enum):
-    """빈 결과의 이유. 문자열이 곧 계약이다 — F04·F05가 생 문자열로 비교하므로
+    """빈 결과의 이유. 문자열이 곧 계약이다 — 부하테스트·화면가 생 문자열로 비교하므로
     대문자 고정이고 name과 value가 같다. 값을 바꾸면 상대 검증이 조용히 죽는다."""
 
     SOLD_OUT = "SOLD_OUT"
@@ -126,7 +126,7 @@ class AvailableRoomTypeView(BaseModel):
 
 
 class Source(str, Enum):
-    """이 응답이 어디서 왔는가. F04가 생 문자열로 비교하는 계약이다 —
+    """이 응답이 어디서 왔는가. 부하테스트가 생 문자열로 비교하는 계약이다 —
     표본이 말라도 임계값 검사는 조용히 통과하므로, 값이 어긋나면 안 잡힌다."""
 
     CACHE = "CACHE"
@@ -161,7 +161,7 @@ class HotelRoomTypeView(BaseModel):
 
 
 class HotelView(BaseModel):
-    """호텔 한 곳과 그 객실타입 매핑 (관리자 지시 2026-08-16, F05 검색 화면용)."""
+    """호텔 한 곳과 그 객실타입 매핑 (관리자 지시 2026-08-16, 검색 화면용)."""
 
     model_config = ConfigDict(frozen=True)
 

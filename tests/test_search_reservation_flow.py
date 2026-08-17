@@ -32,7 +32,7 @@ def engine(database_url):
         conn.execute(
             text(
                 "INSERT INTO hotel (id, name, address, created_at)"
-                " VALUES (:id, 'F03 서사 호텔', 'F03 테스트 주소', NOW(6))"
+                " VALUES (:id, '검색 서사 호텔', '검색 테스트 주소', NOW(6))"
             ),
             {"id": HOTEL_ID},
         )
@@ -41,7 +41,7 @@ def engine(database_url):
                 "INSERT INTO room_type"
                 " (id, hotel_id, name, capacity, total_quantity, base_price,"
                 "  created_at)"
-                " VALUES (:id, :hotel, 'F03 서사 타입', 2, 1, 100000, NOW(6))"
+                " VALUES (:id, :hotel, '검색 서사 타입', 2, 1, 100000, NOW(6))"
             ),
             {"id": ROOM_TYPE_ID, "hotel": HOTEL_ID},
         )

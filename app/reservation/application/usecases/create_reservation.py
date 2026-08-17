@@ -39,11 +39,9 @@ from app.reservation.application.errors import (
 )
 from app.reservation.application.ports import (
     AppliedDiscount,
-    DiscountResolver,
     IdempotencyPort,
-    LockPort,
-    ReservationCreationHook,
-    ReservationPreCheckHook,
+    LockPolicy,
+    ReservationExtensions,
 )
 from app.reservation.domain.models import Reservation
 from app.reservation.domain.repositories import ReservationRepository
@@ -59,30 +57,29 @@ class CreateReservationUseCase:
         self,
         *,
         tx: TransactionManager,
-        lock: LockPort,
         idempotency: IdempotencyPort,
         inventory_repository: InventoryRepository,
         reservation_repository: ReservationRepository,
         clock: Clock,
         hold_minutes: int,
-        lock_wait_s: float,
-        lock_ttl_s: int,
-        pre_check_hooks: list[ReservationPreCheckHook],
-        creation_hooks: list[ReservationCreationHook],
-        discount_resolvers: list[DiscountResolver],
+        lock_policy: LockPolicy,
+        extensions: ReservationExtensions,
     ) -> None:
+        # 파라미터는 종류별 묶음으로 받는다 (ADR-0064) — 락의 사용법은
+        # LockPolicy가, 확장 지점 셋은 ReservationExtensions가 든다.
+        # 안에서는 풀어서 든다 — 본문의 호출부는 묶기 전과 같다.
         self._tx = tx
-        self._lock = lock
+        self._lock = lock_policy.lock
         self._idempotency = idempotency
         self._inventory = inventory_repository
         self._reservations = reservation_repository
         self._clock = clock
         self._hold_minutes = hold_minutes
-        self._lock_wait_s = lock_wait_s
-        self._lock_ttl_s = lock_ttl_s
-        self._pre_check_hooks = pre_check_hooks
-        self._creation_hooks = creation_hooks
-        self._discount_resolvers = discount_resolvers
+        self._lock_wait_s = lock_policy.wait_s
+        self._lock_ttl_s = lock_policy.ttl_s
+        self._pre_check_hooks = extensions.pre_check
+        self._creation_hooks = extensions.creation
+        self._discount_resolvers = extensions.discount_resolvers
 
     def execute(self, command: CreateReservationCommand) -> ReservationResult:
         ttl_seconds = self._hold_minutes * 60
@@ -167,7 +164,7 @@ class CreateReservationUseCase:
             )
             raise
         except ConflictError as error:
-            # 사전 검사 훅의 거부(F02의 409류) — 재고 부족과 같은 성격이라
+            # 사전 검사 훅의 거부(선착순 특가의 409류) — 재고 부족과 같은 성격이라
             # 실패로 완료 표시한다. 같은 키 재요청이 같은 409를 받는다 (D30)
             if error.code is not None:
                 self._idempotency.store_failure(

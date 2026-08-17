@@ -1,7 +1,7 @@
 """집계 쿼리 어댑터 영속성 통합 (스펙 8절 집계 쿼리, TDD 4·4b·5·6, T4).
 
 시드에 의존하지 않는다. 전용 호텔 930과 객실타입 9301·9302를 넣고 지운다.
-재고 행 조작은 전부 테스트 전용 SQL이다 — F03 프로덕션 경로는 SELECT만 한다.
+재고 행 조작은 전부 테스트 전용 SQL이다 — 검색 프로덕션 경로는 SELECT만 한다.
 """
 
 from datetime import date
@@ -17,7 +17,7 @@ from app.inventory.query.application.commands import (
 )
 from app.inventory.query.infrastructure.persistence import MySqlAvailabilityQueryAdapter
 
-HOTEL_ID = 930  # 시드(1~2)·다른 테스트(901~905)와 겹치지 않는 F03 전용 대역
+HOTEL_ID = 930  # 시드(1~2)·다른 테스트(901~905)와 겹치지 않는 검색 전용 대역
 CHEAP_TYPE = 9301  # capacity 2, 총 5실, 100,000원
 WIDE_TYPE = 9302  # capacity 4, 총 3실, 200,000원
 DATES = [date(2026, 9, 1), date(2026, 9, 2), date(2026, 9, 3)]
@@ -30,7 +30,7 @@ def engine(database_url):
         conn.execute(
             text(
                 "INSERT INTO hotel (id, name, address, created_at)"
-                " VALUES (:id, 'F03 테스트 호텔', 'F03 테스트 주소', NOW(6))"
+                " VALUES (:id, '검색 테스트 호텔', '검색 테스트 주소', NOW(6))"
             ),
             {"id": HOTEL_ID},
         )
@@ -48,7 +48,7 @@ def engine(database_url):
                 {
                     "id": type_id,
                     "hotel": HOTEL_ID,
-                    "name": f"F03 타입 {type_id}",
+                    "name": f"검색 타입 {type_id}",
                     "capacity": capacity,
                     "qty": quantity,
                     "price": price,
@@ -193,14 +193,14 @@ def test_T5_가격은_1박_단가와_기간_총액으로_나온다(tx, adapter):
     cheap, wide = items
     assert (cheap.price_per_night, cheap.total_price) == (100000, 300000)  # 3박
     assert (wide.price_per_night, wide.total_price) == (200000, 600000)
-    assert cheap.room_type_name == f"F03 타입 {CHEAP_TYPE}"
+    assert cheap.room_type_name == f"검색 타입 {CHEAP_TYPE}"
     assert (cheap.capacity, wide.capacity) == (2, 4)
 
 
 def test_T5_총액에는_객실_수가_곱해진다(tx, adapter):
     with tx.read() as session:
         items = adapter.search(session, _query(guest_count=2, room_count=2))
-    # 총액 = 1박 단가 × 박수 × 객실 수 (스펙 8절). F01 예약 청구액과 같은 식이라
+    # 총액 = 1박 단가 × 박수 × 객실 수 (스펙 8절). 예약 코어 예약 청구액과 같은 식이라
     # 여기가 어긋나면 검색 견적과 실제 청구액이 2실 이상에서 항상 갈라진다
     cheap = next(item for item in items if item.room_type_id == CHEAP_TYPE)
     assert cheap.total_price == 100000 * 3 * 2
