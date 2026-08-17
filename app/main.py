@@ -42,7 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(reservation_router)
     app.include_router(availability_router)
 
-    @app.get("/health")
+    @app.get("/health", summary="헬스체크 — 앱 생존만 확인")
     def health() -> dict[str, str]:
         """앱이 떠 있는지만 본다. DB·Redis 연결은 보지 않는다.
 

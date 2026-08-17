@@ -21,10 +21,18 @@ def runtime_contributors(request: Request) -> list:
     return request.app.state.container.runtime_contributors()
 
 
-@router.get("/api/internal/config", response_model=RuntimeConfigResponse)
+@router.get(
+    "/api/internal/config",
+    response_model=RuntimeConfigResponse,
+    summary="실행 설정 확인 (부하테스트용)",
+)
 def get_runtime_config(
     contributors: Annotated[list, Depends(runtime_contributors)],
 ) -> RuntimeConfigResponse:
+    """락·캐시 스위치 등 실행 시점 설정과 실제 주입된 구현 이름을 돌려준다.
+
+    부하테스트의 락 On/Off 대조가 실행 전에 이 값을 읽어 확인한다 (D26).
+    """
     merged = merge_reports(contributor.report() for contributor in contributors)
     return RuntimeConfigResponse(
         load_test=merged.load_test,
